@@ -44,6 +44,11 @@ export interface Cost {
   vendor: string;
 }
 
+export interface Vehicle {
+  id: string;
+  registration: string; // ナンバープレート表示（例: 堺 800 さ 1299）
+}
+
 export interface Quantity {
   id: string;
   projectId: string;
@@ -52,7 +57,42 @@ export interface Quantity {
   quantity: number;
   date: string;
   note: string;
+  vehicleId?: string; // 車両区分時はマスタIDを格納
 }
+
+export const DEFAULT_VEHICLES: Vehicle[] = [
+  { id: "v1", registration: "堺 800 さ 1299" },
+  { id: "v2", registration: "堺 800 さ 3119" },
+  { id: "v3", registration: "堺 800 さ 4840" },
+  { id: "v4", registration: "堺 800 は 61" },
+  { id: "v5", registration: "堺 800 さ 3118" },
+  { id: "v6", registration: "堺 800 さ 4750" },
+  { id: "v7", registration: "堺 800 さ 4674" },
+  { id: "v8", registration: "堺 800 は 279" },
+  { id: "v9", registration: "堺 800 は 366" },
+  { id: "v10", registration: "堺 130 さ 3526" },
+  { id: "v11", registration: "堺 800 さ 2723" },
+  { id: "v12", registration: "和泉 800 さ 1894" },
+  { id: "v13", registration: "堺 800 さ 958" },
+  { id: "v14", registration: "堺 830 せ 1717" },
+  { id: "v15", registration: "堺 830 さ 2626" },
+  { id: "v16", registration: "堺 800 さ 2016" },
+  { id: "v17", registration: "堺 430 せ 3517" },
+  { id: "v18", registration: "堺 800 さ 5035" },
+  { id: "v19", registration: "堺 330 ね 2617" },
+  { id: "v20", registration: "堺 330 ま 1726" },
+  { id: "v21", registration: "堺 530 て 1735" },
+  { id: "v22", registration: "堺 332 や 316" },
+  { id: "v23", registration: "堺 334 ま 116" },
+  { id: "v24", registration: "堺 342 ろ 13" },
+  { id: "v25", registration: "大阪 800 そ 6712" },
+  { id: "v26", registration: "大阪 800 そ 6711" },
+  { id: "v27", registration: "大阪 800 そ 6719" },
+  { id: "v28", registration: "和泉 830 な 1188" },
+  { id: "v29", registration: "大阪 400 む 9052" },
+  { id: "v30", registration: "大阪 800 そ 7329" },
+  { id: "v31", registration: "大阪 800 は 2214" },
+];
 
 export interface ProjectStats {
   totalCost: number;
@@ -134,6 +174,7 @@ export const projStats = (
 };
 
 export const createSampleData = () => ({
+  vehicles: [...DEFAULT_VEHICLES],
   projects: [
     {
       id: "p1",

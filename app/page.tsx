@@ -5,11 +5,12 @@ import { Icons, T } from "@/lib/constants";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { createSampleData, exportCSV } from "@/lib/utils";
 import { loadData, saveData } from "@/lib/supabase/data";
-import type { Project, Cost, Quantity } from "@/lib/utils";
+import type { Project, Cost, Quantity, Vehicle } from "@/lib/utils";
 import Dashboard from "@/components/Dashboard";
 import ProjectList from "@/components/ProjectList";
 import ProjectDetail from "@/components/ProjectDetail";
 import NewProject from "@/components/NewProject";
+import VehicleMaster from "@/components/VehicleMaster";
 
 export default function Home() {
   const [data, setData] = useState<
@@ -17,6 +18,7 @@ export default function Home() {
       projects: Project[];
       costs: Cost[];
       quantities: Quantity[];
+      vehicles: Vehicle[];
     }
   >(createSampleData);
   const [loading, setLoading] = useState(true);
@@ -141,6 +143,10 @@ export default function Home() {
     }));
   };
 
+  const updateVehicles = (vehicles: Vehicle[]) => {
+    setData((d) => ({ ...d, vehicles }));
+  };
+
   const addPayment = (
     pid: string,
     pay: { id: string; date: string; amount: number; note: string }
@@ -233,6 +239,7 @@ export default function Home() {
     { id: "new", label: "新規案件", icon: Icons.plus },
     { id: "archive", label: "アーカイブ", icon: Icons.archive },
     { id: "deleted", label: "削除済み", icon: Icons.trash },
+    { id: "vehicles", label: "車両マスタ", icon: Icons.truck },
   ];
 
   return (
@@ -355,13 +362,15 @@ export default function Home() {
                 background:
                   view === n.id ||
                   (view === "detail" &&
-                    (n.id === "list" || n.id === "archive" || n.id === "deleted"))
+                    (n.id === "list" || n.id === "archive" || n.id === "deleted")) ||
+                  (view === "vehicles" && n.id === "vehicles")
                     ? T.al
                     : "transparent",
                 color:
                   view === n.id ||
                   (view === "detail" &&
-                    (n.id === "list" || n.id === "archive" || n.id === "deleted"))
+                    (n.id === "list" || n.id === "archive" || n.id === "deleted")) ||
+                  (view === "vehicles" && n.id === "vehicles")
                     ? T.ac
                     : T.ts,
                 transition: "all .15s",
@@ -482,11 +491,18 @@ export default function Home() {
         {!loading && view === "new" && (
           <NewProject onSave={addProject} onCancel={() => navWithClose("list")} />
         )}
+        {!loading && view === "vehicles" && (
+          <VehicleMaster
+            vehicles={data.vehicles}
+            onUpdate={updateVehicles}
+          />
+        )}
         {!loading && view === "detail" && selProj && (
           <ProjectDetail
             project={selProj}
             costs={data.costs}
             quantities={data.quantities}
+            vehicles={data.vehicles}
             onBack={() =>
               navWithClose(
                 selProj.deleted

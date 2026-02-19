@@ -14,7 +14,7 @@ import {
   T,
 } from "@/lib/constants";
 import { getEffectiveContract, projStats } from "@/lib/utils";
-import type { Project, Cost, Quantity } from "@/lib/utils";
+import type { Project, Cost, Quantity, Vehicle } from "@/lib/utils";
 import {
   Badge,
   ModeBadge,
@@ -34,6 +34,7 @@ export default function ProjectDetail({
   project: p,
   costs: allCosts,
   quantities: allQty,
+  vehicles = [],
   onBack,
   onUpdateProject,
   onDeleteProject,
@@ -52,6 +53,7 @@ export default function ProjectDetail({
   project: Project;
   costs: Cost[];
   quantities: Quantity[];
+  vehicles?: Vehicle[];
   onBack: () => void;
   onUpdateProject: (u: Project) => void;
   onDeleteProject: (pid: string) => void;
@@ -91,6 +93,7 @@ export default function ProjectDetail({
   const [qf, setQf] = useState({
     category: "labor",
     description: "",
+    vehicleId: "",
     quantity: "",
     date: new Date().toISOString().slice(0, 10),
     note: "",
@@ -137,16 +140,29 @@ export default function ProjectDetail({
     });
   };
   const handleAddQty = () => {
+    const isVehicle = qf.category === "vehicle";
+    if (isVehicle && !qf.vehicleId) return; // 車両種別は選択必須
+    if (!isVehicle && !qf.description.trim()) return; // 人工は内容入力必須
+    const vehicle = isVehicle && qf.vehicleId ? vehicles.find((v) => v.id === qf.vehicleId) : null;
+    // 車両: 表示用に「ナンバー（内容）」形式、人工: 内容のみ
+    const displayDesc = isVehicle && vehicle
+      ? (qf.description.trim() ? `${vehicle.registration}（${qf.description.trim()}）` : vehicle.registration)
+      : qf.description;
     onAddQty({
       id: genId(),
       projectId: p.id,
-      ...qf,
+      category: qf.category,
+      description: displayDesc,
+      vehicleId: isVehicle ? qf.vehicleId || undefined : undefined,
       quantity: Number(qf.quantity),
+      date: qf.date,
+      note: qf.note,
     });
     setQtyModal(false);
     setQf({
       category: "labor",
       description: "",
+      vehicleId: "",
       quantity: "",
       date: new Date().toISOString().slice(0, 10),
       note: "",
@@ -912,6 +928,7 @@ export default function ProjectDetail({
                             padding: "10px 8px",
                             fontSize: "12px",
                             color: T.tx,
+                            fontFamily: q.vehicleId ? "monospace" : "inherit",
                           }}
                         >
                           {q.description}
@@ -1688,7 +1705,12 @@ export default function ProjectDetail({
             label="区分"
             value={qf.category}
             onChange={(e) =>
-              setQf((f) => ({ ...f, category: e.target.value }))
+              setQf((f) => ({
+                ...f,
+                category: e.target.value,
+                vehicleId: e.target.value === "vehicle" ? f.vehicleId : "",
+                description: e.target.value === "labor" ? f.description : "",
+              }))
             }
           >
             {Object.entries(QUANTITY_CATEGORIES).map(([k, v]) => (
@@ -1697,9 +1719,35 @@ export default function ProjectDetail({
               </option>
             ))}
           </Sel>
+          {qf.category === "vehicle" ? (
+            vehicles.length > 0 ? (
+              <Sel
+                label="車両種別"
+                value={qf.vehicleId}
+                onChange={(e) =>
+                  setQf((f) => ({ ...f, vehicleId: e.target.value }))
+                }
+              >
+                <option value="">選択してください</option>
+                {vehicles.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.registration}
+                  </option>
+                ))}
+              </Sel>
+            ) : (
+              <p style={{ fontSize: "12px", color: T.wn }}>
+                車両マスタに車両を登録してください
+              </p>
+            )
+          ) : null}
           <Inp
             label="内容"
-            placeholder="例: 大工、2tトラック"
+            placeholder={
+              qf.category === "vehicle"
+                ? "例: 資材運搬"
+                : "例: 大工、手元"
+            }
             value={qf.description}
             onChange={(e) =>
               setQf((f) => ({ ...f, description: e.target.value }))
@@ -1735,7 +1783,15 @@ export default function ProjectDetail({
             }}
           >
             <Btn onClick={() => setQtyModal(false)}>キャンセル</Btn>
-            <Btn v="primary" onClick={handleAddQty}>
+            <Btn
+              v="primary"
+              onClick={handleAddQty}
+              disabled={
+                !Number(qf.quantity) ||
+                (qf.category === "vehicle" && !qf.vehicleId) ||
+                (qf.category === "labor" && !qf.description.trim())
+              }
+            >
               追加
             </Btn>
           </div>
