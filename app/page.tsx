@@ -229,6 +229,17 @@ export default function Home() {
         <div style={{ padding: "4px 8px", marginBottom: "28px" }}>
           <div
             style={{
+              fontSize: "11px",
+              fontWeight: 600,
+              color: T.ts,
+              letterSpacing: "0.05em",
+              marginBottom: "4px",
+            }}
+          >
+            TOKITO CORP
+          </div>
+          <div
+            style={{
               fontSize: "16px",
               fontWeight: 800,
               color: T.ac,
