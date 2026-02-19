@@ -89,7 +89,7 @@ export default function VehicleMaster({
   };
 
   const handleDelete = (v: Vehicle) => {
-    if (!confirm(`「${v.registration}」を削除しますか？`)) return;
+    if (!confirm(`「${v.registration}」を車両マスタから削除しますか？\n\n※過去の案件に記録された使用実績は残ります。`)) return;
     onUpdate(vehicles.filter((x) => x.id !== v.id));
     if (editModal?.id === v.id) setEditModal(null);
   };
@@ -121,7 +121,7 @@ export default function VehicleMaster({
             車両マスタ
           </h2>
           <p style={{ margin: "6px 0 0", fontSize: "13px", color: T.ts }}>
-            {vehicles.length}台登録
+            {vehicles.length}台登録（リース終了時は削除できます）
           </p>
         </div>
         <Btn v="primary" onClick={() => setAddModal(true)}>
@@ -145,7 +145,18 @@ export default function VehicleMaster({
                 >
                   ナンバープレート
                 </th>
-                <th style={{ width: "80px" }} />
+                <th
+                  style={{
+                    padding: "10px 12px",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    color: T.ts,
+                    textAlign: "right",
+                    width: "120px",
+                  }}
+                >
+                  操作
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -172,30 +183,40 @@ export default function VehicleMaster({
               <button
                 onClick={() => openEdit(v)}
                 style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
                   background: "none",
                   border: "none",
                   color: T.ts,
                   cursor: "pointer",
-                  padding: "4px",
-                  opacity: 0.7,
+                  padding: "4px 8px",
+                  fontSize: "12px",
+                  opacity: 0.9,
                 }}
                 aria-label="編集"
+                title="ナンバーを編集"
               >
-                {Icons.edit}
+                {Icons.edit} 編集
               </button>
               <button
                 onClick={() => handleDelete(v)}
                 style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
                   background: "none",
                   border: "none",
                   color: T.dg,
                   cursor: "pointer",
-                  padding: "4px",
-                  opacity: 0.7,
+                  padding: "4px 8px",
+                  fontSize: "12px",
+                  opacity: 0.9,
                 }}
                 aria-label="削除"
+                title="マスタから削除（過去の記録は残ります）"
               >
-                {Icons.trash}
+                {Icons.trash} 削除
               </button>
               </td>
             </tr>
