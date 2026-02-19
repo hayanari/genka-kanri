@@ -1,6 +1,6 @@
 import { createClient } from "./client";
 import type { Project, Cost, Quantity, Vehicle } from "../utils";
-import { createSampleData, DEFAULT_VEHICLES } from "../utils";
+import { createEmptyData, DEFAULT_VEHICLES, ensureRegisteredProjects } from "../utils";
 
 export async function loadData(): Promise<{
   projects: Project[];
@@ -25,18 +25,19 @@ export async function loadData(): Promise<{
     } | null;
 
     if (!stored?.projects?.length && !stored?.costs?.length && !stored?.quantities?.length) {
-      return createSampleData();
+      return createEmptyData();
     }
 
     const vehicles = (stored.vehicles ?? DEFAULT_VEHICLES) as Vehicle[];
+    const projects = ensureRegisteredProjects((stored.projects ?? []) as Project[]);
     return {
-      projects: (stored.projects ?? []) as Project[],
+      projects,
       costs: (stored.costs ?? []) as Cost[],
       quantities: (stored.quantities ?? []) as Quantity[],
       vehicles: Array.isArray(vehicles) && vehicles.length > 0 ? vehicles : DEFAULT_VEHICLES,
     };
   } catch {
-    return createSampleData();
+    return createEmptyData();
   }
 }
 

@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Icons, T } from "@/lib/constants";
 import { useMediaQuery } from "@/lib/useMediaQuery";
-import { createSampleData, exportCSV } from "@/lib/utils";
+import { createEmptyData, exportCSV } from "@/lib/utils";
 import { loadData, saveData } from "@/lib/supabase/data";
 import type { Project, Cost, Quantity, Vehicle } from "@/lib/utils";
 import Dashboard from "@/components/Dashboard";
@@ -20,7 +20,7 @@ export default function Home() {
       quantities: Quantity[];
       vehicles: Vehicle[];
     }
-  >(createSampleData);
+  >(createEmptyData);
   const [loading, setLoading] = useState(true);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

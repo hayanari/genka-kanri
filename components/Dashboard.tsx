@@ -30,11 +30,14 @@ export default function Dashboard({
     totalContract > 0 ? Math.round((grossProfit / totalContract) * 100) : 0;
   const normalProjects = projects.filter((p) => p.mode !== "subcontract");
   const subProjects = projects.filter((p) => p.mode === "subcontract");
+  const projectIds = new Set(projects.map((p) => p.id));
 
   const costByCat: Record<string, number> = {};
-  costs.forEach((c) => {
-    costByCat[c.category] = (costByCat[c.category] || 0) + c.amount;
-  });
+  costs
+    .filter((c) => projectIds.has(c.projectId))
+    .forEach((c) => {
+      costByCat[c.category] = (costByCat[c.category] || 0) + c.amount;
+    });
   const maxCat = Math.max(...Object.values(costByCat), 1);
 
   const div = (a: number, b: number) => (b ? Math.round(a / b) : 0);
@@ -280,12 +283,12 @@ export default function Dashboard({
                   </span>
                   <span
                     style={{
-                      fontSize: "11px",
-                      color: T.wn,
+                      fontSize: st.laborDays ? "12px" : "11px",
+                      color: st.laborDays ? T.ts : T.wn,
                       textAlign: "right",
                     }}
                   >
-                    外注
+                    {st.laborDays ? `${st.laborDays}人日` : "外注"}
                   </span>
                   <span
                     style={{
@@ -294,7 +297,7 @@ export default function Dashboard({
                       textAlign: "right",
                     }}
                   >
-                    —
+                    {st.laborDays ? `¥${fmt(st.revenuePerLabor)}` : "—"}
                   </span>
                   <span
                     style={{

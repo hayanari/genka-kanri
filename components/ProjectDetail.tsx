@@ -70,7 +70,7 @@ export default function ProjectDetail({
   onDeleteChange: (pid: string, chId: string) => void;
 }) {
   const isSubcontract = p.mode === "subcontract";
-  const defaultTab = isSubcontract ? "payments" : "costs";
+  const defaultTab = "costs";
   const [tab, setTab] = useState(defaultTab);
   const [costModal, setCostModal] = useState(false);
   const [qtyModal, setQtyModal] = useState(false);
@@ -199,6 +199,8 @@ export default function ProjectDetail({
 
   const tabs = isSubcontract
     ? [
+        { id: "costs", label: "💰 原価明細" },
+        { id: "labor", label: "👷 人工・車両" },
         { id: "payments", label: "🏦 入金管理" },
         { id: "changes", label: "📝 増減額" },
         { id: "summary", label: "📊 収支サマリー" },
@@ -569,7 +571,7 @@ export default function ProjectDetail({
         ))}
       </div>
 
-      {tab === "costs" && !isSubcontract && (
+      {tab === "costs" && (
         <Card>
           <div
             style={{
@@ -580,7 +582,8 @@ export default function ProjectDetail({
             }}
           >
             <h4 style={{ margin: 0, fontSize: "14px", color: T.tx }}>
-              原価明細（実費） {st.costs.length}件
+              原価明細（実費）
+              {isSubcontract ? " ※打合せ等" : ""} {st.costs.length}件
             </h4>
             <Btn v="primary" sm onClick={() => setCostModal(true)}>
               {Icons.plus} 原価追加
@@ -766,7 +769,7 @@ export default function ProjectDetail({
         </Card>
       )}
 
-      {tab === "labor" && !isSubcontract && (
+      {tab === "labor" && (
         <Card>
           <div
             style={{
@@ -777,7 +780,8 @@ export default function ProjectDetail({
             }}
           >
             <h4 style={{ margin: 0, fontSize: "14px", color: T.tx }}>
-              人工・車両記録 {st.quantities.length}件
+              人工・車両記録
+              {isSubcontract ? " ※打合せ等" : ""} {st.quantities.length}件
             </h4>
             <Btn v="primary" sm onClick={() => setQtyModal(true)}>
               {Icons.plus} 記録追加
@@ -1367,6 +1371,36 @@ export default function ProjectDetail({
                       ¥{fmt(st.subcontractAmount || p.subcontractAmount)}
                     </span>
                   </div>
+                  {Object.entries(COST_CATEGORIES).map(([k, cat]) => {
+                    const v = costByCat[k] || 0;
+                    if (!v) return null;
+                    return (
+                      <div
+                        key={k}
+                        style={{
+                          padding: "10px 12px",
+                          background: T.s2,
+                          borderRadius: "8px",
+                          marginBottom: "6px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <span style={{ fontSize: "12px", color: T.tx }}>
+                          {cat.icon} {cat.label}（打合せ等）
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "13px",
+                            fontWeight: 600,
+                            color: T.tx,
+                          }}
+                        >
+                          ¥{fmt(v)}
+                        </span>
+                      </div>
+                    );
+                  })}
                   <div
                     style={{
                       padding: "10px 12px",
@@ -1526,7 +1560,7 @@ export default function ProjectDetail({
               </div>
             </div>
           </div>
-          {!isSubcontract && st.laborDays > 0 && (
+          {st.laborDays > 0 && (
             <div
               style={{
                 marginTop: "16px",
