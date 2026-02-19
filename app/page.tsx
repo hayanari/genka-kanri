@@ -1,65 +1,312 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useCallback } from "react";
+import { Icons, T } from "@/lib/constants";
+import { createSampleData, exportCSV } from "@/lib/utils";
+import type { Project, Cost, Quantity } from "@/lib/utils";
+import Dashboard from "@/components/Dashboard";
+import ProjectList from "@/components/ProjectList";
+import ProjectDetail from "@/components/ProjectDetail";
+import NewProject from "@/components/NewProject";
 
 export default function Home() {
+  const [data, setData] = useState<
+    {
+      projects: Project[];
+      costs: Cost[];
+      quantities: Quantity[];
+    }
+  >(createSampleData);
+  const [view, setView] = useState("dashboard");
+  const [selId, setSelId] = useState<string | null>(null);
+  const [sq, setSq] = useState("");
+  const [sf, setSf] = useState("");
+
+  const nav = useCallback((v: string, pid?: string) => {
+    setView(v);
+    if (pid) setSelId(pid);
+  }, []);
+
+  const selProj = data.projects.find((p) => p.id === selId);
+
+  const addProject = (proj: Project) => {
+    setData((d) => ({ ...d, projects: [...d.projects, proj] }));
+    setView("list");
+  };
+
+  const updateProject = (u: Project) => {
+    setData((d) => ({
+      ...d,
+      projects: d.projects.map((p) => (p.id === u.id ? { ...p, ...u } : p)),
+    }));
+  };
+
+  const addCost = (c: Cost) => {
+    setData((d) => ({ ...d, costs: [...d.costs, c] }));
+  };
+
+  const deleteCost = (id: string) => {
+    setData((d) => ({ ...d, costs: d.costs.filter((c) => c.id !== id) }));
+  };
+
+  const addQty = (q: Quantity) => {
+    setData((d) => ({ ...d, quantities: [...d.quantities, q] }));
+  };
+
+  const deleteQty = (id: string) => {
+    setData((d) => ({
+      ...d,
+      quantities: d.quantities.filter((q) => q.id !== id),
+    }));
+  };
+
+  const addPayment = (
+    pid: string,
+    pay: { id: string; date: string; amount: number; note: string }
+  ) => {
+    setData((d) => ({
+      ...d,
+      projects: d.projects.map((p) => {
+        if (p.id !== pid) return p;
+        const payments = [...p.payments, pay];
+        return {
+          ...p,
+          payments,
+          paidAmount: payments.reduce((s, x) => s + x.amount, 0),
+        };
+      }),
+    }));
+  };
+
+  const deletePayment = (pid: string, payId: string) => {
+    setData((d) => ({
+      ...d,
+      projects: d.projects.map((p) => {
+        if (p.id !== pid) return p;
+        const payments = p.payments.filter((x) => x.id !== payId);
+        return {
+          ...p,
+          payments,
+          paidAmount: payments.reduce((s, x) => s + x.amount, 0),
+        };
+      }),
+    }));
+  };
+
+  const addChange = (
+    pid: string,
+    ch: {
+      id: string;
+      date: string;
+      type: string;
+      amount: number;
+      description: string;
+    }
+  ) => {
+    setData((d) => ({
+      ...d,
+      projects: d.projects.map((p) => {
+        if (p.id !== pid) return p;
+        const changes = [...(p.changes || []), ch];
+        const eff =
+          p.originalAmount +
+          changes.reduce(
+            (s, c) => s + (c.type === "increase" ? c.amount : -c.amount),
+            0
+          );
+        return { ...p, changes, contractAmount: eff };
+      }),
+    }));
+  };
+
+  const deleteChange = (pid: string, chId: string) => {
+    setData((d) => ({
+      ...d,
+      projects: d.projects.map((p) => {
+        if (p.id !== pid) return p;
+        const changes = (p.changes || []).filter((c) => c.id !== chId);
+        const eff =
+          p.originalAmount +
+          changes.reduce(
+            (s, c) => s + (c.type === "increase" ? c.amount : -c.amount),
+            0
+          );
+        return { ...p, changes, contractAmount: eff };
+      }),
+    }));
+  };
+
+  const navItems = [
+    { id: "dashboard", label: "ダッシュボード", icon: Icons.dash },
+    { id: "list", label: "案件一覧", icon: Icons.list },
+    { id: "new", label: "新規案件", icon: Icons.plus },
+  ];
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div
+      style={{
+        display: "flex",
+        minHeight: "100vh",
+        background: T.bg,
+        fontFamily:
+          "'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif",
+        color: T.tx,
+      }}
+    >
+      <div
+        style={{
+          width: "220px",
+          background: T.s,
+          borderRight: `1px solid ${T.bd}`,
+          padding: "20px 12px",
+          display: "flex",
+          flexDirection: "column",
+          position: "fixed",
+          height: "100vh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ padding: "4px 8px", marginBottom: "28px" }}>
+          <div
+            style={{
+              fontSize: "16px",
+              fontWeight: 800,
+              color: T.ac,
+            }}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            📐 工事原価管理
+          </div>
+          <div
+            style={{
+              fontSize: "10px",
+              color: T.ts,
+              marginTop: "4px",
+            }}
           >
-            Documentation
-          </a>
+            Construction Cost Manager
+          </div>
         </div>
-      </main>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+            flex: 1,
+          }}
+        >
+          {navItems.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => nav(n.id)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                padding: "10px 12px",
+                border: "none",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: "13px",
+                fontWeight: 500,
+                textAlign: "left",
+                width: "100%",
+                background:
+                  view === n.id || (view === "detail" && n.id === "list")
+                    ? T.al
+                    : "transparent",
+                color:
+                  view === n.id || (view === "detail" && n.id === "list")
+                    ? T.ac
+                    : T.ts,
+                transition: "all .15s",
+              }}
+            >
+              {n.icon} {n.label}
+            </button>
+          ))}
+        </div>
+        <div
+          style={{
+            borderTop: `1px solid ${T.bd}`,
+            paddingTop: "12px",
+          }}
+        >
+          <button
+            onClick={() =>
+              exportCSV(data.projects, data.costs, data.quantities)
+            }
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 12px",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: "12px",
+              fontWeight: 500,
+              background: "transparent",
+              color: T.ts,
+              width: "100%",
+              textAlign: "left",
+            }}
+          >
+            {Icons.dl} CSV出力
+          </button>
+        </div>
+      </div>
+      <div
+        style={{
+          flex: 1,
+          marginLeft: "220px",
+          padding: "28px 32px",
+          maxWidth: "1100px",
+        }}
+      >
+        {view === "dashboard" && (
+          <Dashboard
+            projects={data.projects}
+            costs={data.costs}
+            quantities={data.quantities}
+            onNav={nav}
+          />
+        )}
+        {view === "list" && (
+          <ProjectList
+            projects={data.projects}
+            costs={data.costs}
+            quantities={data.quantities}
+            onSelect={(id) => nav("detail", id)}
+            onAdd={() => nav("new")}
+            sq={sq}
+            setSq={setSq}
+            sf={sf}
+            setSf={setSf}
+          />
+        )}
+        {view === "new" && (
+          <NewProject onSave={addProject} onCancel={() => nav("list")} />
+        )}
+        {view === "detail" && selProj && (
+          <ProjectDetail
+            project={selProj}
+            costs={data.costs}
+            quantities={data.quantities}
+            onBack={() => nav("list")}
+            onUpdateProject={updateProject}
+            onAddCost={addCost}
+            onDeleteCost={deleteCost}
+            onAddQty={addQty}
+            onDeleteQty={deleteQty}
+            onAddPayment={addPayment}
+            onDeletePayment={deletePayment}
+            onAddChange={addChange}
+            onDeleteChange={deleteChange}
+          />
+        )}
+      </div>
     </div>
   );
 }
