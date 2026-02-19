@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Icons, T } from "@/lib/constants";
 import { createSampleData, exportCSV } from "@/lib/utils";
+import { loadData, saveData } from "@/lib/supabase/data";
 import type { Project, Cost, Quantity } from "@/lib/utils";
 import Dashboard from "@/components/Dashboard";
 import ProjectList from "@/components/ProjectList";
@@ -17,6 +18,27 @@ export default function Home() {
       quantities: Quantity[];
     }
   >(createSampleData);
+  const [loading, setLoading] = useState(true);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    loadData().then((loaded) => {
+      setData(loaded);
+      setLoading(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveData(data);
+      saveTimeoutRef.current = null;
+    }, 1500);
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [data, loading]);
   const [view, setView] = useState("dashboard");
   const [selId, setSelId] = useState<string | null>(null);
   const [sq, setSq] = useState("");
@@ -340,7 +362,21 @@ export default function Home() {
           maxWidth: "1100px",
         }}
       >
-        {view === "dashboard" && (
+        {loading && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: "200px",
+              color: T.ts,
+              fontSize: "14px",
+            }}
+          >
+            読み込み中...
+          </div>
+        )}
+        {!loading && view === "dashboard" && (
           <Dashboard
             projects={activeProjects}
             costs={data.costs}
@@ -348,7 +384,7 @@ export default function Home() {
             onNav={nav}
           />
         )}
-        {view === "list" && (
+        {!loading && view === "list" && (
           <ProjectList
             projects={activeProjects}
             costs={data.costs}
@@ -361,7 +397,7 @@ export default function Home() {
             setSf={setSf}
           />
         )}
-        {view === "archive" && (
+        {!loading && view === "archive" && (
           <ProjectList
             projects={archivedProjects}
             costs={data.costs}
@@ -376,7 +412,7 @@ export default function Home() {
             showArchiveYear
           />
         )}
-        {view === "deleted" && (
+        {!loading && view === "deleted" && (
           <ProjectList
             projects={deletedProjects}
             costs={data.costs}
@@ -393,10 +429,10 @@ export default function Home() {
             showDeletedAt
           />
         )}
-        {view === "new" && (
+        {!loading && view === "new" && (
           <NewProject onSave={addProject} onCancel={() => nav("list")} />
         )}
-        {view === "detail" && selProj && (
+        {!loading && view === "detail" && selProj && (
           <ProjectDetail
             project={selProj}
             costs={data.costs}
