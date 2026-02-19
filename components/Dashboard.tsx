@@ -118,7 +118,7 @@ export default function Dashboard({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
+              gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))",
               gap: "16px",
             }}
           >
@@ -156,7 +156,8 @@ export default function Dashboard({
         </Card>
         <Card
           style={{
-            flex: "0 0 160px",
+            flex: "1 1 140px",
+            minWidth: "140px",
             background: "#1f1a3d",
             borderColor: "#33285e",
           }}
@@ -180,7 +181,7 @@ export default function Dashboard({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1fr",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
           gap: "14px",
           marginBottom: "24px",
         }}

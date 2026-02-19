@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Icons, T } from "@/lib/constants";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import { createSampleData, exportCSV } from "@/lib/utils";
 import { loadData, saveData } from "@/lib/supabase/data";
 import type { Project, Cost, Quantity } from "@/lib/utils";
@@ -216,6 +217,16 @@ export default function Home() {
     }));
   };
 
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const navWithClose = useCallback(
+    (v: string, pid?: string) => {
+      nav(v, pid);
+      if (isMobile) setSidebarOpen(false);
+    },
+    [isMobile, nav]
+  );
+
   const navItems = [
     { id: "dashboard", label: "ダッシュボード", icon: Icons.dash },
     { id: "list", label: "案件一覧", icon: Icons.list },
@@ -235,9 +246,43 @@ export default function Home() {
         color: T.tx,
       }}
     >
+      {isMobile && (
+        <button
+          onClick={() => setSidebarOpen(true)}
+          style={{
+            position: "fixed",
+            top: 12,
+            left: 12,
+            zIndex: 100,
+            padding: "10px 12px",
+            background: T.s,
+            border: `1px solid ${T.bd}`,
+            borderRadius: "8px",
+            color: T.tx,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          aria-label="メニューを開く"
+        >
+          {Icons.menu}
+        </button>
+      )}
+      {isMobile && sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            zIndex: 998,
+          }}
+        />
+      )}
       <div
         style={{
-          width: "220px",
+          width: isMobile ? "260px" : "220px",
           background: T.s,
           borderRight: `1px solid ${T.bd}`,
           padding: "20px 12px",
@@ -246,6 +291,9 @@ export default function Home() {
           position: "fixed",
           height: "100vh",
           overflowY: "auto",
+          zIndex: 999,
+          transform: isMobile && !sidebarOpen ? "translateX(-100%)" : "none",
+          transition: "transform 0.2s ease",
         }}
       >
         <div style={{ padding: "4px 8px", marginBottom: "28px" }}>
@@ -290,7 +338,7 @@ export default function Home() {
           {navItems.map((n) => (
             <button
               key={n.id}
-              onClick={() => nav(n.id)}
+              onClick={() => navWithClose(n.id)}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -357,9 +405,11 @@ export default function Home() {
       <div
         style={{
           flex: 1,
-          marginLeft: "220px",
-          padding: "28px 32px",
+          marginLeft: isMobile ? 0 : "220px",
+          padding: isMobile ? "56px 16px 24px" : "28px 32px",
           maxWidth: "1100px",
+          width: "100%",
+          boxSizing: "border-box",
         }}
       >
         {loading && (
@@ -381,7 +431,7 @@ export default function Home() {
             projects={activeProjects}
             costs={data.costs}
             quantities={data.quantities}
-            onNav={nav}
+            onNav={navWithClose}
           />
         )}
         {!loading && view === "list" && (
@@ -389,8 +439,8 @@ export default function Home() {
             projects={activeProjects}
             costs={data.costs}
             quantities={data.quantities}
-            onSelect={(id) => nav("detail", id)}
-            onAdd={() => nav("new")}
+            onSelect={(id) => navWithClose("detail", id)}
+            onAdd={() => navWithClose("new")}
             sq={sq}
             setSq={setSq}
             sf={sf}
@@ -402,7 +452,7 @@ export default function Home() {
             projects={archivedProjects}
             costs={data.costs}
             quantities={data.quantities}
-            onSelect={(id) => nav("detail", id)}
+            onSelect={(id) => navWithClose("detail", id)}
             sq={sq}
             setSq={setSq}
             sf={sf}
@@ -417,7 +467,7 @@ export default function Home() {
             projects={deletedProjects}
             costs={data.costs}
             quantities={data.quantities}
-            onSelect={(id) => nav("detail", id)}
+            onSelect={(id) => navWithClose("detail", id)}
             onRestore={restoreProject}
             sq={sq}
             setSq={setSq}
@@ -430,7 +480,7 @@ export default function Home() {
           />
         )}
         {!loading && view === "new" && (
-          <NewProject onSave={addProject} onCancel={() => nav("list")} />
+          <NewProject onSave={addProject} onCancel={() => navWithClose("list")} />
         )}
         {!loading && view === "detail" && selProj && (
           <ProjectDetail
@@ -438,7 +488,7 @@ export default function Home() {
             costs={data.costs}
             quantities={data.quantities}
             onBack={() =>
-              nav(
+              navWithClose(
                 selProj.deleted
                   ? "deleted"
                   : selProj.archived

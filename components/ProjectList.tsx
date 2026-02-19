@@ -161,6 +161,8 @@ export default function ProjectList({
                   justifyContent: "space-between",
                   alignItems: "flex-start",
                   marginBottom: "12px",
+                  flexWrap: "wrap",
+                  gap: "12px",
                 }}
               >
                 <div style={{ flex: 1 }}>

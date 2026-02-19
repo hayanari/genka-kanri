@@ -577,6 +577,7 @@ export default function ProjectDetail({
               まだ原価が登録されていません
             </div>
           ) : (
+            <div className="table-scroll">
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.bd}` }}>
@@ -704,6 +705,7 @@ export default function ProjectDetail({
                 </tr>
               </tbody>
             </table>
+            </div>
           )}
           <div
             style={{
@@ -850,6 +852,7 @@ export default function ProjectDetail({
               まだ記録がありません
             </div>
           ) : (
+            <div className="table-scroll">
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.bd}` }}>
@@ -952,6 +955,7 @@ export default function ProjectDetail({
                   })}
               </tbody>
             </table>
+            </div>
           )}
         </Card>
       )}
@@ -977,7 +981,7 @@ export default function ProjectDetail({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
+              gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
               gap: "12px",
               marginBottom: "20px",
             }}
@@ -1006,6 +1010,7 @@ export default function ProjectDetail({
               増減額の変更履歴はありません
             </div>
           ) : (
+            <div className="table-scroll">
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.bd}` }}>
@@ -1100,6 +1105,7 @@ export default function ProjectDetail({
                   })}
               </tbody>
             </table>
+            </div>
           )}
         </Card>
       )}
@@ -1172,6 +1178,7 @@ export default function ProjectDetail({
               まだ入金記録がありません
             </div>
           ) : (
+            <div className="table-scroll">
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.bd}` }}>
@@ -1249,6 +1256,7 @@ export default function ProjectDetail({
                   ))}
               </tbody>
             </table>
+            </div>
           )}
         </Card>
       )}
@@ -1263,7 +1271,7 @@ export default function ProjectDetail({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
               gap: "20px",
             }}
           >
