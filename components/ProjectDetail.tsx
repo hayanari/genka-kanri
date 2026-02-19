@@ -36,6 +36,7 @@ export default function ProjectDetail({
   quantities: allQty,
   onBack,
   onUpdateProject,
+  onDeleteProject,
   onAddCost,
   onDeleteCost,
   onAddQty,
@@ -50,6 +51,7 @@ export default function ProjectDetail({
   quantities: Quantity[];
   onBack: () => void;
   onUpdateProject: (u: Project) => void;
+  onDeleteProject: (pid: string) => void;
   onAddCost: (c: Cost) => void;
   onDeleteCost: (id: string) => void;
   onAddQty: (q: Quantity) => void;
@@ -67,6 +69,7 @@ export default function ProjectDetail({
   const [payModal, setPayModal] = useState(false);
   const [changeModal, setChangeModal] = useState(false);
   const [editModal, setEditModal] = useState(false);
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState(false);
   const [cf, setCf] = useState({
     category: "material",
     description: "",
@@ -228,15 +231,24 @@ export default function ProjectDetail({
               {p.notes && ` ｜ ${p.notes}`}
             </div>
           </div>
-          <Btn
-            sm
-            onClick={() => {
-              setEf({ ...p });
-              setEditModal(true);
-            }}
-          >
-            {Icons.edit} 編集
-          </Btn>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <Btn
+              sm
+              onClick={() => {
+                setEf({ ...p });
+                setEditModal(true);
+              }}
+            >
+              {Icons.edit} 編集
+            </Btn>
+            <Btn
+              sm
+              v="danger"
+              onClick={() => setDeleteConfirmModal(true)}
+            >
+              {Icons.trash} 削除
+            </Btn>
+          </div>
         </div>
 
         {st.effectiveContract !== p.originalAmount && (
@@ -1786,6 +1798,45 @@ export default function ProjectDetail({
             <Btn onClick={() => setChangeModal(false)}>キャンセル</Btn>
             <Btn v="primary" onClick={handleAddChange}>
               登録
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={deleteConfirmModal} onClose={() => setDeleteConfirmModal(false)} title="案件の削除" w={420}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <p style={{ margin: 0, fontSize: "14px", color: T.tx, lineHeight: 1.6 }}>
+            本当にこの案件を削除しますか？削除すると、原価・人工・入金などの関連データもすべて削除されます。この操作は取り消せません。
+          </p>
+          <div
+            style={{
+              padding: "12px 14px",
+              background: T.s2,
+              borderRadius: "8px",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: T.tx,
+            }}
+          >
+            {p.name}
+          </div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: "10px",
+              marginTop: "8px",
+            }}
+          >
+            <Btn onClick={() => setDeleteConfirmModal(false)}>キャンセル</Btn>
+            <Btn
+              v="danger"
+              onClick={() => {
+                setDeleteConfirmModal(false);
+                onDeleteProject(p.id);
+              }}
+            >
+              {Icons.trash} 削除する
             </Btn>
           </div>
         </div>

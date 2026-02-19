@@ -41,6 +41,16 @@ export default function Home() {
     }));
   };
 
+  const deleteProject = (pid: string) => {
+    setData((d) => ({
+      projects: d.projects.filter((p) => p.id !== pid),
+      costs: d.costs.filter((c) => c.projectId !== pid),
+      quantities: d.quantities.filter((q) => q.projectId !== pid),
+    }));
+    setView("list");
+    setSelId(null);
+  };
+
   const addCost = (c: Cost) => {
     setData((d) => ({ ...d, costs: [...d.costs, c] }));
   };
@@ -296,6 +306,7 @@ export default function Home() {
             quantities={data.quantities}
             onBack={() => nav("list")}
             onUpdateProject={updateProject}
+            onDeleteProject={deleteProject}
             onAddCost={addCost}
             onDeleteCost={deleteCost}
             onAddQty={addQty}
