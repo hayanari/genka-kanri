@@ -20,16 +20,28 @@ export default function ProjectList({
   setSq,
   sf,
   setSf,
+  title = "案件一覧",
+  showAddButton = true,
+  showArchiveYear = false,
+  showRestoreButton = false,
+  showDeletedAt = false,
+  onRestore,
 }: {
   projects: Project[];
   costs: Cost[];
   quantities: Quantity[];
   onSelect: (id: string) => void;
-  onAdd: () => void;
+  onAdd?: () => void;
+  onRestore?: (id: string) => void;
   sq: string;
   setSq: (v: string) => void;
   sf: string;
   setSf: (v: string) => void;
+  title?: string;
+  showAddButton?: boolean;
+  showArchiveYear?: boolean;
+  showRestoreButton?: boolean;
+  showDeletedAt?: boolean;
 }) {
   const filtered = projects.filter((p) => {
     const ms = !sq || p.name.includes(sq) || p.client.includes(sq);
@@ -56,15 +68,17 @@ export default function ProjectList({
               fontWeight: 700,
             }}
           >
-            案件一覧
+            {title}
           </h2>
           <p style={{ margin: "6px 0 0", fontSize: "13px", color: T.ts }}>
             {filtered.length}件
           </p>
         </div>
-        <Btn v="primary" onClick={onAdd}>
-          {Icons.plus} 新規案件
-        </Btn>
+        {showAddButton && onAdd && (
+          <Btn v="primary" onClick={onAdd}>
+            {Icons.plus} 新規案件
+          </Btn>
+        )}
       </div>
       <div
         style={{
@@ -194,39 +208,87 @@ export default function ProjectList({
                         増減あり
                       </span>
                     )}
+                    {showArchiveYear && p.archiveYear && (
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          background: "#6b728018",
+                          color: T.ts,
+                        }}
+                      >
+                        {p.archiveYear}年度
+                      </span>
+                    )}
+                    {showDeletedAt && p.deletedAt && (
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          background: T.dg + "18",
+                          color: T.dg,
+                        }}
+                      >
+                        削除: {new Date(p.deletedAt).toLocaleDateString("ja-JP")}
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: "12px", color: T.ts }}>
                     {p.client} ｜ {fmtDate(p.startDate)} 〜 {fmtDate(p.endDate)}
                   </div>
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <div
-                    style={{
-                      fontSize: "16px",
-                      fontWeight: 700,
-                      color: T.tx,
-                    }}
-                  >
-                    ¥{fmt(st.effectiveContract)}
-                  </div>
-                  {st.effectiveContract !== p.originalAmount && (
-                    <div
-                      style={{
-                        fontSize: "10px",
-                        color: T.ts,
-                        textDecoration: "line-through",
+                <div
+                  style={{
+                    textAlign: "right",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-end",
+                    gap: "8px",
+                  }}
+                >
+                  {showRestoreButton && onRestore && (
+                    <Btn
+                      sm
+                      v="success"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRestore(p.id);
                       }}
                     >
-                      当初 ¥{fmt(p.originalAmount)}
-                    </div>
+                      {Icons.restore} 復元
+                    </Btn>
                   )}
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      color: st.profitRate >= 20 ? T.ok : T.dg,
-                    }}
-                  >
-                    粗利 ¥{fmt(st.profit)}（{st.profitRate}%）
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "16px",
+                        fontWeight: 700,
+                        color: T.tx,
+                      }}
+                    >
+                      ¥{fmt(st.effectiveContract)}
+                    </div>
+                    {st.effectiveContract !== p.originalAmount && (
+                      <div
+                        style={{
+                          fontSize: "10px",
+                          color: T.ts,
+                          textDecoration: "line-through",
+                        }}
+                      >
+                        当初 ¥{fmt(p.originalAmount)}
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        fontSize: "11px",
+                        color: st.profitRate >= 20 ? T.ok : T.dg,
+                      }}
+                    >
+                      粗利 ¥{fmt(st.profit)}（{st.profitRate}%）
+                    </div>
                   </div>
                 </div>
               </div>

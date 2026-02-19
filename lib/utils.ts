@@ -28,6 +28,10 @@ export interface Project {
     amount: number;
     description: string;
   }[];
+  archived?: boolean;
+  archiveYear?: string;
+  deleted?: boolean;
+  deletedAt?: string;
 }
 
 export interface Cost {
@@ -162,6 +166,8 @@ export const createSampleData = () => ({
           description: "追加工事：ウッドデッキ設置",
         },
       ],
+      archived: false,
+      deleted: false,
     },
     {
       id: "p2",
@@ -184,6 +190,8 @@ export const createSampleData = () => ({
       subcontractVendor: "○○塗装工業",
       payments: [],
       changes: [],
+      archived: false,
+      deleted: false,
     },
     {
       id: "p3",
@@ -217,6 +225,8 @@ export const createSampleData = () => ({
           description: "設計範囲縮小",
         },
       ],
+      archived: false,
+      deleted: false,
     },
   ],
   costs: [
@@ -321,10 +331,13 @@ export const exportCSV = (
   quantities: Quantity[]
 ) => {
   let csv =
-    "案件名,顧客,区分,施工形態,当初契約額,増減後受注額,実行予算,原価合計,粗利,利益率,マージン率,人工(人日),車両(台日),売上/人工,粗利/人工,進捗,ステータス\n";
+    "案件名,顧客,区分,施工形態,当初契約額,増減後受注額,実行予算,原価合計,粗利,利益率,マージン率,人工(人日),車両(台日),売上/人工,粗利/人工,進捗,ステータス,アーカイブ年度,削除日\n";
   projects.forEach((p) => {
     const st = projStats(p, costs, quantities);
-    csv += `"${p.name}","${p.client}","${p.category}","${p.mode === "subcontract" ? "一括外注" : "自社施工"}",${p.originalAmount},${st.effectiveContract},${p.budget},${st.totalCost},${st.profit},${st.profitRate}%,${p.mode === "subcontract" ? p.marginRate + "%" : "—"},${st.laborDays},${st.vehicleDays},${st.laborDays ? st.revenuePerLabor : "—"},${st.laborDays ? st.profitPerLabor : "—"},${p.progress}%,${STATUS_MAP[p.status]?.label}\n`;
+    const deletedAt = p.deletedAt
+      ? new Date(p.deletedAt).toLocaleDateString("ja-JP")
+      : "—";
+    csv += `"${p.name}","${p.client}","${p.category}","${p.mode === "subcontract" ? "一括外注" : "自社施工"}",${p.originalAmount},${st.effectiveContract},${p.budget},${st.totalCost},${st.profit},${st.profitRate}%,${p.mode === "subcontract" ? p.marginRate + "%" : "—"},${st.laborDays},${st.vehicleDays},${st.laborDays ? st.revenuePerLabor : "—"},${st.laborDays ? st.profitPerLabor : "—"},${p.progress}%,${STATUS_MAP[p.status]?.label},${p.archiveYear || "—"},${deletedAt}\n`;
   });
   const blob = new Blob(["\uFEFF" + csv], {
     type: "text/csv;charset=utf-8;",

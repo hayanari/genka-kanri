@@ -37,6 +37,9 @@ export default function ProjectDetail({
   onBack,
   onUpdateProject,
   onDeleteProject,
+  onArchiveProject,
+  onUnarchiveProject,
+  onRestoreProject,
   onAddCost,
   onDeleteCost,
   onAddQty,
@@ -52,6 +55,9 @@ export default function ProjectDetail({
   onBack: () => void;
   onUpdateProject: (u: Project) => void;
   onDeleteProject: (pid: string) => void;
+  onArchiveProject: (pid: string, archiveYear: string) => void;
+  onUnarchiveProject: (pid: string) => void;
+  onRestoreProject?: (pid: string) => void;
   onAddCost: (c: Cost) => void;
   onDeleteCost: (id: string) => void;
   onAddQty: (q: Quantity) => void;
@@ -70,6 +76,11 @@ export default function ProjectDetail({
   const [changeModal, setChangeModal] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [deleteConfirmModal, setDeleteConfirmModal] = useState(false);
+  const [archiveModal, setArchiveModal] = useState(false);
+  const [unarchiveConfirmModal, setUnarchiveConfirmModal] = useState(false);
+  const [archiveYear, setArchiveYear] = useState(
+    () => new Date().getFullYear().toString()
+  );
   const [cf, setCf] = useState({
     category: "material",
     description: "",
@@ -224,6 +235,37 @@ export default function ProjectDetail({
               >
                 {p.category}
               </span>
+              {p.archived && p.archiveYear && (
+                <span
+                  style={{
+                    fontSize: "10px",
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    background: "#6b728018",
+                    color: T.ts,
+                  }}
+                >
+                  📦 アーカイブ ({p.archiveYear}年度)
+                </span>
+              )}
+              {p.deleted && (
+                <span
+                  style={{
+                    fontSize: "10px",
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    background: T.dg + "18",
+                    color: T.dg,
+                  }}
+                >
+                  🗑️ 削除済み
+                  {p.deletedAt && (
+                    <span style={{ marginLeft: "4px", opacity: 0.9 }}>
+                      ({new Date(p.deletedAt).toLocaleDateString("ja-JP")})
+                    </span>
+                  )}
+                </span>
+              )}
             </div>
             <div style={{ fontSize: "13px", color: T.ts }}>
               顧客: {p.client} ｜ 工期: {fmtDate(p.startDate)} 〜{" "}
@@ -231,7 +273,17 @@ export default function ProjectDetail({
               {p.notes && ` ｜ ${p.notes}`}
             </div>
           </div>
-          <div style={{ display: "flex", gap: "8px" }}>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            {p.deleted && onRestoreProject ? (
+              <Btn
+                sm
+                v="success"
+                onClick={() => onRestoreProject(p.id)}
+              >
+                {Icons.restore} 復元
+              </Btn>
+            ) : (
+              <>
             <Btn
               sm
               onClick={() => {
@@ -241,6 +293,26 @@ export default function ProjectDetail({
             >
               {Icons.edit} 編集
             </Btn>
+            {p.archived ? (
+              <Btn
+                sm
+                v="warning"
+                onClick={() => setUnarchiveConfirmModal(true)}
+              >
+                {Icons.unarchive} アーカイブ解除
+              </Btn>
+            ) : (
+              <Btn
+                sm
+                v="ghost"
+                onClick={() => {
+                  setArchiveYear(new Date().getFullYear().toString());
+                  setArchiveModal(true);
+                }}
+              >
+                {Icons.archive} アーカイブ
+              </Btn>
+            )}
             <Btn
               sm
               v="danger"
@@ -248,6 +320,8 @@ export default function ProjectDetail({
             >
               {Icons.trash} 削除
             </Btn>
+              </>
+            )}
           </div>
         </div>
 
@@ -1806,7 +1880,7 @@ export default function ProjectDetail({
       <Modal open={deleteConfirmModal} onClose={() => setDeleteConfirmModal(false)} title="案件の削除" w={420}>
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           <p style={{ margin: 0, fontSize: "14px", color: T.tx, lineHeight: 1.6 }}>
-            本当にこの案件を削除しますか？削除すると、原価・人工・入金などの関連データもすべて削除されます。この操作は取り消せません。
+            この案件を削除済みにしますか？削除済み欄に移動しますが、後から復元できます。
           </p>
           <div
             style={{
@@ -1837,6 +1911,119 @@ export default function ProjectDetail({
               }}
             >
               {Icons.trash} 削除する
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={archiveModal} onClose={() => setArchiveModal(false)} title="案件のアーカイブ" w={420}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <p style={{ margin: 0, fontSize: "14px", color: T.tx, lineHeight: 1.6 }}>
+            決算に合わせてこの案件をアーカイブします。アーカイブすると案件一覧から非表示になり、アーカイブ一覧でのみ確認できます。必要に応じて解除できます。
+          </p>
+          <div
+            style={{
+              padding: "12px 14px",
+              background: T.s2,
+              borderRadius: "8px",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: T.tx,
+            }}
+          >
+            {p.name}
+          </div>
+          <div>
+            <label style={{ fontSize: "12px", color: T.ts, fontWeight: 500, marginBottom: "6px", display: "block" }}>
+              アーカイブ対象年度
+            </label>
+            <select
+              value={archiveYear}
+              onChange={(e) => setArchiveYear(e.target.value)}
+              style={{
+                padding: "9px 12px",
+                background: T.s,
+                border: `1px solid ${T.bd}`,
+                borderRadius: "8px",
+                color: T.tx,
+                fontSize: "13px",
+                fontFamily: "inherit",
+                outline: "none",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            >
+              {[0, 1, 2, 3, 4, 5].map((i) => {
+                const y = new Date().getFullYear() - i;
+                return (
+                  <option key={y} value={String(y)}>
+                    {y}年度
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: "10px",
+              marginTop: "8px",
+            }}
+          >
+            <Btn onClick={() => setArchiveModal(false)}>キャンセル</Btn>
+            <Btn
+              v="primary"
+              onClick={() => {
+                setArchiveModal(false);
+                onArchiveProject(p.id, archiveYear);
+              }}
+            >
+              {Icons.archive} {archiveYear}年度でアーカイブ
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={unarchiveConfirmModal} onClose={() => setUnarchiveConfirmModal(false)} title="アーカイブ解除" w={420}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <p style={{ margin: 0, fontSize: "14px", color: T.tx, lineHeight: 1.6 }}>
+            この案件をアーカイブから解除し、案件一覧に戻しますか？
+          </p>
+          <div
+            style={{
+              padding: "12px 14px",
+              background: T.s2,
+              borderRadius: "8px",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: T.tx,
+            }}
+          >
+            {p.name}
+            {p.archiveYear && (
+              <span style={{ fontSize: "12px", color: T.ts, fontWeight: 400, marginLeft: "8px" }}>
+                ({p.archiveYear}年度)
+              </span>
+            )}
+          </div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: "10px",
+              marginTop: "8px",
+            }}
+          >
+            <Btn onClick={() => setUnarchiveConfirmModal(false)}>キャンセル</Btn>
+            <Btn
+              v="warning"
+              onClick={() => {
+                setUnarchiveConfirmModal(false);
+                onUnarchiveProject(p.id);
+              }}
+            >
+              {Icons.unarchive} 解除する
             </Btn>
           </div>
         </div>

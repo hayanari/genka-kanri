@@ -43,13 +43,61 @@ export default function Home() {
 
   const deleteProject = (pid: string) => {
     setData((d) => ({
-      projects: d.projects.filter((p) => p.id !== pid),
-      costs: d.costs.filter((c) => c.projectId !== pid),
-      quantities: d.quantities.filter((q) => q.projectId !== pid),
+      ...d,
+      projects: d.projects.map((p) =>
+        p.id === pid
+          ? { ...p, deleted: true, deletedAt: new Date().toISOString() }
+          : p
+      ),
     }));
     setView("list");
     setSelId(null);
   };
+
+  const restoreProject = (pid: string) => {
+    setData((d) => ({
+      ...d,
+      projects: d.projects.map((p) =>
+        p.id === pid ? { ...p, deleted: false, deletedAt: undefined } : p
+      ),
+    }));
+    setView("list");
+    setSelId(null);
+  };
+
+  const archiveProject = (pid: string, archiveYear: string) => {
+    setData((d) => ({
+      ...d,
+      projects: d.projects.map((p) =>
+        p.id === pid
+          ? { ...p, archived: true, archiveYear }
+          : p
+      ),
+    }));
+    setView("archive");
+    setSelId(null);
+  };
+
+  const unarchiveProject = (pid: string) => {
+    setData((d) => ({
+      ...d,
+      projects: d.projects.map((p) =>
+        p.id === pid
+          ? { ...p, archived: false, archiveYear: undefined }
+          : p
+      ),
+    }));
+    setView("list");
+    setSelId(null);
+  };
+
+  const activeProjects = data.projects.filter(
+    (p) => !p.archived && !p.deleted
+  );
+  const archivedProjects = data.projects.filter(
+    (p) => !!p.archived && !p.deleted
+  );
+  const deletedProjects = data.projects.filter((p) => !!p.deleted);
 
   const addCost = (c: Cost) => {
     setData((d) => ({ ...d, costs: [...d.costs, c] }));
@@ -150,6 +198,8 @@ export default function Home() {
     { id: "dashboard", label: "ダッシュボード", icon: Icons.dash },
     { id: "list", label: "案件一覧", icon: Icons.list },
     { id: "new", label: "新規案件", icon: Icons.plus },
+    { id: "archive", label: "アーカイブ", icon: Icons.archive },
+    { id: "deleted", label: "削除済み", icon: Icons.trash },
   ];
 
   return (
@@ -222,11 +272,15 @@ export default function Home() {
                 textAlign: "left",
                 width: "100%",
                 background:
-                  view === n.id || (view === "detail" && n.id === "list")
+                  view === n.id ||
+                  (view === "detail" &&
+                    (n.id === "list" || n.id === "archive" || n.id === "deleted"))
                     ? T.al
                     : "transparent",
                 color:
-                  view === n.id || (view === "detail" && n.id === "list")
+                  view === n.id ||
+                  (view === "detail" &&
+                    (n.id === "list" || n.id === "archive" || n.id === "deleted"))
                     ? T.ac
                     : T.ts,
                 transition: "all .15s",
@@ -277,7 +331,7 @@ export default function Home() {
       >
         {view === "dashboard" && (
           <Dashboard
-            projects={data.projects}
+            projects={activeProjects}
             costs={data.costs}
             quantities={data.quantities}
             onNav={nav}
@@ -285,7 +339,7 @@ export default function Home() {
         )}
         {view === "list" && (
           <ProjectList
-            projects={data.projects}
+            projects={activeProjects}
             costs={data.costs}
             quantities={data.quantities}
             onSelect={(id) => nav("detail", id)}
@@ -296,6 +350,38 @@ export default function Home() {
             setSf={setSf}
           />
         )}
+        {view === "archive" && (
+          <ProjectList
+            projects={archivedProjects}
+            costs={data.costs}
+            quantities={data.quantities}
+            onSelect={(id) => nav("detail", id)}
+            sq={sq}
+            setSq={setSq}
+            sf={sf}
+            setSf={setSf}
+            title="アーカイブ一覧"
+            showAddButton={false}
+            showArchiveYear
+          />
+        )}
+        {view === "deleted" && (
+          <ProjectList
+            projects={deletedProjects}
+            costs={data.costs}
+            quantities={data.quantities}
+            onSelect={(id) => nav("detail", id)}
+            onRestore={restoreProject}
+            sq={sq}
+            setSq={setSq}
+            sf={sf}
+            setSf={setSf}
+            title="削除済み"
+            showAddButton={false}
+            showRestoreButton
+            showDeletedAt
+          />
+        )}
         {view === "new" && (
           <NewProject onSave={addProject} onCancel={() => nav("list")} />
         )}
@@ -304,9 +390,20 @@ export default function Home() {
             project={selProj}
             costs={data.costs}
             quantities={data.quantities}
-            onBack={() => nav("list")}
+            onBack={() =>
+              nav(
+                selProj.deleted
+                  ? "deleted"
+                  : selProj.archived
+                    ? "archive"
+                    : "list"
+              )
+            }
             onUpdateProject={updateProject}
             onDeleteProject={deleteProject}
+            onArchiveProject={archiveProject}
+            onUnarchiveProject={unarchiveProject}
+            onRestoreProject={restoreProject}
             onAddCost={addCost}
             onDeleteCost={deleteCost}
             onAddQty={addQty}
