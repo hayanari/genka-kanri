@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { signIn, signUp } from "@/lib/supabase/auth";
 import { T } from "@/lib/constants";
 import { Btn } from "@/components/ui/primitives";
@@ -10,15 +10,39 @@ import { Btn } from "@/components/ui/primitives";
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   useEffect(() => {
-    createClient().auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        router.replace("/");
-      }
+    let cancelled = false;
+    if (!hasSupabaseConfig()) {
+      setConfigError(
+        "Supabase の環境変数が設定されていません。Vercel の Environment Variables で NEXT_PUBLIC_SUPABASE_URL と NEXT_PUBLIC_SUPABASE_ANON_KEY を追加してください。"
+      );
       setChecking(false);
-    });
+      return;
+    }
+    const check = async () => {
+      try {
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!cancelled && session?.user) {
+          router.replace("/");
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setConfigError("接続エラーが発生しました。しばらく経ってから再度お試しください。");
+        }
+      } finally {
+        if (!cancelled) setChecking(false);
+      }
+    };
+    check();
+    return () => { cancelled = true; };
   }, [router]);
 
   if (checking) {
@@ -38,10 +62,37 @@ export default function LoginPage() {
       </div>
     );
   }
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [isSignUp, setIsSignUp] = useState(false);
+
+  if (configError) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: T.bg,
+          padding: "20px",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: "480px",
+            padding: "32px",
+            background: T.s,
+            border: `1px solid ${T.bd}`,
+            borderRadius: "16px",
+            color: T.tx,
+            fontSize: "14px",
+            lineHeight: 1.6,
+          }}
+        >
+          <h2 style={{ margin: "0 0 16px", fontSize: "18px" }}>⚠️ 設定が必要です</h2>
+          <p style={{ margin: 0 }}>{configError}</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
