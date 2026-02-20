@@ -290,7 +290,10 @@ export const ensureRegisteredProjects = (projects: Project[]): Project[] => {
 
 export const createEmptyData = () => ({
   vehicles: [...DEFAULT_VEHICLES],
-  projects: [] as Project[],
+  projects: REGISTERED_PROJECTS.map((r, i) => ({
+    ...r,
+    id: `p${i + 1}`,
+  })) as Project[],
   costs: [] as Cost[],
   quantities: [] as Quantity[],
 });

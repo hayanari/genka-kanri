@@ -1,17 +1,22 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Icons, T } from "@/lib/constants";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { createEmptyData, exportCSV } from "@/lib/utils";
 import { loadData, saveData } from "@/lib/supabase/data";
+import { signOut } from "@/lib/supabase/auth";
 import type { Project, Cost, Quantity, Vehicle } from "@/lib/utils";
+import AuthGuard from "@/components/AuthGuard";
 import Dashboard from "@/components/Dashboard";
 import ProjectList from "@/components/ProjectList";
 import ProjectDetail from "@/components/ProjectDetail";
 import NewProject from "@/components/NewProject";
 import VehicleMaster from "@/components/VehicleMaster";
+
 export default function Home() {
+  const router = useRouter();
   const [data, setData] = useState<
     {
       projects: Project[];
@@ -241,7 +246,13 @@ export default function Home() {
     { id: "vehicles", label: "車両マスタ", icon: Icons.truck },
   ];
 
+  const handleLogout = async () => {
+    await signOut();
+    router.replace("/login");
+  };
+
   return (
+    <AuthGuard>
     <div
       style={{
         display: "flex",
@@ -383,6 +394,9 @@ export default function Home() {
           style={{
             borderTop: `1px solid ${T.bd}`,
             paddingTop: "12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
           }}
         >
           <button
@@ -407,6 +421,27 @@ export default function Home() {
             }}
           >
             {Icons.dl} CSV出力
+          </button>
+          <button
+            onClick={handleLogout}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 12px",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: "12px",
+              fontWeight: 500,
+              background: "transparent",
+              color: T.ts,
+              width: "100%",
+              textAlign: "left",
+            }}
+          >
+            🚪 ログアウト
           </button>
         </div>
       </div>
@@ -528,5 +563,6 @@ export default function Home() {
         )}
       </div>
     </div>
+    </AuthGuard>
   );
 }

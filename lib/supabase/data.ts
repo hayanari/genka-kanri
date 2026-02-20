@@ -2,6 +2,26 @@ import { createClient } from "./client";
 import type { Project, Cost, Quantity, Vehicle } from "../utils";
 import { createEmptyData, DEFAULT_VEHICLES, ensureRegisteredProjects } from "../utils";
 
+/** データ消失を防ぐ: 空の projects/vehicles を保存しない */
+function sanitizeBeforeSave(data: {
+  projects: Project[];
+  costs: Cost[];
+  quantities: Quantity[];
+  vehicles?: { id: string; registration: string }[];
+}) {
+  const empty = createEmptyData();
+  const projects =
+    Array.isArray(data.projects) && data.projects.length > 0 ? data.projects : empty.projects;
+  const vehicles =
+    Array.isArray(data.vehicles) && data.vehicles.length > 0 ? data.vehicles : empty.vehicles;
+  return {
+    projects,
+    costs: data.costs ?? [],
+    quantities: data.quantities ?? [],
+    vehicles,
+  };
+}
+
 export async function loadData(): Promise<{
   projects: Project[];
   costs: Cost[];
@@ -52,11 +72,12 @@ export async function saveData(data: {
 }): Promise<boolean> {
   try {
     const supabase = createClient();
+    const sanitized = sanitizeBeforeSave(data);
     const payload = {
-      projects: data.projects,
-      costs: data.costs,
-      quantities: data.quantities,
-      vehicles: data.vehicles ?? [],
+      projects: sanitized.projects,
+      costs: sanitized.costs,
+      quantities: sanitized.quantities,
+      vehicles: sanitized.vehicles,
     };
     const { error } = await supabase
       .from("genka_kanri_data")
