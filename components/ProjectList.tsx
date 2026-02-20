@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { STATUS_MAP, Icons } from "@/lib/constants";
 import { fmtDate } from "@/lib/constants";
 import { projStats } from "@/lib/utils";
@@ -43,10 +44,33 @@ export default function ProjectList({
   showRestoreButton?: boolean;
   showDeletedAt?: boolean;
 }) {
+  const [sortBy, setSortBy] = useState("date_desc");
+
   const filtered = projects.filter((p) => {
     const ms = !sq || p.name.includes(sq) || p.client.includes(sq);
     const mf = !sf || p.status === sf;
     return ms && mf;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    switch (sortBy) {
+      case "date_desc":
+        return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+      case "date_asc":
+        return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+      case "cat_koji":
+        if (a.category !== b.category) {
+          return a.category === "工事" ? -1 : 1;
+        }
+        return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+      case "cat_gyomu":
+        if (a.category !== b.category) {
+          return a.category === "業務" ? -1 : 1;
+        }
+        return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+      default:
+        return 0;
+    }
   });
 
   return (
@@ -144,9 +168,28 @@ export default function ProjectList({
             </option>
           ))}
         </select>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          style={{
+            padding: "9px 14px",
+            background: T.s,
+            border: `1px solid ${T.bd}`,
+            borderRadius: "8px",
+            color: T.tx,
+            fontSize: "13px",
+            fontFamily: "inherit",
+            minWidth: "160px",
+          }}
+        >
+          <option value="date_desc">登録年月（新しい順）</option>
+          <option value="date_asc">登録年月（古い順）</option>
+          <option value="cat_koji">区分：工事→業務</option>
+          <option value="cat_gyomu">区分：業務→工事</option>
+        </select>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        {filtered.map((p) => {
+        {sorted.map((p) => {
           const st = projStats(p, costs, quantities);
           const hasChanges = (p.changes || []).length > 0;
           return (

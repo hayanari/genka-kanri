@@ -10,12 +10,20 @@
    - **Project URL** → `NEXT_PUBLIC_SUPABASE_URL`
    - **anon public** key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-## 2. テーブル作成
+## 2. 認証（Auth）の有効化
+
+1. Supabase ダッシュボードで **Authentication** → **Providers**
+2. **Email** を有効化（通常は初期状態で有効）
+3. （任意）**Confirm email** をオフにすると、メール確認なしで即時ログイン可能
+4. 初回利用時はログイン画面の「新規登録」でアカウントを作成してください
+
+## 3. テーブル作成とRLS
 
 1. Supabase ダッシュボードで **SQL Editor** を開く
 2. `supabase/schema.sql` の内容をコピーして実行
+3. RLSによりログイン済みユーザーのみデータにアクセスできます
 
-## 3. 環境変数設定
+## 4. 環境変数設定
 
 **ローカル開発 (.env.local):**
 ```
@@ -27,7 +35,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJxxxx...
 - プロジェクト Settings → Environment Variables
 - 上記2つを追加
 
-## 4. 動作確認
+## 5. 動作確認
 
-- 案件を登録してリロード → データが残っていれば成功
-- 別のブラウザや端末から同じURLで開く → 同じデータが表示されればクラウド共有OK
+1. アプリにアクセス → ログイン画面が表示される
+2. 「新規登録」でメールアドレス・パスワードを登録（初回のみ）
+3. ログイン後、案件を登録してリロード → データが残っていれば成功
+4. ログアウト後、未ログインでURLに直接アクセス → ログイン画面にリダイレクトされる

@@ -29,7 +29,10 @@ export async function loadData(): Promise<{
     }
 
     const vehicles = (stored.vehicles ?? DEFAULT_VEHICLES) as Vehicle[];
-    const projects = ensureRegisteredProjects((stored.projects ?? []) as Project[]);
+    let projects = ensureRegisteredProjects((stored.projects ?? []) as Project[]);
+    projects = projects.map((p) =>
+      p.category === "清掃業務" ? { ...p, category: "業務" } : p
+    );
     return {
       projects,
       costs: (stored.costs ?? []) as Cost[],
