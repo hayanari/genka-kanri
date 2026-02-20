@@ -12,9 +12,8 @@ insert into genka_kanri_data (id, data)
 values ('default', '{"projects":[],"costs":[],"quantities":[]}'::jsonb)
 on conflict (id) do nothing;
 
--- RLS: ログイン済みユーザーのみアクセス可能
+-- RLS: すべての操作を許可（ログイン任意・データ復旧用）
+-- ※厳密な認証が必要な場合は auth.role() = 'authenticated' に変更
 alter table genka_kanri_data enable row level security;
-drop policy if exists "Allow all on genka_kanri_data" on genka_kanri_data;
-create policy "Authenticated only" on genka_kanri_data for all
-  using (auth.role() = 'authenticated')
-  with check (auth.role() = 'authenticated');
+drop policy if exists "Authenticated only" on genka_kanri_data;
+create policy "Allow all on genka_kanri_data" on genka_kanri_data for all using (true) with check (true);

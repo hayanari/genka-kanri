@@ -5,15 +5,12 @@ import { Icons, T } from "@/lib/constants";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { createEmptyData, exportCSV } from "@/lib/utils";
 import { loadData, saveData } from "@/lib/supabase/data";
-import { signOut } from "@/lib/supabase/auth";
 import type { Project, Cost, Quantity, Vehicle } from "@/lib/utils";
 import Dashboard from "@/components/Dashboard";
 import ProjectList from "@/components/ProjectList";
 import ProjectDetail from "@/components/ProjectDetail";
 import NewProject from "@/components/NewProject";
 import VehicleMaster from "@/components/VehicleMaster";
-import AuthGuard from "@/components/AuthGuard";
-
 export default function Home() {
   const [data, setData] = useState<
     {
@@ -245,7 +242,6 @@ export default function Home() {
   ];
 
   return (
-    <AuthGuard>
     <div
       style={{
         display: "flex",
@@ -412,31 +408,6 @@ export default function Home() {
           >
             {Icons.dl} CSV出力
           </button>
-          <button
-            onClick={async () => {
-              await signOut();
-              window.location.href = "/login";
-            }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "10px 12px",
-              marginTop: "8px",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontFamily: "inherit",
-              fontSize: "12px",
-              fontWeight: 500,
-              background: "transparent",
-              color: T.ts,
-              width: "100%",
-              textAlign: "left",
-            }}
-          >
-            ログアウト
-          </button>
         </div>
       </div>
       <div
@@ -557,6 +528,5 @@ export default function Home() {
         )}
       </div>
     </div>
-    </AuthGuard>
   );
 }
