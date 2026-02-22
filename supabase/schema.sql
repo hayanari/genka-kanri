@@ -1,4 +1,4 @@
--- 工事原価管理 テーブル定義
+-- 案件管理 テーブル定義
 -- Supabase ダッシュボードの SQL Editor で実行してください
 
 create table if not exists genka_kanri_data (

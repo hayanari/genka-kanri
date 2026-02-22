@@ -154,7 +154,7 @@ export default function LoginPage() {
               color: T.tx,
             }}
           >
-            📐 工事原価管理
+            📐 案件管理
           </h1>
           <p
             style={{

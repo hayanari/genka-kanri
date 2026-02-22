@@ -9,7 +9,7 @@ const notoSansJP = Noto_Sans_JP({
 });
 
 export const metadata: Metadata = {
-  title: "工事原価管理 | Construction Cost Manager",
+  title: "案件管理 | Case Management",
   description: "建設・工事業向け原価管理システム",
 };
 

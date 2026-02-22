@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Icons, T } from "@/lib/constants";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { createEmptyData, exportCSV } from "@/lib/utils";
@@ -332,7 +333,7 @@ export default function Home() {
               color: T.ac,
             }}
           >
-            📐 工事原価管理
+            📐 案件管理
           </div>
           <div
             style={{
@@ -341,7 +342,7 @@ export default function Home() {
               marginTop: "4px",
             }}
           >
-            Construction Cost Manager
+            Case Management
           </div>
         </div>
         <div
@@ -422,6 +423,28 @@ export default function Home() {
           >
             {Icons.dl} CSV出力
           </button>
+          <Link
+            href="/settings"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 12px",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: "12px",
+              fontWeight: 500,
+              background: "transparent",
+              color: T.ts,
+              width: "100%",
+              textAlign: "left",
+              textDecoration: "none",
+            }}
+          >
+            🔐 パスワード変更
+          </Link>
           <button
             onClick={handleLogout}
             style={{
