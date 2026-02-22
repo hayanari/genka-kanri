@@ -220,7 +220,15 @@ export default function BidScheduleList({
                   <Btn v="ghost" sm onClick={() => setEditing(b)}>
                     {Icons.edit} 編集
                   </Btn>
-                  <Btn v="ghost" sm onClick={() => onDelete(b.id)}>
+                  <Btn
+                    v="ghost"
+                    sm
+                    onClick={() => {
+                      if (window.confirm(`「${b.name}」を削除してもよろしいですか？`)) {
+                        onDelete(b.id);
+                      }
+                    }}
+                  >
                     {Icons.trash} 削除
                   </Btn>
                 </div>
