@@ -8,13 +8,23 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
 import { createEmptyData, exportCSV } from "@/lib/utils";
 import { loadData, saveData } from "@/lib/supabase/data";
 import { signOut } from "@/lib/supabase/auth";
-import type { Project, Cost, Quantity, Vehicle } from "@/lib/utils";
+import type {
+  Project,
+  Cost,
+  Quantity,
+  Vehicle,
+  BidSchedule,
+} from "@/lib/utils";
+import { bidScheduleToProject } from "@/lib/utils";
+import { genId } from "@/lib/constants";
 import AuthGuard from "@/components/AuthGuard";
 import Dashboard from "@/components/Dashboard";
 import ProjectList from "@/components/ProjectList";
 import ProjectDetail from "@/components/ProjectDetail";
 import NewProject from "@/components/NewProject";
 import VehicleMaster from "@/components/VehicleMaster";
+import BidScheduleList from "@/components/BidScheduleList";
+import NewBidSchedule from "@/components/NewBidSchedule";
 
 export default function Home() {
   const router = useRouter();
@@ -24,6 +34,7 @@ export default function Home() {
       costs: Cost[];
       quantities: Quantity[];
       vehicles: Vehicle[];
+      bidSchedules: BidSchedule[];
     }
   >(createEmptyData);
   const [loading, setLoading] = useState(true);
@@ -42,7 +53,7 @@ export default function Home() {
     saveTimeoutRef.current = setTimeout(() => {
       saveData(data);
       saveTimeoutRef.current = null;
-    }, 1500);
+    }, 500);
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
@@ -60,8 +71,53 @@ export default function Home() {
   const selProj = data.projects.find((p) => p.id === selId);
 
   const addProject = (proj: Project) => {
-    setData((d) => ({ ...d, projects: [...d.projects, proj] }));
+    const next = { ...data, projects: [...data.projects, proj] };
+    setData(next);
+    saveData(next);
     setView("list");
+  };
+
+  const addBidSchedule = (b: BidSchedule) => {
+    const next = {
+      ...data,
+      bidSchedules: [...(data.bidSchedules || []), b],
+    };
+    setData(next);
+    saveData(next);
+    setView("bidschedule");
+  };
+
+  const updateBidSchedule = (b: BidSchedule) => {
+    const next = {
+      ...data,
+      bidSchedules: (data.bidSchedules || []).map((x) =>
+        x.id === b.id ? b : x
+      ),
+    };
+    setData(next);
+    saveData(next);
+  };
+
+  const deleteBidSchedule = (id: string) => {
+    setData((d) => ({
+      ...d,
+      bidSchedules: (d.bidSchedules || []).filter((x) => x.id !== id),
+    }));
+  };
+
+  const addBidScheduleToProjects = (b: BidSchedule) => {
+    if ((b.status !== "won" && b.status !== "expected") || b.projectId) return;
+    const proj = bidScheduleToProject(b, genId());
+    const next = {
+      ...data,
+      projects: [...data.projects, proj],
+      bidSchedules: (data.bidSchedules || []).map((x) =>
+        x.id === b.id ? { ...x, ...b, projectId: proj.id } : x
+      ),
+    };
+    setData(next);
+    saveData(next);
+    navWithClose("detail", proj.id);
   };
 
   const updateProject = (u: Project) => {
@@ -242,6 +298,7 @@ export default function Home() {
     { id: "dashboard", label: "ダッシュボード", icon: Icons.dash },
     { id: "list", label: "案件一覧", icon: Icons.list },
     { id: "new", label: "新規案件", icon: Icons.plus },
+    { id: "bidschedule", label: "入札スケジュール", icon: Icons.calendar },
     { id: "archive", label: "アーカイブ", icon: Icons.archive },
     { id: "deleted", label: "削除済み", icon: Icons.trash },
     { id: "vehicles", label: "車両マスタ", icon: Icons.truck },
@@ -374,14 +431,16 @@ export default function Home() {
                   view === n.id ||
                   (view === "detail" &&
                     (n.id === "list" || n.id === "archive" || n.id === "deleted")) ||
-                  (view === "vehicles" && n.id === "vehicles")
+                  (view === "vehicles" && n.id === "vehicles") ||
+                  ((view === "bidschedule" || view === "newbidschedule") && n.id === "bidschedule")
                     ? T.al
                     : "transparent",
                 color:
                   view === n.id ||
                   (view === "detail" &&
                     (n.id === "list" || n.id === "archive" || n.id === "deleted")) ||
-                  (view === "vehicles" && n.id === "vehicles")
+                  (view === "vehicles" && n.id === "vehicles") ||
+                  ((view === "bidschedule" || view === "newbidschedule") && n.id === "bidschedule")
                     ? T.ac
                     : T.ts,
                 transition: "all .15s",
@@ -547,6 +606,21 @@ export default function Home() {
         )}
         {!loading && view === "new" && (
           <NewProject onSave={addProject} onCancel={() => navWithClose("list")} />
+        )}
+        {!loading && view === "bidschedule" && (
+          <BidScheduleList
+            bidSchedules={data.bidSchedules || []}
+            onAdd={() => navWithClose("newbidschedule")}
+            onUpdate={updateBidSchedule}
+            onDelete={deleteBidSchedule}
+            onAddToProjects={addBidScheduleToProjects}
+          />
+        )}
+        {!loading && view === "newbidschedule" && (
+          <NewBidSchedule
+            onSave={addBidSchedule}
+            onCancel={() => navWithClose("bidschedule")}
+          />
         )}
         {!loading && view === "vehicles" && (
           <VehicleMaster

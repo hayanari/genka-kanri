@@ -44,6 +44,22 @@ export interface Cost {
   vendor: string;
 }
 
+export interface BidSchedule {
+  id: string;
+  name: string;
+  client: string;
+  category: "工事" | "業務";
+  estimatedAmount: number;
+  bidDate: string;
+  status: "scheduled" | "won" | "lost" | "expected";
+  notes?: string;
+  projectId?: string; // 案件一覧に追加済みの場合の案件ID
+  /** 落札時: 落札金額 / 当社受注見込み時: 受注金額概算 */
+  orderAmount?: number;
+  /** 単価契約の場合は0円でも登録可 */
+  isUnitPriceContract?: boolean;
+}
+
 export interface Vehicle {
   id: string;
   registration: string; // ナンバープレート表示（例: 堺 800 さ 1299）
@@ -278,6 +294,36 @@ const REGISTERED_PROJECTS: Omit<Project, "id">[] = [
   },
 ];
 
+/** 入札スケジュールから案件を作成 */
+export const bidScheduleToProject = (b: BidSchedule, id: string): Project => {
+  const amount =
+    (b.status === "won" || b.status === "expected") && b.orderAmount !== undefined
+      ? b.orderAmount
+      : b.estimatedAmount;
+  return {
+  id,
+  name: b.name,
+  client: b.client,
+  category: b.category,
+  contractAmount: amount,
+  originalAmount: amount,
+  budget: amount > 0 ? Math.round(amount * 0.9) : 0,
+  status: "ordered",
+  startDate: new Date().toISOString().slice(0, 10),
+  endDate: "",
+  progress: 0,
+  billedAmount: 0,
+  paidAmount: 0,
+  notes: b.notes || `入札スケジュール（${b.bidDate}）より登録`,
+  mode: "normal",
+  marginRate: 0,
+  subcontractAmount: 0,
+  subcontractVendor: "",
+  payments: [],
+  changes: [],
+  };
+};
+
 export const ensureRegisteredProjects = (projects: Project[]): Project[] => {
   const names = new Set(projects.map((p) => p.name));
   const toAdd = REGISTERED_PROJECTS.filter((r) => !names.has(r.name));
@@ -296,6 +342,7 @@ export const createEmptyData = () => ({
   })) as Project[],
   costs: [] as Cost[],
   quantities: [] as Quantity[],
+  bidSchedules: [] as BidSchedule[],
 });
 
 export const exportCSV = (

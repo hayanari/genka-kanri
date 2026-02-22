@@ -6,6 +6,16 @@ export const fmtDate = (d: string | undefined) =>
 export const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 export const div = (a: number, b: number) => (b ? Math.round(a / b) : 0);
 
+export const BID_SCHEDULE_STATUS: Record<
+  string,
+  { label: string; color: string; bg?: string }
+> = {
+  scheduled: { label: "入札予定", color: "#94a3b8", bg: "#f1f5f9" },
+  won: { label: "落札", color: "#10b981", bg: "#ecfdf5" },
+  lost: { label: "失札", color: "#ef4444", bg: "#fef2f2" },
+  expected: { label: "当社受注見込み", color: "#3b82f6", bg: "#eff6ff" },
+};
+
 export const STATUS_MAP: Record<
   string,
   { label: string; color: string; bg?: string }
@@ -157,6 +167,14 @@ export const Icons = {
       <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
       <circle cx="5.5" cy="18.5" r="2.5" />
       <circle cx="18.5" cy="18.5" r="2.5" />
+    </svg>
+  ),
+  calendar: (
+    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   ),
 };

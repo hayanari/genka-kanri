@@ -43,7 +43,18 @@ export default function NewProject({
   });
 
   const save = () => {
-    if (!f.name || !f.client || !f.contractAmount) return;
+    if (!f.name?.trim()) {
+      alert("案件名を入力してください");
+      return;
+    }
+    if (!f.client?.trim()) {
+      alert("顧客名を入力してください");
+      return;
+    }
+    if (!f.contractAmount || Number(f.contractAmount) <= 0) {
+      alert("受注額を入力してください（1以上の数値）");
+      return;
+    }
     const amt = Number(f.contractAmount);
     const mRate = Number(f.marginRate) || 0;
     onSave({
