@@ -49,7 +49,7 @@ export async function loadData(): Promise<{
       bidSchedules?: BidSchedule[];
     } | null;
 
-    if (!stored?.projects?.length && !stored?.costs?.length && !stored?.quantities?.length) {
+    if (!stored?.projects?.length && !stored?.costs?.length && !stored?.quantities?.length && !stored?.bidSchedules?.length) {
       return createEmptyData();
     }
 

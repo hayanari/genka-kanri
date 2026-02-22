@@ -1,15 +1,16 @@
 -- 案件管理 テーブル定義
 -- Supabase ダッシュボードの SQL Editor で実行してください
+-- data の構造: { projects, costs, quantities, vehicles, bidSchedules } (JSONB)
 
 create table if not exists genka_kanri_data (
   id text primary key default 'default',
-  data jsonb not null default '{"projects":[],"costs":[],"quantities":[]}'::jsonb,
+  data jsonb not null default '{"projects":[],"costs":[],"quantities":[],"vehicles":[],"bidSchedules":[]}'::jsonb,
   updated_at timestamptz default now()
 );
 
 -- 初期レコードを挿入
 insert into genka_kanri_data (id, data)
-values ('default', '{"projects":[],"costs":[],"quantities":[]}'::jsonb)
+values ('default', '{"projects":[],"costs":[],"quantities":[],"vehicles":[],"bidSchedules":[]}'::jsonb)
 on conflict (id) do nothing;
 
 -- RLS: すべての操作を許可（ログイン任意・データ復旧用）

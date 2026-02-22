@@ -99,10 +99,12 @@ export default function Home() {
   };
 
   const deleteBidSchedule = (id: string) => {
-    setData((d) => ({
-      ...d,
-      bidSchedules: (d.bidSchedules || []).filter((x) => x.id !== id),
-    }));
+    const next = {
+      ...data,
+      bidSchedules: (data.bidSchedules || []).filter((x) => x.id !== id),
+    };
+    setData(next);
+    saveData(next);
   };
 
   const addBidScheduleToProjects = (b: BidSchedule) => {
