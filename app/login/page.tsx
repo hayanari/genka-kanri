@@ -128,15 +128,15 @@ export default function LoginPage() {
               ? "パスワードは6文字以上で入力してください。"
               : low.includes("invalid") && low.includes("email")
                 ? "有効なメールアドレスを入力してください。"
-                : low.includes("too many") || low.includes("429")
-                  ? "リクエストが多すぎます。しばらく経ってからお試しください。"
+                : low.includes("too many") || low.includes("429") || low.includes("rate limit")
+                  ? "メール送信の制限に達しました。1時間ほど待ってから再度お試しください。"
                   : msg || "新規登録に失敗しました。入力内容を確認してください。"
         : low.includes("Invalid login") || low.includes("invalid")
           ? "IDまたはパスワードが正しくありません。"
           : low.includes("Email not confirmed")
             ? "メールアドレスの確認が完了していません。確認メールをご確認ください。"
-            : low.includes("too many") || low.includes("429")
-              ? "リクエストが多すぎます。しばらく経ってからお試しください。"
+            : low.includes("too many") || low.includes("429") || low.includes("rate limit")
+              ? "メール送信の制限に達しました。1時間ほど待ってから再度お試しください。"
               : msg || "ログインに失敗しました。ID・パスワードを確認してください。";
       setError(jaMsg);
       setSuccess("");
