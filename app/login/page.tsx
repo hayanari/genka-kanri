@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -97,11 +98,13 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
     setLoading(true);
     try {
       if (isSignUp) {
         await signUp(email, password);
-        setError("登録完了。メール確認後、ログインしてください。");
+        setSuccess("登録完了。確認メールをご確認のうえ、ログインしてください。");
+        setError("");
         setIsSignUp(false);
       } else {
         await signIn(email, password);
@@ -109,16 +112,34 @@ export default function LoginPage() {
         router.refresh();
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "";
-      const jaMsg =
-        msg.includes("Invalid login") || msg.includes("invalid")
+      const msg =
+        typeof err === "object" && err !== null && "message" in err
+          ? String((err as { message?: unknown }).message)
+          : err instanceof Error
+            ? err.message
+            : "";
+      const low = msg.toLowerCase();
+      const jaMsg = isSignUp
+        ? low.includes("signup") && (low.includes("not allowed") || low.includes("disabled"))
+          ? "新規登録は現在無効になっています。管理者にお問い合わせください。"
+          : low.includes("user already registered") || low.includes("already been registered")
+            ? "このメールアドレスは既に登録されています。ログインしてください。"
+            : low.includes("password") && low.includes("6")
+              ? "パスワードは6文字以上で入力してください。"
+              : low.includes("invalid") && low.includes("email")
+                ? "有効なメールアドレスを入力してください。"
+                : low.includes("too many") || low.includes("429")
+                  ? "リクエストが多すぎます。しばらく経ってからお試しください。"
+                  : msg || "新規登録に失敗しました。入力内容を確認してください。"
+        : low.includes("Invalid login") || low.includes("invalid")
           ? "IDまたはパスワードが正しくありません。"
-          : msg.includes("Email not confirmed")
+          : low.includes("Email not confirmed")
             ? "メールアドレスの確認が完了していません。確認メールをご確認ください。"
-            : msg
-              ? msg
-              : "ログインに失敗しました。ID・パスワードを確認してください。";
+            : low.includes("too many") || low.includes("429")
+              ? "リクエストが多すぎます。しばらく経ってからお試しください。"
+              : msg || "ログインに失敗しました。ID・パスワードを確認してください。";
       setError(jaMsg);
+      setSuccess("");
     } finally {
       setLoading(false);
     }
@@ -235,6 +256,21 @@ export default function LoginPage() {
               }}
             />
           </div>
+          {success && (
+            <div
+              style={{
+                marginBottom: "16px",
+                padding: "12px",
+                background: T.ok + "18",
+                border: `1px solid ${T.ok}44`,
+                borderRadius: "8px",
+                fontSize: "13px",
+                color: T.ok,
+              }}
+            >
+              {success}
+            </div>
+          )}
           {error && (
             <div
               style={{
@@ -265,6 +301,7 @@ export default function LoginPage() {
           onClick={() => {
             setIsSignUp(!isSignUp);
             setError("");
+            setSuccess("");
           }}
           style={{
             width: "100%",
