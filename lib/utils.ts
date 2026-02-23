@@ -49,7 +49,8 @@ export interface BidSchedule {
   name: string;
   client: string;
   category: "工事" | "業務";
-  estimatedAmount: number;
+  /** @deprecated セキュリティのため削除、後方互換用 */
+  estimatedAmount?: number;
   bidDate: string;
   status: "scheduled" | "won" | "lost" | "expected";
   notes?: string;
@@ -294,12 +295,9 @@ const REGISTERED_PROJECTS: Omit<Project, "id">[] = [
   },
 ];
 
-/** 入札スケジュールから案件を作成 */
+/** 入札スケジュールから案件を作成（落札・当社受注見込み時のみ） */
 export const bidScheduleToProject = (b: BidSchedule, id: string): Project => {
-  const amount =
-    (b.status === "won" || b.status === "expected") && b.orderAmount !== undefined
-      ? b.orderAmount
-      : b.estimatedAmount;
+  const amount = b.orderAmount ?? 0;
   return {
   id,
   name: b.name,

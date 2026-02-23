@@ -180,12 +180,10 @@ export default function BidScheduleList({
                     {b.name}
                   </div>
                   <div style={{ fontSize: "12px", color: T.ts }}>
-                    {b.client} ・ {b.category} ・
-                    {b.status === "won"
-                      ? ` 落札 ¥${fmt(b.orderAmount ?? b.estimatedAmount)}`
-                      : b.status === "expected"
-                        ? ` 概算 ¥${fmt(b.orderAmount ?? b.estimatedAmount)}`
-                        : ` 予定 ¥${fmt(b.estimatedAmount)}`}
+                    {b.client} ・ {b.category}
+                    {(b.status === "won" || b.status === "expected") &&
+                      b.orderAmount !== undefined &&
+                      ` ・ ¥${fmt(b.orderAmount)}`}
                   </div>
                 </div>
                 <div style={{ fontSize: "13px", color: T.ts }}>
@@ -266,7 +264,7 @@ function EditBidScheduleModal({
 }) {
   const [f, setF] = useState({
     ...bid,
-    orderAmount: bid.orderAmount ?? bid.estimatedAmount,
+    orderAmount: bid.orderAmount ?? 0,
     isUnitPriceContract: !!bid.isUnitPriceContract,
   });
   const canAdd = (f.status === "won" || f.status === "expected") && !f.projectId;
@@ -342,26 +340,6 @@ function EditBidScheduleModal({
               <option value="工事">工事</option>
               <option value="業務">業務</option>
             </select>
-            <input
-              type="number"
-              placeholder={f.isUnitPriceContract ? "予定金額（0可）" : "予定金額"}
-              value={f.estimatedAmount ?? ""}
-              onChange={(e) =>
-                setF((p) => ({
-                  ...p,
-                  estimatedAmount: Number(e.target.value) ?? 0,
-                }))
-              }
-              style={{
-                flex: 1,
-                padding: "10px 12px",
-                background: T.s2,
-                border: `1px solid ${T.bd}`,
-                borderRadius: "8px",
-                color: T.tx,
-                fontSize: "13px",
-              }}
-            />
           </div>
           <div style={{ display: "flex", gap: "12px" }}>
             <input
@@ -475,9 +453,7 @@ function EditBidScheduleModal({
                       : Number(f.orderAmount);
                   const out: BidSchedule = {
                     ...f,
-                    orderAmount: Number.isNaN(orderVal)
-                      ? f.estimatedAmount
-                      : orderVal,
+                    orderAmount: Number.isNaN(orderVal) ? 0 : orderVal,
                     isUnitPriceContract: f.isUnitPriceContract || undefined,
                   };
                   onAddToProjects(out);
@@ -503,7 +479,7 @@ function EditBidScheduleModal({
                     ...f,
                     orderAmount:
                       f.status === "won" || f.status === "expected"
-                        ? (Number.isNaN(orderVal) ? f.estimatedAmount : orderVal)
+                        ? (Number.isNaN(orderVal) ? 0 : orderVal)
                         : undefined,
                     isUnitPriceContract: f.isUnitPriceContract || undefined,
                   };

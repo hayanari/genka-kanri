@@ -19,7 +19,6 @@ export default function NewBidSchedule({
     name: "",
     client: "",
     category: "工事" as "工事" | "業務",
-    estimatedAmount: "",
     bidDate: new Date().toISOString().slice(0, 10),
     status: "scheduled" as BidSchedule["status"],
     notes: "",
@@ -36,16 +35,6 @@ export default function NewBidSchedule({
       alert("発注者を入力してください");
       return;
     }
-    const estAmt = Number(f.estimatedAmount);
-    const isUnitPrice = f.isUnitPriceContract;
-    if (isNaN(estAmt) || estAmt < 0) {
-      alert("予定金額を0以上の数値で入力してください");
-      return;
-    }
-    if (!isUnitPrice && estAmt === 0) {
-      alert("予定金額を入力してください（単価契約の場合は「単価契約」にチェックを入れてください）");
-      return;
-    }
     const orderAmtNum =
       f.status === "won" || f.status === "expected"
         ? Number(f.orderAmount)
@@ -60,19 +49,18 @@ export default function NewBidSchedule({
     }
     const finalOrderAmount: number | undefined =
       f.status === "won" || f.status === "expected"
-        ? (!isNaN(orderAmtNum) ? orderAmtNum : estAmt)
+        ? (!isNaN(orderAmtNum) ? orderAmtNum : undefined)
         : undefined;
     onSave({
       id: genId(),
       name: f.name,
       client: f.client,
       category: f.category,
-      estimatedAmount: estAmt,
       bidDate: f.bidDate,
       status: f.status,
       notes: f.notes || undefined,
       orderAmount: finalOrderAmount,
-      isUnitPriceContract: isUnitPrice || undefined,
+      isUnitPriceContract: f.isUnitPriceContract || undefined,
     });
   };
 
@@ -114,52 +102,16 @@ export default function NewBidSchedule({
             value={f.client}
             onChange={(e) => setF((p) => ({ ...p, client: e.target.value }))}
           />
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "12px",
-            }}
+          <Sel
+            label="区分"
+            value={f.category}
+            onChange={(e) =>
+              setF((p) => ({ ...p, category: e.target.value as "工事" | "業務" }))
+            }
           >
-            <Sel
-              label="区分"
-              value={f.category}
-              onChange={(e) =>
-                setF((p) => ({ ...p, category: e.target.value as "工事" | "業務" }))
-              }
-            >
-              <option value="工事">工事</option>
-              <option value="業務">業務</option>
-            </Sel>
-            <Inp
-              label={f.isUnitPriceContract ? "予定金額 (¥)（単価契約の場合は0可）" : "予定金額 (¥) *"}
-              type="number"
-              placeholder="例: 10000000"
-              value={f.estimatedAmount}
-              onChange={(e) =>
-                setF((p) => ({ ...p, estimatedAmount: e.target.value }))
-              }
-            />
-          </div>
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              cursor: "pointer",
-              fontSize: "13px",
-              color: T.tx,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={f.isUnitPriceContract}
-              onChange={(e) =>
-                setF((p) => ({ ...p, isUnitPriceContract: e.target.checked }))
-              }
-            />
-            単価契約（0円でも登録可）
-          </label>
+            <option value="工事">工事</option>
+            <option value="業務">業務</option>
+          </Sel>
           <div
             style={{
               display: "grid",
@@ -191,15 +143,36 @@ export default function NewBidSchedule({
             </Sel>
           </div>
           {(f.status === "won" || f.status === "expected") && (
-            <Inp
-              label={f.status === "won" ? "落札金額 (¥) *" : "受注金額概算 (¥) *"}
-              type="number"
-              placeholder={f.isUnitPriceContract ? "単価契約の場合は0" : "例: 10000000"}
+            <>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  color: T.tx,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={f.isUnitPriceContract}
+                  onChange={(e) =>
+                    setF((p) => ({ ...p, isUnitPriceContract: e.target.checked }))
+                  }
+                />
+                単価契約（0円でも登録可）
+              </label>
+              <Inp
+                label={f.status === "won" ? "落札金額 (¥) *" : "受注金額概算 (¥) *"}
+                type="number"
+                placeholder={f.isUnitPriceContract ? "単価契約の場合は0" : "例: 10000000"}
               value={String(f.orderAmount ?? "")}
               onChange={(e) =>
                 setF((p) => ({ ...p, orderAmount: e.target.value }))
               }
             />
+            </>
           )}
           {(f.status === "won" || f.status === "expected") && (
             <p style={{ margin: 0, fontSize: "12px", color: T.ts }}>
