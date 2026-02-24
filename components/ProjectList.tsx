@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { STATUS_MAP, Icons } from "@/lib/constants";
+import { parseExcelImportJson } from "@/lib/importExcel";
 import { fmtDate } from "@/lib/constants";
 import { projStats } from "@/lib/utils";
 import type { Project, Cost, Quantity } from "@/lib/utils";
@@ -27,6 +28,7 @@ export default function ProjectList({
   showRestoreButton = false,
   showDeletedAt = false,
   onRestore,
+  onImport,
 }: {
   projects: Project[];
   costs: Cost[];
@@ -43,8 +45,31 @@ export default function ProjectList({
   showArchiveYear?: boolean;
   showRestoreButton?: boolean;
   showDeletedAt?: boolean;
+  onImport?: (projects: Project[]) => void;
 }) {
   const [sortBy, setSortBy] = useState("date_desc");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !onImport) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = String(reader.result ?? "");
+        const projects = parseExcelImportJson(text);
+        onImport(projects);
+      } catch (err) {
+        alert("ファイルの読み込みに失敗しました。JSON形式を確認してください。");
+      }
+    };
+    reader.readAsText(file, "UTF-8");
+  };
 
   const filtered = projects.filter((p) => {
     const ms = !sq || p.name.includes(sq) || p.client.includes(sq);
@@ -100,11 +125,27 @@ export default function ProjectList({
             {filtered.length}件
           </p>
         </div>
-        {showAddButton && onAdd && (
-          <Btn v="primary" onClick={onAdd}>
-            {Icons.plus} 新規案件
-          </Btn>
-        )}
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          {onImport && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={handleFileChange}
+                style={{ display: "none" }}
+              />
+              <Btn v="default" onClick={handleImportClick}>
+                📥 Excel取込
+              </Btn>
+            </>
+          )}
+          {showAddButton && onAdd && (
+            <Btn v="primary" onClick={onAdd}>
+              {Icons.plus} 新規案件
+            </Btn>
+          )}
+        </div>
       </div>
       <div
         style={{

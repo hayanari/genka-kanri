@@ -81,6 +81,19 @@ export default function Home() {
     setView("list");
   };
 
+  const importProjects = (projects: Project[]) => {
+    let currentProjects = [...data.projects];
+    const toAdd = projects.map((p) => {
+      const num = getNextManagementNumber(currentProjects, p.category);
+      currentProjects = [...currentProjects, { ...p, managementNumber: num }];
+      return { ...p, managementNumber: num };
+    });
+    const next = { ...data, projects: [...data.projects, ...toAdd] };
+    setData(next);
+    saveData(next);
+    setView("list");
+  };
+
   const addBidSchedule = (b: BidSchedule) => {
     const next = {
       ...data,
@@ -573,6 +586,7 @@ export default function Home() {
             quantities={data.quantities}
             onSelect={(id) => navWithClose("detail", id)}
             onAdd={() => navWithClose("new")}
+            onImport={importProjects}
             sq={sq}
             setSq={setSq}
             sf={sf}
