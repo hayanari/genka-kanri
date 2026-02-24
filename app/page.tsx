@@ -15,7 +15,7 @@ import type {
   Vehicle,
   BidSchedule,
 } from "@/lib/utils";
-import { bidScheduleToProject } from "@/lib/utils";
+import { bidScheduleToProject, getNextManagementNumber } from "@/lib/utils";
 import { genId } from "@/lib/constants";
 import AuthGuard from "@/components/AuthGuard";
 import Dashboard from "@/components/Dashboard";
@@ -71,7 +71,11 @@ export default function Home() {
   const selProj = data.projects.find((p) => p.id === selId);
 
   const addProject = (proj: Project) => {
-    const next = { ...data, projects: [...data.projects, proj] };
+    const projWithNum = {
+      ...proj,
+      managementNumber: getNextManagementNumber(data.projects, proj.category),
+    };
+    const next = { ...data, projects: [...data.projects, projWithNum] };
     setData(next);
     saveData(next);
     setView("list");
@@ -110,6 +114,7 @@ export default function Home() {
   const addBidScheduleToProjects = (b: BidSchedule) => {
     if ((b.status !== "won" && b.status !== "expected") || b.projectId) return;
     const proj = bidScheduleToProject(b, genId());
+    proj.managementNumber = getNextManagementNumber(data.projects, b.category);
     const next = {
       ...data,
       projects: [...data.projects, proj],

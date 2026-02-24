@@ -54,6 +54,8 @@ export default function ProjectList({
 
   const sorted = [...filtered].sort((a, b) => {
     switch (sortBy) {
+      case "mgmt":
+        return (a.managementNumber ?? "").localeCompare(b.managementNumber ?? "");
       case "date_desc":
         return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
       case "date_asc":
@@ -182,6 +184,7 @@ export default function ProjectList({
             minWidth: "160px",
           }}
         >
+          <option value="mgmt">管理番号</option>
           <option value="date_desc">登録年月（新しい順）</option>
           <option value="date_asc">登録年月（古い順）</option>
           <option value="cat_koji">区分：工事→業務</option>
@@ -218,6 +221,20 @@ export default function ProjectList({
                       flexWrap: "wrap",
                     }}
                   >
+                    {p.managementNumber && (
+                      <span
+                        style={{
+                          fontSize: "12px",
+                          fontFamily: "monospace",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          background: T.s2,
+                          color: T.ts,
+                        }}
+                      >
+                        {p.managementNumber}
+                      </span>
+                    )}
                     <span
                       style={{
                         fontSize: "15px",

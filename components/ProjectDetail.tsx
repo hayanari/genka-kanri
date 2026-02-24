@@ -237,6 +237,21 @@ export default function ProjectDetail({
                 flexWrap: "wrap",
               }}
             >
+              {p.managementNumber && (
+                <span
+                  style={{
+                    fontSize: "13px",
+                    fontFamily: "monospace",
+                    padding: "4px 8px",
+                    borderRadius: "6px",
+                    background: T.s2,
+                    color: T.ts,
+                    fontWeight: 600,
+                  }}
+                >
+                  {p.managementNumber}
+                </span>
+              )}
               <h2 style={{ margin: 0, fontSize: "20px", color: T.tx }}>
                 {p.name}
               </h2>

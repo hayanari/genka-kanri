@@ -1,6 +1,6 @@
 import { createClient } from "./client";
 import type { Project, Cost, Quantity, Vehicle, BidSchedule } from "../utils";
-import { createEmptyData, DEFAULT_VEHICLES, ensureRegisteredProjects } from "../utils";
+import { createEmptyData, DEFAULT_VEHICLES, ensureRegisteredProjects, ensureManagementNumbers } from "../utils";
 
 /** データ消失を防ぐ: 空の projects/vehicles を保存しない */
 function sanitizeBeforeSave(data: {
@@ -58,6 +58,7 @@ export async function loadData(): Promise<{
     projects = projects.map((p) =>
       p.category === "清掃業務" ? { ...p, category: "業務" } : p
     );
+    projects = ensureManagementNumbers(projects);
     const bidSchedules = (stored.bidSchedules ?? []) as BidSchedule[];
     return {
       projects,

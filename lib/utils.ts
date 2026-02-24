@@ -3,6 +3,8 @@ import { STATUS_MAP } from "./constants";
 
 export interface Project {
   id: string;
+  /** 管理番号（工事: K-0001, 業務: G-0001） */
+  managementNumber?: string;
   name: string;
   client: string;
   category: string;
@@ -295,6 +297,41 @@ const REGISTERED_PROJECTS: Omit<Project, "id">[] = [
   },
 ];
 
+/** 区分に応じた管理番号プレフィックス（工事: K, 業務: G） */
+const PREFIX: Record<string, string> = { 工事: "K", 業務: "G" };
+
+/** 次の管理番号を採番（例: K-0001, G-0002） */
+export function getNextManagementNumber(
+  projects: Project[],
+  category: string
+): string {
+  const prefix = PREFIX[category] ?? "X";
+  const re = new RegExp(`^${prefix}-(\\d+)$`);
+  let max = 0;
+  for (const p of projects) {
+    const m = p.managementNumber?.match(re);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `${prefix}-${String(max + 1).padStart(4, "0")}`;
+}
+
+/** 管理番号がない案件にバックフィルで付与 */
+export function ensureManagementNumbers(projects: Project[]): Project[] {
+  const maxByPrefix: Record<string, number> = {};
+  for (const p of projects) {
+    if (!p.managementNumber) continue;
+    const m = p.managementNumber.match(/^([KGX])-(\d+)$/);
+    if (m) maxByPrefix[m[1]] = Math.max(maxByPrefix[m[1]] ?? 0, parseInt(m[2], 10));
+  }
+  return projects.map((p) => {
+    if (p.managementNumber) return p;
+    const prefix = PREFIX[p.category] ?? "X";
+    const n = (maxByPrefix[prefix] ?? 0) + 1;
+    maxByPrefix[prefix] = n;
+    return { ...p, managementNumber: `${prefix}-${String(n).padStart(4, "0")}` };
+  });
+}
+
 /** 入札スケジュールから案件を作成（落札・当社受注見込み時のみ） */
 export const bidScheduleToProject = (b: BidSchedule, id: string): Project => {
   const amount = b.orderAmount ?? 0;
@@ -326,18 +363,15 @@ export const ensureRegisteredProjects = (projects: Project[]): Project[] => {
   const names = new Set(projects.map((p) => p.name));
   const toAdd = REGISTERED_PROJECTS.filter((r) => !names.has(r.name));
   if (toAdd.length === 0) return projects;
-  return [
-    ...projects,
-    ...toAdd.map((r) => ({ ...r, id: genId() } as Project)),
-  ];
+  const added = toAdd.map((r) => ({ ...r, id: genId() } as Project));
+  return ensureManagementNumbers([...projects, ...added]);
 };
 
 export const createEmptyData = () => ({
   vehicles: [...DEFAULT_VEHICLES],
-  projects: REGISTERED_PROJECTS.map((r, i) => ({
-    ...r,
-    id: `p${i + 1}`,
-  })) as Project[],
+  projects: ensureManagementNumbers(
+    REGISTERED_PROJECTS.map((r, i) => ({ ...r, id: `p${i + 1}` } as Project))
+  ),
   costs: [] as Cost[],
   quantities: [] as Quantity[],
   bidSchedules: [] as BidSchedule[],
@@ -349,13 +383,13 @@ export const exportCSV = (
   quantities: Quantity[]
 ) => {
   let csv =
-    "案件名,顧客,区分,施工形態,当初契約額,増減後受注額,実行予算,原価合計,粗利,利益率,マージン率,人工(人日),車両(台日),売上/人工,粗利/人工,進捗,ステータス,アーカイブ年度,削除日\n";
+    "管理番号,案件名,顧客,区分,施工形態,当初契約額,増減後受注額,実行予算,原価合計,粗利,利益率,マージン率,人工(人日),車両(台日),売上/人工,粗利/人工,進捗,ステータス,アーカイブ年度,削除日\n";
   projects.forEach((p) => {
     const st = projStats(p, costs, quantities);
     const deletedAt = p.deletedAt
       ? new Date(p.deletedAt).toLocaleDateString("ja-JP")
       : "—";
-    csv += `"${p.name}","${p.client}","${p.category}","${p.mode === "subcontract" ? "一括外注" : "自社施工"}",${p.originalAmount},${st.effectiveContract},${p.budget},${st.totalCost},${st.profit},${st.profitRate}%,${p.mode === "subcontract" ? p.marginRate + "%" : "—"},${st.laborDays},${st.vehicleDays},${st.laborDays ? st.revenuePerLabor : "—"},${st.laborDays ? st.profitPerLabor : "—"},${p.progress}%,${STATUS_MAP[p.status]?.label},${p.archiveYear || "—"},${deletedAt}\n`;
+    csv += `"${p.managementNumber ?? ""}","${p.name}","${p.client}","${p.category}","${p.mode === "subcontract" ? "一括外注" : "自社施工"}",${p.originalAmount},${st.effectiveContract},${p.budget},${st.totalCost},${st.profit},${st.profitRate}%,${p.mode === "subcontract" ? p.marginRate + "%" : "—"},${st.laborDays},${st.vehicleDays},${st.laborDays ? st.revenuePerLabor : "—"},${st.laborDays ? st.profitPerLabor : "—"},${p.progress}%,${STATUS_MAP[p.status]?.label},${p.archiveYear || "—"},${deletedAt}\n`;
   });
   const blob = new Blob(["\uFEFF" + csv], {
     type: "text/csv;charset=utf-8;",
