@@ -1,4 +1,4 @@
-import { genId } from "@/lib/constants";
+import { genId, toTaxExclusive } from "@/lib/constants";
 import type { Project } from "@/lib/utils";
 
 type ExcelProject = {
@@ -62,7 +62,7 @@ export function convertExcelProjectsToApp(
         id: c.id || genId(),
         date: (c.date && isValidDateStr(c.date) ? c.date : ep.startDate || "") || "",
         type: c.type!,
-        amount: c.amount ?? 0,
+        amount: toTaxExclusive(c.amount ?? 0),
         description: c.description ?? "",
       }));
 
@@ -71,7 +71,7 @@ export function convertExcelProjectsToApp(
     );
     if (instructionChanges.length > 0) {
       const instructionNotes = instructionChanges
-        .map((c) => `${c.description || "指示"}: ¥${(c.amount ?? 0).toLocaleString()}`)
+        .map((c) => `${c.description || "指示"}: ¥${toTaxExclusive(c.amount ?? 0).toLocaleString()}（税抜）`)
         .join(" / ");
       notesParts.push(`[取込メモ] ${instructionNotes}`);
     }
@@ -83,13 +83,13 @@ export function convertExcelProjectsToApp(
       ? normalizeDate(ep.endDate)
       : "";
 
-    const originalAmount = ep.originalAmount ?? 0;
-    const contractAmount = ep.contractAmount ?? originalAmount;
+    const originalAmount = toTaxExclusive(ep.originalAmount ?? 0);
+    const contractAmount = toTaxExclusive(ep.contractAmount ?? originalAmount);
 
     const payments = (ep.payments || []).map((pay) => ({
       id: pay.id || genId(),
       date: pay.date && isValidDateStr(pay.date) ? pay.date : "",
-      amount: pay.amount ?? 0,
+      amount: toTaxExclusive(pay.amount ?? 0),
       note: pay.note ?? "",
     }));
 
@@ -100,17 +100,17 @@ export function convertExcelProjectsToApp(
       category: ep.category === "工事" || ep.category === "業務" ? ep.category : "業務",
       contractAmount,
       originalAmount,
-      budget: ep.budget ?? contractAmount,
+      budget: ep.budget != null ? toTaxExclusive(ep.budget) : contractAmount,
       status: ep.status || "ordered",
       startDate,
       endDate,
       progress: Math.min(100, Math.max(0, ep.progress ?? 0)),
-      billedAmount: ep.billedAmount ?? 0,
-      paidAmount: ep.paidAmount ?? 0,
+      billedAmount: toTaxExclusive(ep.billedAmount ?? 0),
+      paidAmount: toTaxExclusive(ep.paidAmount ?? 0),
       notes: notesParts.length > 0 ? notesParts.join("\n\n") : undefined,
       mode,
       marginRate: ep.marginRate ?? 0,
-      subcontractAmount: ep.subcontractAmount ?? 0,
+      subcontractAmount: toTaxExclusive(ep.subcontractAmount ?? 0),
       subcontractVendor: ep.subcontractVendor ?? "",
       payments,
       changes,

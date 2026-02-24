@@ -1,6 +1,10 @@
 export const genId = () => Math.random().toString(36).slice(2, 10);
 export const fmt = (n: number | undefined) =>
   new Intl.NumberFormat("ja-JP").format(Math.round(n || 0));
+
+/** 税込→税抜き変換（消費税10%） */
+export const toTaxExclusive = (amount: number) =>
+  Math.round((amount || 0) / 1.1);
 export const fmtDate = (d: string | undefined) =>
   d ? new Date(d).toLocaleDateString("ja-JP") : "—";
 export const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
