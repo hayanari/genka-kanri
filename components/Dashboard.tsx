@@ -120,27 +120,31 @@ export default function Dashboard({
           </div>
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))",
-              gap: "16px",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "16px 24px",
             }}
           >
-            <div>
+            <div style={{ minWidth: "140px" }}>
               <div style={{ fontSize: "10px", color: "#6b9fff" }}>総人工</div>
               <div style={{ fontSize: "20px", fontWeight: 700, color: T.tx }}>
                 {fmt(totalLabor)}
                 <span style={{ fontSize: "11px", color: T.ts }}> 人日</span>
               </div>
             </div>
-            <div>
+            <div style={{ minWidth: "160px" }}>
               <div style={{ fontSize: "10px", color: "#6b9fff" }}>売上/人工</div>
               <div
-                style={{ fontSize: "20px", fontWeight: 700, color: "#60a5fa" }}
+                style={{
+                  fontSize: "20px",
+                  fontWeight: 700,
+                  color: "#60a5fa",
+                }}
               >
                 ¥{fmt(div(totalContract, totalLabor))}
               </div>
             </div>
-            <div>
+            <div style={{ minWidth: "160px" }}>
               <div style={{ fontSize: "10px", color: "#6b9fff" }}>
                 粗利/人工
               </div>
