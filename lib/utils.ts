@@ -143,9 +143,11 @@ export const projStats = (
 ): ProjectStats => {
   const effectiveContract = getEffectiveContract(p);
   if (p.mode === "subcontract") {
+    // マージン率が設定されている場合は増減後受注額に対して常に適用
     const subAmt =
-      p.subcontractAmount ||
-      Math.round(effectiveContract * (1 - (p.marginRate || 0) / 100));
+      p.marginRate != null && p.marginRate > 0
+        ? Math.round(effectiveContract * (1 - p.marginRate / 100))
+        : (p.subcontractAmount || 0);
     const pc = costs.filter((c) => c.projectId === p.id);
     const pq = quantities.filter((q) => q.projectId === p.id);
     const directCost = pc.reduce((s, c) => s + c.amount, 0);
