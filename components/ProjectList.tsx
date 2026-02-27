@@ -71,30 +71,51 @@ export default function ProjectList({
     reader.readAsText(file, "UTF-8");
   };
 
+  const isStatusOnlySort =
+    sortBy.startsWith("status_") && sortBy !== "status_flow";
+  const statusFilter =
+    isStatusOnlySort ? sortBy.replace("status_", "") : sf;
+
   const filtered = projects.filter((p) => {
     const ms = !sq || p.name.includes(sq) || p.client.includes(sq);
-    const mf = !sf || p.status === sf;
+    const mf = !statusFilter || p.status === statusFilter;
     return ms && mf;
   });
 
+  const STATUS_ORDER = ["estimate", "ordered", "in_progress", "completed", "billed", "paid"];
+  const statusRank = (s: string) => {
+    const i = STATUS_ORDER.indexOf(s);
+    return i >= 0 ? i : 999;
+  };
+
   const sorted = [...filtered].sort((a, b) => {
+    const dateCmp = (x: Project, y: Project) =>
+      new Date(y.startDate).getTime() - new Date(x.startDate).getTime();
     switch (sortBy) {
       case "mgmt":
         return (a.managementNumber ?? "").localeCompare(b.managementNumber ?? "");
       case "date_desc":
-        return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+        return dateCmp(a, b);
       case "date_asc":
-        return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+        return -dateCmp(a, b);
       case "cat_koji":
-        if (a.category !== b.category) {
-          return a.category === "工事" ? -1 : 1;
-        }
-        return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+        if (a.category !== b.category) return a.category === "工事" ? -1 : 1;
+        return dateCmp(a, b);
       case "cat_gyomu":
-        if (a.category !== b.category) {
-          return a.category === "業務" ? -1 : 1;
+        if (a.category !== b.category) return a.category === "業務" ? -1 : 1;
+        return dateCmp(a, b);
+      case "status_estimate":
+      case "status_ordered":
+      case "status_in_progress":
+      case "status_completed":
+      case "status_billed":
+      case "status_paid":
+        return dateCmp(a, b);
+      case "status_flow":
+        if (statusRank(a.status) !== statusRank(b.status)) {
+          return statusRank(a.status) - statusRank(b.status);
         }
-        return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+        return dateCmp(a, b);
       default:
         return 0;
     }
@@ -222,7 +243,7 @@ export default function ProjectList({
             color: T.tx,
             fontSize: "13px",
             fontFamily: "inherit",
-            minWidth: "160px",
+            minWidth: "200px",
           }}
         >
           <option value="mgmt">管理番号</option>
@@ -230,6 +251,13 @@ export default function ProjectList({
           <option value="date_asc">登録年月（古い順）</option>
           <option value="cat_koji">区分：工事→業務</option>
           <option value="cat_gyomu">区分：業務→工事</option>
+          <option value="status_flow">ステータス（進捗順）</option>
+          <option value="status_estimate">見積中のみ表示</option>
+          <option value="status_ordered">受注済のみ表示</option>
+          <option value="status_in_progress">施工中のみ表示</option>
+          <option value="status_completed">完了のみ表示</option>
+          <option value="status_billed">請求済のみ表示</option>
+          <option value="status_paid">入金済のみ表示</option>
         </select>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
