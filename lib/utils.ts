@@ -384,14 +384,14 @@ export const exportCSV = (
   costs: Cost[],
   quantities: Quantity[]
 ) => {
+  const fmtDate = (d: string) =>
+    d ? new Date(d).toLocaleDateString("ja-JP") : "—";
   let csv =
-    "管理番号,案件名,顧客,区分,施工形態,当初契約額,増減後受注額,実行予算,原価合計,粗利,利益率,マージン率,人工(人日),車両(台日),売上/人工,粗利/人工,進捗,ステータス,アーカイブ年度,削除日\n";
+    "管理番号,案件名,顧客,区分,施工形態,工期開始,工期終了,当初契約額,増減後受注額,実行予算,原価合計,粗利,利益率,マージン率,人工(人日),車両(台日),売上/人工,粗利/人工,進捗,ステータス,アーカイブ年度,削除日\n";
   projects.forEach((p) => {
     const st = projStats(p, costs, quantities);
-    const deletedAt = p.deletedAt
-      ? new Date(p.deletedAt).toLocaleDateString("ja-JP")
-      : "—";
-    csv += `"${p.managementNumber ?? ""}","${p.name}","${p.client}","${p.category}","${p.mode === "subcontract" ? "一括外注" : "自社施工"}",${p.originalAmount},${st.effectiveContract},${p.budget},${st.totalCost},${st.profit},${st.profitRate}%,${p.mode === "subcontract" ? p.marginRate + "%" : "—"},${st.laborDays},${st.vehicleDays},${st.laborDays ? st.revenuePerLabor : "—"},${st.laborDays ? st.profitPerLabor : "—"},${p.progress}%,${STATUS_MAP[p.status]?.label},${p.archiveYear || "—"},${deletedAt}\n`;
+    const deletedAt = p.deletedAt ? fmtDate(p.deletedAt) : "—";
+    csv += `"${p.managementNumber ?? ""}","${p.name}","${p.client}","${p.category}","${p.mode === "subcontract" ? "一括外注" : "自社施工"}","${fmtDate(p.startDate)}","${fmtDate(p.endDate)}",${p.originalAmount},${st.effectiveContract},${p.budget},${st.totalCost},${st.profit},${st.profitRate}%,${p.mode === "subcontract" ? p.marginRate + "%" : "—"},${st.laborDays},${st.vehicleDays},${st.laborDays ? st.revenuePerLabor : "—"},${st.laborDays ? st.profitPerLabor : "—"},${p.progress}%,${STATUS_MAP[p.status]?.label},${p.archiveYear || "—"},${deletedAt}\n`;
   });
   const blob = new Blob(["\uFEFF" + csv], {
     type: "text/csv;charset=utf-8;",

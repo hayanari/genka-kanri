@@ -62,6 +62,7 @@ export default function Home() {
   const [selId, setSelId] = useState<string | null>(null);
   const [sq, setSq] = useState("");
   const [sf, setSf] = useState("");
+  const [showCsvExportModal, setShowCsvExportModal] = useState(false);
 
   const nav = useCallback((v: string, pid?: string) => {
     setView(v);
@@ -480,9 +481,7 @@ export default function Home() {
           }}
         >
           <button
-            onClick={() =>
-              exportCSV(data.projects, data.costs, data.quantities)
-            }
+            onClick={() => setShowCsvExportModal(true)}
             style={{
               display: "flex",
               alignItems: "center",
@@ -680,6 +679,110 @@ export default function Home() {
           />
         )}
       </div>
+      {showCsvExportModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            zIndex: 1000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "16px",
+          }}
+          onClick={() => setShowCsvExportModal(false)}
+        >
+          <div
+            style={{
+              background: T.bg,
+              borderRadius: "12px",
+              padding: "24px",
+              maxWidth: "360px",
+              width: "100%",
+              border: `1px solid ${T.bd}`,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                fontSize: "16px",
+                fontWeight: 600,
+                color: T.tx,
+                marginBottom: "16px",
+              }}
+            >
+              CSV出力範囲を選択
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px",
+              }}
+            >
+              <button
+                onClick={() => {
+                  exportCSV(activeProjects, data.costs, data.quantities);
+                  setShowCsvExportModal(false);
+                }}
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: "8px",
+                  border: `1px solid ${T.bd}`,
+                  background: T.s,
+                  color: T.tx,
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  fontFamily: "inherit",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                📋 案件一覧のみ（{activeProjects.length}件）
+              </button>
+              <button
+                onClick={() => {
+                  const withArchive = [...activeProjects, ...archivedProjects];
+                  exportCSV(withArchive, data.costs, data.quantities);
+                  setShowCsvExportModal(false);
+                }}
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: "8px",
+                  border: `1px solid ${T.bd}`,
+                  background: T.s,
+                  color: T.tx,
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  fontFamily: "inherit",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                📦 アーカイブ含む（{activeProjects.length + archivedProjects.length}件）
+              </button>
+              <button
+                onClick={() => setShowCsvExportModal(false)}
+                style={{
+                  padding: "10px 16px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "transparent",
+                  color: T.ts,
+                  fontSize: "13px",
+                  fontFamily: "inherit",
+                  cursor: "pointer",
+                  marginTop: "4px",
+                }}
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     </AuthGuard>
   );
