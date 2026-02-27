@@ -585,7 +585,6 @@ export default function Home() {
             quantities={data.quantities}
             onSelect={(id) => navWithClose("detail", id)}
             onAdd={() => navWithClose("new")}
-            onImport={importProjects}
             sq={sq}
             setSq={setSq}
             sf={sf}
