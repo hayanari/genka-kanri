@@ -76,10 +76,18 @@ export default function ProjectList({
   const statusFilter =
     isStatusOnlySort ? sortBy.replace("status_", "") : sf;
 
+  const isCatOnlySort = sortBy === "cat_koji" || sortBy === "cat_gyomu";
+  const categoryFilter = isCatOnlySort
+    ? sortBy === "cat_koji"
+      ? "工事"
+      : "業務"
+    : "";
+
   const filtered = projects.filter((p) => {
     const ms = !sq || p.name.includes(sq) || p.client.includes(sq);
     const mf = !statusFilter || p.status === statusFilter;
-    return ms && mf;
+    const mcat = !categoryFilter || p.category === categoryFilter;
+    return ms && mf && mcat;
   });
 
   const STATUS_ORDER = ["estimate", "ordered", "in_progress", "completed", "billed", "paid"];
@@ -99,10 +107,7 @@ export default function ProjectList({
       case "date_asc":
         return -dateCmp(a, b);
       case "cat_koji":
-        if (a.category !== b.category) return a.category === "工事" ? -1 : 1;
-        return dateCmp(a, b);
       case "cat_gyomu":
-        if (a.category !== b.category) return a.category === "業務" ? -1 : 1;
         return dateCmp(a, b);
       case "status_estimate":
       case "status_ordered":
@@ -249,8 +254,8 @@ export default function ProjectList({
           <option value="mgmt">管理番号</option>
           <option value="date_desc">登録年月（新しい順）</option>
           <option value="date_asc">登録年月（古い順）</option>
-          <option value="cat_koji">区分：工事→業務</option>
-          <option value="cat_gyomu">区分：業務→工事</option>
+          <option value="cat_koji">工事のみ表示</option>
+          <option value="cat_gyomu">業務のみ表示</option>
           <option value="status_flow">ステータス（進捗順）</option>
           <option value="status_estimate">見積中のみ表示</option>
           <option value="status_ordered">受注済のみ表示</option>
