@@ -210,6 +210,13 @@ export default function Home() {
     setData((d) => ({ ...d, costs: [...d.costs, c] }));
   };
 
+  const updateCost = (c: Cost) => {
+    setData((d) => ({
+      ...d,
+      costs: d.costs.map((x) => (x.id === c.id ? c : x)),
+    }));
+  };
+
   const deleteCost = (id: string) => {
     setData((d) => ({ ...d, costs: d.costs.filter((c) => c.id !== id) }));
   };
@@ -668,6 +675,7 @@ export default function Home() {
             onUnarchiveProject={unarchiveProject}
             onRestoreProject={restoreProject}
             onAddCost={addCost}
+            onUpdateCost={updateCost}
             onDeleteCost={deleteCost}
             onAddQty={addQty}
             onDeleteQty={deleteQty}

@@ -42,6 +42,7 @@ export default function ProjectDetail({
   onUnarchiveProject,
   onRestoreProject,
   onAddCost,
+  onUpdateCost,
   onDeleteCost,
   onAddQty,
   onDeleteQty,
@@ -61,6 +62,7 @@ export default function ProjectDetail({
   onUnarchiveProject: (pid: string) => void;
   onRestoreProject?: (pid: string) => void;
   onAddCost: (c: Cost) => void;
+  onUpdateCost: (c: Cost) => void;
   onDeleteCost: (id: string) => void;
   onAddQty: (q: Quantity) => void;
   onDeleteQty: (id: string) => void;
@@ -73,6 +75,7 @@ export default function ProjectDetail({
   const defaultTab = "costs";
   const [tab, setTab] = useState(defaultTab);
   const [costModal, setCostModal] = useState(false);
+  const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [qtyModal, setQtyModal] = useState(false);
   const [payModal, setPayModal] = useState(false);
   const [changeModal, setChangeModal] = useState(false);
@@ -124,13 +127,23 @@ export default function ProjectDetail({
   });
 
   const handleAddCost = () => {
-    onAddCost({
-      id: genId(),
-      projectId: p.id,
-      ...cf,
-      amount: Number(cf.amount),
-    });
+    if (editingCostId) {
+      onUpdateCost({
+        id: editingCostId,
+        projectId: p.id,
+        ...cf,
+        amount: Number(cf.amount),
+      });
+    } else {
+      onAddCost({
+        id: genId(),
+        projectId: p.id,
+        ...cf,
+        amount: Number(cf.amount),
+      });
+    }
     setCostModal(false);
+    setEditingCostId(null);
     setCf({
       category: "material",
       description: "",
@@ -138,6 +151,18 @@ export default function ProjectDetail({
       date: new Date().toISOString().slice(0, 10),
       vendor: "",
     });
+  };
+
+  const openCostEdit = (c: Cost) => {
+    setEditingCostId(c.id);
+    setCf({
+      category: c.category,
+      description: c.description,
+      amount: String(c.amount),
+      date: c.date,
+      vendor: c.vendor,
+    });
+    setCostModal(true);
   };
   const handleAddQty = () => {
     const isVehicle = qf.category === "vehicle";
@@ -600,7 +625,21 @@ export default function ProjectDetail({
               原価明細（実費）
               {isSubcontract ? " ※打合せ等" : ""} {st.costs.length}件
             </h4>
-            <Btn v="primary" sm onClick={() => setCostModal(true)}>
+            <Btn
+              v="primary"
+              sm
+              onClick={() => {
+                setEditingCostId(null);
+                setCf({
+                  category: "material",
+                  description: "",
+                  amount: "",
+                  date: new Date().toISOString().slice(0, 10),
+                  vendor: "",
+                });
+                setCostModal(true);
+              }}
+            >
               {Icons.plus} 原価追加
             </Btn>
           </div>
@@ -696,18 +735,34 @@ export default function ProjectDetail({
                           ¥{fmt(c.amount)}
                         </td>
                         <td style={{ padding: "10px 4px" }}>
-                          <button
-                            onClick={() => onDeleteCost(c.id)}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: T.ts,
-                              cursor: "pointer",
-                              opacity: 0.6,
-                            }}
-                          >
-                            {Icons.trash}
-                          </button>
+                          <span style={{ display: "flex", gap: "4px" }}>
+                            <button
+                              onClick={() => openCostEdit(c)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: T.ts,
+                                cursor: "pointer",
+                                opacity: 0.6,
+                              }}
+                              title="編集"
+                            >
+                              {Icons.edit}
+                            </button>
+                            <button
+                              onClick={() => onDeleteCost(c.id)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: T.ts,
+                                cursor: "pointer",
+                                opacity: 0.6,
+                              }}
+                              title="削除"
+                            >
+                              {Icons.trash}
+                            </button>
+                          </span>
                         </td>
                       </tr>
                     );
@@ -1690,7 +1745,15 @@ export default function ProjectDetail({
         </Card>
       )}
 
-      <Modal open={costModal} onClose={() => setCostModal(false)} title="原価追加（実費）" w={480}>
+      <Modal
+        open={costModal}
+        onClose={() => {
+          setCostModal(false);
+          setEditingCostId(null);
+        }}
+        title={editingCostId ? "原価編集（実費）" : "原価追加（実費）"}
+        w={480}
+      >
         <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
           <Sel
             label="区分"
@@ -1740,9 +1803,16 @@ export default function ProjectDetail({
               marginTop: "8px",
             }}
           >
-            <Btn onClick={() => setCostModal(false)}>キャンセル</Btn>
+            <Btn
+              onClick={() => {
+                setCostModal(false);
+                setEditingCostId(null);
+              }}
+            >
+              キャンセル
+            </Btn>
             <Btn v="primary" onClick={handleAddCost}>
-              追加
+              {editingCostId ? "更新" : "追加"}
             </Btn>
           </div>
         </div>
