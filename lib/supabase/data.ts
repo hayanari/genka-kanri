@@ -60,7 +60,10 @@ export async function loadData(): Promise<{
     }
 
     const vehicles = (stored.vehicles ?? DEFAULT_VEHICLES) as Vehicle[];
-    const processMasters = (stored.processMasters ?? DEFAULT_PROCESS_MASTERS) as ProcessMaster[];
+    let processMasters = (stored.processMasters ?? DEFAULT_PROCESS_MASTERS) as ProcessMaster[];
+    const storedIds = new Set(processMasters.map((m) => m.id));
+    const toAdd = DEFAULT_PROCESS_MASTERS.filter((m) => !storedIds.has(m.id));
+    if (toAdd.length > 0) processMasters = [...processMasters, ...toAdd];
     let projects = ensureRegisteredProjects((stored.projects ?? []) as Project[]);
     projects = projects.map((p) =>
       p.category === "清掃業務" ? { ...p, category: "業務" } : p
