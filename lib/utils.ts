@@ -68,6 +68,15 @@ export interface Vehicle {
   registration: string; // ナンバープレート表示（例: 堺 800 さ 1299）
 }
 
+/** 工程マスタ（設計書の工種に対応） */
+export interface ProcessMaster {
+  id: string;
+  name: string;
+  icon: string;
+  defaultSubs: string[]; // デフォルト作業項目
+  sortOrder?: number;
+}
+
 export interface Quantity {
   id: string;
   projectId: string;
@@ -111,6 +120,33 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
   { id: "v29", registration: "大阪 400 む 9052" },
   { id: "v30", registration: "大阪 800 そ 7329" },
   { id: "v31", registration: "大阪 800 は 2214" },
+];
+
+export const DEFAULT_PROCESS_MASTERS: ProcessMaster[] = [
+  { id: "pm01", name: "管きょ洗浄工", icon: "🚿", defaultSubs: ["高圧洗浄", "汚泥回収", "完了確認"], sortOrder: 1 },
+  { id: "pm02", name: "管路施設調査工（TVカメラ）", icon: "📹", defaultSubs: ["機器設置", "カメラ挿入・撮影", "側視", "記録整理"], sortOrder: 2 },
+  { id: "pm03", name: "施工前処理工", icon: "🔧", defaultSubs: ["取付管突出処理", "モルタル除去", "木根除去"], sortOrder: 3 },
+  { id: "pm04", name: "管きょ更生工", icon: "🏗️", defaultSubs: ["更生材料", "反転・形成", "仕上（管口切断・仕上）", "仮設備（設置・撤去）"], sortOrder: 4 },
+  { id: "pm05", name: "換気工", icon: "💨", defaultSubs: ["換気設備設置", "運転", "撤去"], sortOrder: 5 },
+  { id: "pm06", name: "水替工", icon: "💧", defaultSubs: ["ポンプ設置", "止水プラグ設置", "排水運転", "撤去"], sortOrder: 6 },
+  { id: "pm07", name: "交通管理工", icon: "🚦", defaultSubs: ["交通規制設置", "誘導警備員配置", "規制撤去"], sortOrder: 7 },
+  { id: "pm08", name: "検査・是正", icon: "✅", defaultSubs: ["自主検査", "発注者検査", "是正対応", "完了確認"], sortOrder: 8 },
+  { id: "pm09", name: "引渡し", icon: "🤝", defaultSubs: ["書類整備", "引渡"], sortOrder: 9 },
+  { id: "pm10", name: "路面清掃工", icon: "🧹", defaultSubs: ["路肩清掃（人力）", "完了確認"], sortOrder: 10 },
+  { id: "pm11", name: "側溝清掃工（人力）", icon: "🪣", defaultSubs: ["蓋開け", "清掃", "蓋閉め", "完了確認"], sortOrder: 11 },
+  { id: "pm12", name: "側溝清掃工（機械）", icon: "🚛", defaultSubs: ["機械搬入", "高圧洗浄", "汚泥吸引", "搬出", "完了確認"], sortOrder: 12 },
+  { id: "pm13", name: "管渠清掃工", icon: "🔄", defaultSubs: ["高圧洗浄車作業", "汚泥吸引", "完了確認"], sortOrder: 13 },
+  { id: "pm14", name: "桝清掃工", icon: "⬛", defaultSubs: ["蓋開け", "清掃・土砂除去", "蓋閉め", "完了確認"], sortOrder: 14 },
+  { id: "pm15", name: "ポンプ室清掃工", icon: "⚙️", defaultSubs: ["高圧洗浄", "汚泥吸引", "清掃完了確認"], sortOrder: 15 },
+  { id: "pm16", name: "応急処理作業工", icon: "🚨", defaultSubs: ["緊急調査", "緊急排水施設清掃"], sortOrder: 16 },
+  { id: "pm17", name: "残土処理工", icon: "🚚", defaultSubs: ["土砂積込", "運搬", "処分"], sortOrder: 17 },
+  { id: "pm18", name: "本管潜行目視調査工", icon: "👷", defaultSubs: ["入坑準備", "潜行調査", "記録", "退坑・片付"], sortOrder: 18 },
+  { id: "pm19", name: "マンホール目視調査工", icon: "🔍", defaultSubs: ["蓋開け", "目視調査・記録", "蓋閉め"], sortOrder: 19 },
+  { id: "pm20", name: "本管TVカメラ調査工", icon: "📹", defaultSubs: ["機器設置", "カメラ挿入", "撮影・側視", "記録整理"], sortOrder: 20 },
+  { id: "pm21", name: "管きょ内洗浄工", icon: "🚿", defaultSubs: ["高圧洗浄車作業", "汚泥回収", "完了確認"], sortOrder: 21 },
+  { id: "pm22", name: "報告書作成工", icon: "📋", defaultSubs: ["データ整理", "報告書作成", "チェック・校正", "提出"], sortOrder: 22 },
+  { id: "pm23", name: "安全費", icon: "🦺", defaultSubs: ["換気設備", "監視人配置"], sortOrder: 23 },
+  { id: "pm24", name: "設計業務", icon: "📐", defaultSubs: ["管路実施設計", "耐震設計", "報告書作成", "設計協議"], sortOrder: 24 },
 ];
 
 export interface ProjectStats {
@@ -371,6 +407,7 @@ export const ensureRegisteredProjects = (projects: Project[]): Project[] => {
 
 export const createEmptyData = () => ({
   vehicles: [...DEFAULT_VEHICLES],
+  processMasters: [...DEFAULT_PROCESS_MASTERS],
   projects: ensureManagementNumbers(
     REGISTERED_PROJECTS.map((r, i) => ({ ...r, id: `p${i + 1}` } as Project))
   ),

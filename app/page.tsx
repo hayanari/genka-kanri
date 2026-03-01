@@ -14,6 +14,7 @@ import type {
   Quantity,
   Vehicle,
   BidSchedule,
+  ProcessMaster as ProcessMasterType,
 } from "@/lib/utils";
 import { bidScheduleToProject, getNextManagementNumber } from "@/lib/utils";
 import { genId } from "@/lib/constants";
@@ -23,6 +24,7 @@ import ProjectList from "@/components/ProjectList";
 import ProjectDetail from "@/components/ProjectDetail";
 import NewProject from "@/components/NewProject";
 import VehicleMaster from "@/components/VehicleMaster";
+import ProcessMaster from "@/components/ProcessMaster";
 import BidScheduleList from "@/components/BidScheduleList";
 import NewBidSchedule from "@/components/NewBidSchedule";
 
@@ -34,6 +36,7 @@ export default function Home() {
       costs: Cost[];
       quantities: Quantity[];
       vehicles: Vehicle[];
+      processMasters: ProcessMasterType[];
       bidSchedules: BidSchedule[];
     }
   >(createEmptyData);
@@ -236,6 +239,10 @@ export default function Home() {
     setData((d) => ({ ...d, vehicles }));
   };
 
+  const updateProcessMasters = (processMasters: ProcessMasterType[]) => {
+    setData((d) => ({ ...d, processMasters }));
+  };
+
   const addPayment = (
     pid: string,
     pay: { id: string; date: string; amount: number; note: string }
@@ -330,6 +337,7 @@ export default function Home() {
     { id: "archive", label: "アーカイブ", icon: Icons.archive },
     { id: "deleted", label: "削除済み", icon: Icons.trash },
     { id: "vehicles", label: "車両マスタ", icon: Icons.truck },
+    { id: "processmasters", label: "工程マスタ", icon: Icons.process },
   ];
 
   const handleLogout = async () => {
@@ -460,6 +468,7 @@ export default function Home() {
                   (view === "detail" &&
                     (n.id === "list" || n.id === "archive" || n.id === "deleted")) ||
                   (view === "vehicles" && n.id === "vehicles") ||
+                  (view === "processmasters" && n.id === "processmasters") ||
                   ((view === "bidschedule" || view === "newbidschedule") && n.id === "bidschedule")
                     ? T.al
                     : "transparent",
@@ -468,6 +477,7 @@ export default function Home() {
                   (view === "detail" &&
                     (n.id === "list" || n.id === "archive" || n.id === "deleted")) ||
                   (view === "vehicles" && n.id === "vehicles") ||
+                  (view === "processmasters" && n.id === "processmasters") ||
                   ((view === "bidschedule" || view === "newbidschedule") && n.id === "bidschedule")
                     ? T.ac
                     : T.ts,
@@ -652,6 +662,12 @@ export default function Home() {
           <VehicleMaster
             vehicles={data.vehicles}
             onUpdate={updateVehicles}
+          />
+        )}
+        {!loading && view === "processmasters" && (
+          <ProcessMaster
+            processMasters={data.processMasters}
+            onUpdate={updateProcessMasters}
           />
         )}
         {!loading && view === "detail" && selProj && (

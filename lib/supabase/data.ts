@@ -1,6 +1,6 @@
 import { createClient } from "./client";
-import type { Project, Cost, Quantity, Vehicle, BidSchedule } from "../utils";
-import { createEmptyData, DEFAULT_VEHICLES, ensureRegisteredProjects, ensureManagementNumbers } from "../utils";
+import type { Project, Cost, Quantity, Vehicle, BidSchedule, ProcessMaster } from "../utils";
+import { createEmptyData, DEFAULT_VEHICLES, DEFAULT_PROCESS_MASTERS, ensureRegisteredProjects, ensureManagementNumbers } from "../utils";
 
 /** データ消失を防ぐ: 空の projects/vehicles を保存しない */
 function sanitizeBeforeSave(data: {
@@ -8,6 +8,7 @@ function sanitizeBeforeSave(data: {
   costs: Cost[];
   quantities: Quantity[];
   vehicles?: { id: string; registration: string }[];
+  processMasters?: ProcessMaster[];
   bidSchedules?: BidSchedule[];
 }) {
   const empty = createEmptyData();
@@ -15,12 +16,15 @@ function sanitizeBeforeSave(data: {
     Array.isArray(data.projects) && data.projects.length > 0 ? data.projects : empty.projects;
   const vehicles =
     Array.isArray(data.vehicles) && data.vehicles.length > 0 ? data.vehicles : empty.vehicles;
+  const processMasters =
+    Array.isArray(data.processMasters) && data.processMasters.length > 0 ? data.processMasters : empty.processMasters;
   const bidSchedules = Array.isArray(data.bidSchedules) ? data.bidSchedules : [];
   return {
     projects,
     costs: data.costs ?? [],
     quantities: data.quantities ?? [],
     vehicles,
+    processMasters,
     bidSchedules,
   };
 }
@@ -30,6 +34,7 @@ export async function loadData(): Promise<{
   costs: Cost[];
   quantities: Quantity[];
   vehicles: Vehicle[];
+  processMasters: ProcessMaster[];
   bidSchedules: BidSchedule[];
 }> {
   try {
@@ -46,6 +51,7 @@ export async function loadData(): Promise<{
       costs?: unknown[];
       quantities?: unknown[];
       vehicles?: Vehicle[];
+      processMasters?: ProcessMaster[];
       bidSchedules?: BidSchedule[];
     } | null;
 
@@ -54,6 +60,7 @@ export async function loadData(): Promise<{
     }
 
     const vehicles = (stored.vehicles ?? DEFAULT_VEHICLES) as Vehicle[];
+    const processMasters = (stored.processMasters ?? DEFAULT_PROCESS_MASTERS) as ProcessMaster[];
     let projects = ensureRegisteredProjects((stored.projects ?? []) as Project[]);
     projects = projects.map((p) =>
       p.category === "清掃業務" ? { ...p, category: "業務" } : p
@@ -65,6 +72,7 @@ export async function loadData(): Promise<{
       costs: (stored.costs ?? []) as Cost[],
       quantities: (stored.quantities ?? []) as Quantity[],
       vehicles: Array.isArray(vehicles) && vehicles.length > 0 ? vehicles : DEFAULT_VEHICLES,
+      processMasters: Array.isArray(processMasters) && processMasters.length > 0 ? processMasters : DEFAULT_PROCESS_MASTERS,
       bidSchedules,
     };
   } catch {
@@ -77,6 +85,7 @@ export async function saveData(data: {
   costs: Cost[];
   quantities: Quantity[];
   vehicles?: { id: string; registration: string }[];
+  processMasters?: ProcessMaster[];
   bidSchedules?: BidSchedule[];
 }): Promise<boolean> {
   try {
@@ -87,6 +96,7 @@ export async function saveData(data: {
       costs: sanitized.costs,
       quantities: sanitized.quantities,
       vehicles: sanitized.vehicles,
+      processMasters: sanitized.processMasters,
       bidSchedules: sanitized.bidSchedules,
     };
     const { error } = await supabase
