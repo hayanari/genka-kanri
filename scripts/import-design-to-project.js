@@ -1,7 +1,8 @@
 /**
- * 榎元町ほか下水管耐震化工事（７－２１）案件に設計書から工程を投入
- * 実行: node scripts/import-design-to-project.js
- * または: npm run import-design
+ * 設計書から工程を投入（堺市 上下水道局 令和7年度 工事）
+ * 実行: npm run import-design                    → 榎元町
+ *       npm run import-design-kurumachi          → 車之町東
+ *       node scripts/import-design-to-project.js "工事フォルダ名" "案件名"  → 任意
  */
 require("dotenv").config({ path: require("path").resolve(__dirname, "..", ".env.local") });
 
@@ -11,8 +12,8 @@ const path = require("path");
 const XLSX = require("xlsx");
 const { createClient } = require("@supabase/supabase-js");
 
-const PROJECT_NAME = "榎元町ほか下水管耐震化工事（７－２１）";
-
+const args = process.argv.slice(2);
+const JOB_FOLDER = args[0] || "榎元町ほか下水管耐震化工事（７－２１）";
 const DESIGN_PATH = path.join(
   process.env.USERPROFILE || process.env.HOME || "",
   "OneDrive - 株式会社トキト",
@@ -24,10 +25,11 @@ const DESIGN_PATH = path.join(
   "上下水道局",
   "令和7年度",
   "工事",
-  "榎元町ほか下水管耐震化工事（７－２１）",
+  JOB_FOLDER,
   "編集前",
   "設計書.xlsx"
 );
+const PROJECT_NAME = args[1] || JOB_FOLDER;
 
 const genId = () => Math.random().toString(36).slice(2, 10);
 
@@ -38,7 +40,7 @@ const isHeader = (s) =>
   /^(工事費内訳|国費|工事区分|単位|数量|単価|金額|摘要)/.test(s) || s === "式";
 
 function extractSpansFromDaika(wb) {
-  const sh = wb.Sheets["代価1"];
+  const sh = wb.Sheets["代価1"] || wb.Sheets["代価"];
   if (!sh) return [];
   const data = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" });
   const spans = [];
@@ -59,7 +61,7 @@ function extractSpansFromDaika(wb) {
 
 function parseDesignBook(buffer) {
   const wb = XLSX.read(buffer, { type: "buffer" });
-  const sh = wb.Sheets["内訳1"];
+  const sh = wb.Sheets["内訳1"] || wb.Sheets["内訳"];
   if (!sh) return [];
 
   const data = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" });

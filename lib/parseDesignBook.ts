@@ -10,9 +10,9 @@ const isDiameter = (s: string) => /^φ\d+$/.test(s);
 const isHeader = (s: string) =>
   /^(工事費内訳|国費|工事区分|単位|数量|単価|金額|摘要)/.test(s) || s === "式";
 
-/** 代価1シートからスパン情報を抽出 */
+/** 代価シート（代価1 or 代価）からスパン情報を抽出 */
 function extractSpansFromDaika(wb: XLSX.WorkBook): { dia: string; len: string }[] {
-  const sh = wb.Sheets["代価1"];
+  const sh = wb.Sheets["代価1"] ?? wb.Sheets["代価"];
   if (!sh) return [];
   const data = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" }) as string[][];
   const spans: { dia: string; len: string }[] = [];
@@ -34,7 +34,7 @@ function extractSpansFromDaika(wb: XLSX.WorkBook): { dia: string; len: string }[
 /** 設計書（内訳1 + 代価1）をパースして ProjectProcess[] を生成 */
 export function parseDesignBookToProcesses(buffer: ArrayBuffer): ProjectProcess[] {
   const wb = XLSX.read(buffer, { type: "array" });
-  const sh = wb.Sheets["内訳1"];
+  const sh = wb.Sheets["内訳1"] ?? wb.Sheets["内訳"];
   if (!sh) return [];
 
   const data = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" }) as string[][];
