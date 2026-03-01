@@ -34,6 +34,30 @@ export interface Project {
   archiveYear?: string;
   deleted?: boolean;
   deletedAt?: string;
+  /** 工程管理（工程→区間→作業項目） */
+  projectProcesses?: ProjectProcess[];
+}
+
+export interface ProjectProcess {
+  id: string;
+  processMasterId: string;
+  status: "pending" | "active" | "done" | "hold";
+  sortOrder: number;
+  sections: ProjectSection[];
+}
+
+export interface ProjectSection {
+  id: string;
+  name: string;
+  sortOrder: number;
+  subtasks: ProjectSubtask[];
+}
+
+export interface ProjectSubtask {
+  id: string;
+  name: string;
+  done: boolean;
+  sortOrder: number;
 }
 
 export interface Cost {

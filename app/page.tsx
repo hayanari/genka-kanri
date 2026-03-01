@@ -676,6 +676,7 @@ export default function Home() {
             costs={data.costs}
             quantities={data.quantities}
             vehicles={data.vehicles}
+            processMasters={data.processMasters}
             onBack={() =>
               navWithClose(
                 selProj.deleted

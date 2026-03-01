@@ -14,7 +14,16 @@ import {
   T,
 } from "@/lib/constants";
 import { getEffectiveContract, projStats } from "@/lib/utils";
-import type { Project, Cost, Quantity, Vehicle } from "@/lib/utils";
+import type {
+  Project,
+  Cost,
+  Quantity,
+  Vehicle,
+  ProcessMaster,
+  ProjectProcess,
+  ProjectSection,
+  ProjectSubtask,
+} from "@/lib/utils";
 import {
   Badge,
   ModeBadge,
@@ -35,6 +44,7 @@ export default function ProjectDetail({
   costs: allCosts,
   quantities: allQty,
   vehicles = [],
+  processMasters = [],
   onBack,
   onUpdateProject,
   onDeleteProject,
@@ -55,6 +65,7 @@ export default function ProjectDetail({
   costs: Cost[];
   quantities: Quantity[];
   vehicles?: Vehicle[];
+  processMasters?: ProcessMaster[];
   onBack: () => void;
   onUpdateProject: (u: Project) => void;
   onDeleteProject: (pid: string) => void;
@@ -83,6 +94,13 @@ export default function ProjectDetail({
   const [deleteConfirmModal, setDeleteConfirmModal] = useState(false);
   const [archiveModal, setArchiveModal] = useState(false);
   const [unarchiveConfirmModal, setUnarchiveConfirmModal] = useState(false);
+  const [processAddModal, setProcessAddModal] = useState(false);
+  const [expandedProcId, setExpandedProcId] = useState<string | null>(null);
+  const [expandedSecId, setExpandedSecId] = useState<string | null>(null);
+  const [addSectionProcId, setAddSectionProcId] = useState<string | null>(null);
+  const [addSectionName, setAddSectionName] = useState("");
+  const [addSubtaskSecId, setAddSubtaskSecId] = useState<string | null>(null);
+  const [addSubtaskName, setAddSubtaskName] = useState("");
   const [archiveYear, setArchiveYear] = useState(
     () => new Date().getFullYear().toString()
   );
@@ -207,6 +225,132 @@ export default function ProjectDetail({
       note: "",
     });
   };
+  const updateProjectProcesses = (next: ProjectProcess[]) => {
+    onUpdateProject({ ...p, projectProcesses: next });
+  };
+
+  const handleAddProcess = (processMasterId: string) => {
+    const master = getProcessMaster(processMasterId);
+    if (!master) return;
+    const sorted = [...(p.projectProcesses ?? [])].sort(
+      (a, b) => a.sortOrder - b.sortOrder
+    );
+    const maxOrder = sorted.length ? sorted[sorted.length - 1].sortOrder : 0;
+    updateProjectProcesses([
+      ...(p.projectProcesses ?? []),
+      {
+        id: genId(),
+        processMasterId,
+        status: "pending",
+        sortOrder: maxOrder + 1,
+        sections: [],
+      },
+    ]);
+    setProcessAddModal(false);
+  };
+
+  const handleAddSection = (procId: string) => {
+    const name = addSectionName.trim();
+    if (!name) return;
+    const master = (p.projectProcesses ?? []).find((x) => x.id === procId);
+    const pm = master ? getProcessMaster(master.processMasterId) : null;
+    const defaultSubs = (pm?.defaultSubs ?? []).map((n, i) => ({
+      id: genId(),
+      name: n,
+      done: false,
+      sortOrder: i,
+    }));
+    updateProjectProcesses(
+      (p.projectProcesses ?? []).map((proc) =>
+        proc.id === procId
+          ? {
+              ...proc,
+              sections: [
+                ...proc.sections,
+                {
+                  id: genId(),
+                  name,
+                  sortOrder: proc.sections.length,
+                  subtasks: defaultSubs,
+                },
+              ],
+            }
+          : proc
+      )
+    );
+    setAddSectionProcId(null);
+    setAddSectionName("");
+  };
+
+  const handleAddSubtask = (secId: string, procId: string) => {
+    const name = addSubtaskName.trim();
+    if (!name) return;
+    updateProjectProcesses(
+      (p.projectProcesses ?? []).map((proc) =>
+        proc.id === procId
+          ? {
+              ...proc,
+              sections: proc.sections.map((sec) =>
+                sec.id === secId
+                  ? {
+                      ...sec,
+                      subtasks: [
+                        ...sec.subtasks,
+                        {
+                          id: genId(),
+                          name,
+                          done: false,
+                          sortOrder: sec.subtasks.length,
+                        },
+                      ],
+                }
+                  : sec
+              ),
+            }
+          : proc
+      )
+    );
+    setAddSubtaskSecId(null);
+    setAddSubtaskName("");
+  };
+
+  const handleToggleSubtask = (
+    procId: string,
+    secId: string,
+    subId: string
+  ) => {
+    updateProjectProcesses(
+      (p.projectProcesses ?? []).map((proc) =>
+        proc.id === procId
+          ? {
+              ...proc,
+              sections: proc.sections.map((sec) =>
+                sec.id === secId
+                  ? {
+                      ...sec,
+                      subtasks: sec.subtasks.map((s) =>
+                        s.id === subId ? { ...s, done: !s.done } : s
+                      ),
+                    }
+                  : sec
+              ),
+            }
+          : proc
+      )
+    );
+  };
+
+  const handleDeleteProcess = (procId: string) => {
+    if (!confirm("この工程を削除しますか？")) return;
+    updateProjectProcesses(
+      (p.projectProcesses ?? []).filter((x) => x.id !== procId)
+    );
+  };
+
+  const handleSyncProgress = () => {
+    onUpdateProject({ ...p, progress: processProgressPct });
+  };
+
   const handleAddChange = () => {
     onAddChange(p.id, {
       id: genId(),
@@ -226,6 +370,7 @@ export default function ProjectDetail({
     ? [
         { id: "costs", label: "💰 原価明細" },
         { id: "labor", label: "👷 人工・車両" },
+        { id: "process", label: "📋 工程管理" },
         { id: "payments", label: "🏦 入金管理" },
         { id: "changes", label: "📝 増減額" },
         { id: "summary", label: "📊 収支サマリー" },
@@ -233,10 +378,29 @@ export default function ProjectDetail({
     : [
         { id: "costs", label: "💰 原価明細" },
         { id: "labor", label: "👷 人工・車両" },
+        { id: "process", label: "📋 工程管理" },
         { id: "payments", label: "🏦 入金管理" },
         { id: "changes", label: "📝 増減額" },
         { id: "summary", label: "📊 サマリー" },
       ];
+
+  const procs = p.projectProcesses ?? [];
+  const calcProcessProgress = () => {
+    let total = 0;
+    let done = 0;
+    procs.forEach((proc) => {
+      proc.sections?.forEach((sec) => {
+        sec.subtasks?.forEach((s) => {
+          total++;
+          if (s.done) done++;
+        });
+      });
+    });
+    return total > 0 ? Math.round((done / total) * 100) : 0;
+  };
+  const processProgressPct = calcProcessProgress();
+  const getProcessMaster = (id: string) =>
+    processMasters.find((m) => m.id === id);
 
   return (
     <div>
@@ -564,11 +728,37 @@ export default function ProjectDetail({
                   marginBottom: "6px",
                 }}
               >
-                <span style={{ fontSize: "12px", color: T.ts }}>進捗</span>
+                <span style={{ fontSize: "12px", color: T.ts }}>
+                  進捗
+                  {procs.length > 0 && (
+                    <span
+                      style={{
+                        marginLeft: "8px",
+                        fontSize: "11px",
+                        color: T.ts,
+                        opacity: 0.8,
+                      }}
+                    >
+                      （手入力）
+                    </span>
+                  )}
+                </span>
                 <span
                   style={{ fontSize: "12px", fontWeight: 600, color: T.tx }}
                 >
                   {p.progress}%
+                  {procs.length > 0 && processProgressPct > 0 && (
+                    <span
+                      style={{
+                        marginLeft: "6px",
+                        fontSize: "11px",
+                        color: T.ac,
+                        fontWeight: 500,
+                      }}
+                    >
+                      工程: {processProgressPct}%
+                    </span>
+                  )}
                 </span>
               </div>
               <Bar value={p.progress} h={8} />
@@ -1046,6 +1236,546 @@ export default function ProjectDetail({
                   })}
               </tbody>
             </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {tab === "process" && (
+        <Card>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "16px",
+              flexWrap: "wrap",
+              gap: "12px",
+            }}
+          >
+            <div>
+              <h4 style={{ margin: 0, fontSize: "14px", color: T.tx }}>
+                工程管理
+              </h4>
+              <p style={{ margin: "4px 0 0", fontSize: "12px", color: T.ts }}>
+                {procs.length === 0
+                  ? "工程を追加して進捗を管理"
+                  : `工程進捗: ${processProgressPct}%（${procs.reduce((s, pr) => s + pr.sections.reduce((a, sec) => a + sec.subtasks.length, 0), 0)}項目中${procs.reduce((s, pr) => s + pr.sections.reduce((a, sec) => a + sec.subtasks.filter((x) => x.done).length, 0), 0)}完了）`}
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              {procs.length > 0 && processProgressPct > 0 && (
+                <Btn v="default" sm onClick={handleSyncProgress}>
+                  工程進捗を手入力進捗に反映
+                </Btn>
+              )}
+              <Btn v="primary" sm onClick={() => setProcessAddModal(true)}>
+                {Icons.plus} 工程追加
+              </Btn>
+            </div>
+          </div>
+
+          {procs.length === 0 ? (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "40px",
+                color: T.ts,
+                fontSize: "13px",
+              }}
+            >
+              工程がありません。「工程追加」から工程マスタの工程を選んで追加してください。
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {[...procs]
+                .sort((a, b) => a.sortOrder - b.sortOrder)
+                .map((proc) => {
+                  const pm = getProcessMaster(proc.processMasterId);
+                  const totalSubs = proc.sections.reduce(
+                    (s, sec) => s + sec.subtasks.length,
+                    0
+                  );
+                  const doneSubs = proc.sections.reduce(
+                    (s, sec) =>
+                      s + sec.subtasks.filter((x) => x.done).length,
+                    0
+                  );
+                  const procPct =
+                    totalSubs > 0 ? Math.round((doneSubs / totalSubs) * 100) : 0;
+                  const isExpanded = expandedProcId === proc.id;
+                  return (
+                    <div
+                      key={proc.id}
+                      style={{
+                        border: `1px solid ${T.bd}`,
+                        borderRadius: "8px",
+                        overflow: "hidden",
+                        background: T.s2,
+                      }}
+                    >
+                      <div
+                        onClick={() =>
+                          setExpandedProcId(isExpanded ? null : proc.id)
+                        }
+                        style={{
+                          padding: "12px 16px",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px",
+                          justifyContent: "space-between",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span style={{ fontSize: "18px" }}>
+                          {pm?.icon ?? "📌"}
+                        </span>
+                        <span
+                          style={{
+                            flex: 1,
+                            fontSize: "14px",
+                            fontWeight: 600,
+                            color: T.tx,
+                          }}
+                        >
+                          {pm?.name ?? proc.processMasterId}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "12px",
+                            color: T.ts,
+                          }}
+                        >
+                          {proc.sections.length}区間 {doneSubs}/{totalSubs} 完了（{procPct}%）
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteProcess(proc.id);
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: T.dg,
+                            cursor: "pointer",
+                            opacity: 0.7,
+                            padding: "4px",
+                          }}
+                          title="削除"
+                        >
+                          {Icons.trash}
+                        </button>
+                      </div>
+                      {isExpanded && (
+                        <div
+                          style={{
+                            padding: "0 16px 16px",
+                            borderTop: `1px solid ${T.bd}`,
+                          }}
+                        >
+                          {proc.sections.length === 0 ? (
+                            <div
+                              style={{
+                                padding: "12px 0",
+                                fontSize: "12px",
+                                color: T.ts,
+                              }}
+                            >
+                              区間がありません。
+                              {addSectionProcId === proc.id ? (
+                                <div
+                                  style={{
+                                    marginTop: "8px",
+                                    display: "flex",
+                                    gap: "8px",
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  <input
+                                    value={addSectionName}
+                                    onChange={(e) =>
+                                      setAddSectionName(e.target.value)
+                                    }
+                                    placeholder="区間名（例: φ300 MH1〜MH2）"
+                                    style={{
+                                      flex: 1,
+                                      padding: "8px 12px",
+                                      border: `1px solid ${T.bd}`,
+                                      borderRadius: "6px",
+                                      background: T.s,
+                                      color: T.tx,
+                                      fontSize: "13px",
+                                    }}
+                                    onKeyDown={(e) =>
+                                      e.key === "Enter" &&
+                                      handleAddSection(proc.id)
+                                    }
+                                  />
+                                  <Btn sm onClick={() => handleAddSection(proc.id)}>追加</Btn>
+                                  <Btn
+                                    sm
+                                    v="ghost"
+                                    onClick={() => {
+                                      setAddSectionProcId(null);
+                                      setAddSectionName("");
+                                    }}
+                                  >
+                                    キャンセル
+                                  </Btn>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setAddSectionProcId(proc.id)}
+                                  style={{
+                                    marginLeft: "8px",
+                                    color: T.ac,
+                                    background: "none",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    fontSize: "12px",
+                                  }}
+                                >
+                                  + 区間を追加
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            proc.sections.map((sec) => {
+                              const secExpanded =
+                                expandedSecId === sec.id;
+                              const secDone = sec.subtasks.filter(
+                                (s) => s.done
+                              ).length;
+                              const secTotal = sec.subtasks.length;
+                              const secPct =
+                                secTotal > 0
+                                  ? Math.round((secDone / secTotal) * 100)
+                                  : 0;
+                              return (
+                                <div
+                                  key={sec.id}
+                                  style={{
+                                    marginTop: "12px",
+                                    border: `1px solid ${T.bd}44`,
+                                    borderRadius: "6px",
+                                    overflow: "hidden",
+                                  }}
+                                >
+                                  <div
+                                    onClick={() =>
+                                      setExpandedSecId(
+                                        secExpanded ? null : sec.id
+                                      )
+                                    }
+                                    style={{
+                                      padding: "10px 12px",
+                                      cursor: "pointer",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "8px",
+                                      justifyContent: "space-between",
+                                      background: T.s,
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        fontSize: "13px",
+                                        color: T.tx,
+                                      }}
+                                    >
+                                      {sec.name}
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontSize: "11px",
+                                        color: T.ts,
+                                      }}
+                                    >
+                                      {secDone}/{secTotal}（{secPct}%）
+                                    </span>
+                                  </div>
+                                  {secExpanded && (
+                                    <div
+                                      style={{
+                                        padding: "12px",
+                                        background: T.bg,
+                                      }}
+                                    >
+                                      {sec.subtasks.map((sub) => (
+                                        <label
+                                          key={sub.id}
+                                          style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "8px",
+                                            padding: "6px 0",
+                                            cursor: "pointer",
+                                            fontSize: "13px",
+                                            color: T.tx,
+                                          }}
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={sub.done}
+                                            onChange={() =>
+                                              handleToggleSubtask(
+                                                proc.id,
+                                                sec.id,
+                                                sub.id
+                                              )
+                                            }
+                                          />
+                                          <span
+                                            style={{
+                                              textDecoration: sub.done
+                                                ? "line-through"
+                                                : "none",
+                                              color: sub.done
+                                                ? T.ts
+                                                : T.tx,
+                                            }}
+                                          >
+                                            {sub.name}
+                                          </span>
+                                        </label>
+                                      ))}
+                                      {addSubtaskSecId === sec.id ? (
+                                        <div
+                                          style={{
+                                            display: "flex",
+                                            gap: "8px",
+                                            marginTop: "8px",
+                                          }}
+                                        >
+                                          <input
+                                            value={addSubtaskName}
+                                            onChange={(e) =>
+                                              setAddSubtaskName(e.target.value)
+                                            }
+                                            placeholder="作業項目名"
+                                            style={{
+                                              flex: 1,
+                                              padding: "8px",
+                                              border: `1px solid ${T.bd}`,
+                                              borderRadius: "6px",
+                                              background: T.s,
+                                              color: T.tx,
+                                              fontSize: "12px",
+                                            }}
+                                            onKeyDown={(e) =>
+                                              e.key === "Enter" &&
+                                              handleAddSubtask(
+                                                sec.id,
+                                                proc.id
+                                              )
+                                            }
+                                          />
+                                          <Btn
+                                            sm
+                                            onClick={() =>
+                                              handleAddSubtask(
+                                                sec.id,
+                                                proc.id
+                                              )
+                                            }
+                                          >
+                                            追加
+                                          </Btn>
+                                          <Btn
+                                            sm
+                                            v="ghost"
+                                            onClick={() => {
+                                              setAddSubtaskSecId(null);
+                                              setAddSubtaskName("");
+                                            }}
+                                          >
+                                            キャンセル
+                                          </Btn>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          onClick={() =>
+                                            setAddSubtaskSecId(sec.id)
+                                          }
+                                          style={{
+                                            marginTop: "8px",
+                                            color: T.ac,
+                                            background: "none",
+                                            border: "none",
+                                            cursor: "pointer",
+                                            fontSize: "11px",
+                                          }}
+                                        >
+                                          + 作業項目を追加
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                          {proc.sections.length > 0 &&
+                            addSectionProcId === proc.id && (
+                              <div
+                                style={{
+                                  marginTop: "12px",
+                                  display: "flex",
+                                  gap: "8px",
+                                  alignItems: "center",
+                                }}
+                              >
+                                <input
+                                  value={addSectionName}
+                                  onChange={(e) =>
+                                    setAddSectionName(e.target.value)
+                                  }
+                                  placeholder="区間名（例: φ300 MH1〜MH2）"
+                                  style={{
+                                    flex: 1,
+                                    padding: "8px 12px",
+                                    border: `1px solid ${T.bd}`,
+                                    borderRadius: "6px",
+                                    background: T.s,
+                                    color: T.tx,
+                                    fontSize: "13px",
+                                  }}
+                                  onKeyDown={(e) =>
+                                    e.key === "Enter" &&
+                                    handleAddSection(proc.id)
+                                  }
+                                />
+                                <Btn sm onClick={() => handleAddSection(proc.id)}>区間追加</Btn>
+                                <Btn
+                                  sm
+                                  v="ghost"
+                                  onClick={() => {
+                                    setAddSectionProcId(null);
+                                    setAddSectionName("");
+                                  }}
+                                >
+                                  キャンセル
+                                </Btn>
+                              </div>
+                            )}
+                          {proc.sections.length > 0 &&
+                            addSectionProcId !== proc.id && (
+                              <button
+                                onClick={() => setAddSectionProcId(proc.id)}
+                                style={{
+                                  marginTop: "12px",
+                                  color: T.ac,
+                                  background: "none",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                }}
+                              >
+                                + 区間を追加
+                              </button>
+                            )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+
+          {processAddModal && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(0,0,0,0.5)",
+                zIndex: 1000,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "16px",
+              }}
+              onClick={() => setProcessAddModal(false)}
+            >
+              <div
+                style={{
+                  background: T.bg,
+                  borderRadius: "12px",
+                  padding: "20px",
+                  maxWidth: "400px",
+                  width: "100%",
+                  maxHeight: "80vh",
+                  overflowY: "auto",
+                  border: `1px solid ${T.bd}`,
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h4 style={{ margin: "0 0 16px", fontSize: "16px", color: T.tx }}>
+                  工程を追加
+                </h4>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                  }}
+                >
+                  {processMasters
+                    .filter(
+                      (m) =>
+                        !(p.projectProcesses ?? []).some(
+                          (pr) => pr.processMasterId === m.id
+                        )
+                    )
+                    .map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => handleAddProcess(m.id)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          padding: "12px",
+                          border: `1px solid ${T.bd}`,
+                          borderRadius: "8px",
+                          background: T.s,
+                          color: T.tx,
+                          fontSize: "13px",
+                          fontFamily: "inherit",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          width: "100%",
+                        }}
+                      >
+                        <span style={{ fontSize: "18px" }}>{m.icon}</span>
+                        <span>{m.name}</span>
+                      </button>
+                    ))}
+                  {processMasters.filter(
+                    (m) =>
+                      !(p.projectProcesses ?? []).some(
+                        (pr) => pr.processMasterId === m.id
+                      )
+                  ).length === 0 && (
+                    <div
+                      style={{
+                        padding: "24px",
+                        textAlign: "center",
+                        color: T.ts,
+                        fontSize: "13px",
+                      }}
+                    >
+                      追加できる工程がありません
+                    </div>
+                  )}
+                </div>
+                <Btn
+                  onClick={() => setProcessAddModal(false)}
+                  style={{ marginTop: "16px", width: "100%" }}
+                >
+                  閉じる
+                </Btn>
+              </div>
             </div>
           )}
         </Card>
