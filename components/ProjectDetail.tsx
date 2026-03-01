@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   genId,
   fmt,
@@ -36,6 +36,7 @@ import {
   Modal,
   Metric,
 } from "./ui/primitives";
+import { parseDesignBookToProcesses } from "@/lib/parseDesignBook";
 
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 
@@ -95,6 +96,8 @@ export default function ProjectDetail({
   const [archiveModal, setArchiveModal] = useState(false);
   const [unarchiveConfirmModal, setUnarchiveConfirmModal] = useState(false);
   const [processAddModal, setProcessAddModal] = useState(false);
+  const [designImportLoading, setDesignImportLoading] = useState(false);
+  const designFileInputRef = useRef<HTMLInputElement>(null);
   const [expandedProcId, setExpandedProcId] = useState<string | null>(null);
   const [expandedSecId, setExpandedSecId] = useState<string | null>(null);
   const [addSectionProcId, setAddSectionProcId] = useState<string | null>(null);
@@ -247,6 +250,32 @@ export default function ProjectDetail({
       },
     ]);
     setProcessAddModal(false);
+  };
+
+  const handleDesignImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.name.endsWith(".xlsx")) {
+      e.target.value = "";
+      return;
+    }
+    setDesignImportLoading(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const parsed = parseDesignBookToProcesses(buf);
+      if (parsed.length > 0) {
+        const sorted = parsed
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((pr, i) => ({ ...pr, sortOrder: i }));
+        updateProjectProcesses(sorted);
+        setProcessAddModal(false);
+      }
+    } catch (err) {
+      console.error("設計書取込みエラー:", err);
+      alert("設計書の読み取りに失敗しました。");
+    } finally {
+      setDesignImportLoading(false);
+      e.target.value = "";
+    }
   };
 
   const handleAddSection = (procId: string) => {
@@ -1263,12 +1292,27 @@ export default function ProjectDetail({
                   : `工程進捗: ${processProgressPct}%（${procs.reduce((s, pr) => s + pr.sections.reduce((a, sec) => a + sec.subtasks.length, 0), 0)}項目中${procs.reduce((s, pr) => s + pr.sections.reduce((a, sec) => a + sec.subtasks.filter((x) => x.done).length, 0), 0)}完了）`}
               </p>
             </div>
-            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
               {procs.length > 0 && processProgressPct > 0 && (
                 <Btn v="default" sm onClick={handleSyncProgress}>
                   工程進捗を手入力進捗に反映
                 </Btn>
               )}
+              <input
+                ref={designFileInputRef}
+                type="file"
+                accept=".xlsx"
+                style={{ display: "none" }}
+                onChange={handleDesignImport}
+              />
+              <Btn
+                v="default"
+                sm
+                disabled={designImportLoading}
+                onClick={() => designFileInputRef.current?.click()}
+              >
+                {designImportLoading ? "取込中…" : "設計書から取り込み"}
+              </Btn>
               <Btn v="primary" sm onClick={() => setProcessAddModal(true)}>
                 {Icons.plus} 工程追加
               </Btn>
