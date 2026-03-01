@@ -104,6 +104,8 @@ export default function ProjectDetail({
   const [addSectionName, setAddSectionName] = useState("");
   const [addSubtaskSecId, setAddSubtaskSecId] = useState<string | null>(null);
   const [addSubtaskName, setAddSubtaskName] = useState("");
+  const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
+  const [editingSubtaskName, setEditingSubtaskName] = useState("");
   const [archiveYear, setArchiveYear] = useState(
     () => new Date().getFullYear().toString()
   );
@@ -367,6 +369,65 @@ export default function ProjectDetail({
           : proc
       )
     );
+  };
+
+  const handleUpdateSubtask = (
+    procId: string,
+    secId: string,
+    subId: string,
+    newName: string
+  ) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    updateProjectProcesses(
+      (p.projectProcesses ?? []).map((proc) =>
+        proc.id === procId
+          ? {
+              ...proc,
+              sections: proc.sections.map((sec) =>
+                sec.id === secId
+                  ? {
+                      ...sec,
+                      subtasks: sec.subtasks.map((s) =>
+                        s.id === subId ? { ...s, name: trimmed } : s
+                      ),
+                    }
+                  : sec
+              ),
+            }
+          : proc
+      )
+    );
+    setEditingSubtaskId(null);
+    setEditingSubtaskName("");
+  };
+
+  const handleDeleteSubtask = (
+    procId: string,
+    secId: string,
+    subId: string
+  ) => {
+    updateProjectProcesses(
+      (p.projectProcesses ?? []).map((proc) =>
+        proc.id === procId
+          ? {
+              ...proc,
+              sections: proc.sections.map((sec) =>
+                sec.id === secId
+                  ? {
+                      ...sec,
+                      subtasks: sec.subtasks.filter((s) => s.id !== subId),
+                    }
+                  : sec
+              ),
+            }
+          : proc
+      )
+    );
+    if (editingSubtaskId === subId) {
+      setEditingSubtaskId(null);
+      setEditingSubtaskName("");
+    }
   };
 
   const handleDeleteProcess = (procId: string) => {
@@ -1547,14 +1608,13 @@ export default function ProjectDetail({
                                       }}
                                     >
                                       {sec.subtasks.map((sub) => (
-                                        <label
+                                        <div
                                           key={sub.id}
                                           style={{
                                             display: "flex",
                                             alignItems: "center",
                                             gap: "8px",
                                             padding: "6px 0",
-                                            cursor: "pointer",
                                             fontSize: "13px",
                                             color: T.tx,
                                           }}
@@ -1569,20 +1629,157 @@ export default function ProjectDetail({
                                                 sub.id
                                               )
                                             }
+                                            style={{ cursor: "pointer" }}
                                           />
-                                          <span
-                                            style={{
-                                              textDecoration: sub.done
-                                                ? "line-through"
-                                                : "none",
-                                              color: sub.done
-                                                ? T.ts
-                                                : T.tx,
-                                            }}
-                                          >
-                                            {sub.name}
-                                          </span>
-                                        </label>
+                                          {editingSubtaskId === sub.id ? (
+                                            <div
+                                              style={{
+                                                flex: 1,
+                                                display: "flex",
+                                                gap: "6px",
+                                                alignItems: "center",
+                                              }}
+                                            >
+                                              <input
+                                                value={editingSubtaskName}
+                                                onChange={(e) =>
+                                                  setEditingSubtaskName(
+                                                    e.target.value
+                                                  )
+                                                }
+                                                onKeyDown={(e) => {
+                                                  if (e.key === "Enter")
+                                                    handleUpdateSubtask(
+                                                      proc.id,
+                                                      sec.id,
+                                                      sub.id,
+                                                      editingSubtaskName
+                                                    );
+                                                  if (e.key === "Escape") {
+                                                    setEditingSubtaskId(null);
+                                                    setEditingSubtaskName("");
+                                                  }
+                                                }}
+                                                style={{
+                                                  flex: 1,
+                                                  padding: "4px 8px",
+                                                  border: `1px solid ${T.bd}`,
+                                                  borderRadius: "4px",
+                                                  background: T.s,
+                                                  color: T.tx,
+                                                  fontSize: "12px",
+                                                }}
+                                                autoFocus
+                                              />
+                                              <button
+                                                onClick={() =>
+                                                  handleUpdateSubtask(
+                                                    proc.id,
+                                                    sec.id,
+                                                    sub.id,
+                                                    editingSubtaskName
+                                                  )
+                                                }
+                                                style={{
+                                                  padding: "2px 8px",
+                                                  fontSize: "11px",
+                                                  background: T.ac,
+                                                  color: "#fff",
+                                                  border: "none",
+                                                  borderRadius: "4px",
+                                                  cursor: "pointer",
+                                                }}
+                                              >
+                                                保存
+                                              </button>
+                                              <button
+                                                onClick={() => {
+                                                  setEditingSubtaskId(null);
+                                                  setEditingSubtaskName("");
+                                                }}
+                                                style={{
+                                                  padding: "2px 8px",
+                                                  fontSize: "11px",
+                                                  background: T.bd,
+                                                  color: T.tx,
+                                                  border: "none",
+                                                  borderRadius: "4px",
+                                                  cursor: "pointer",
+                                                }}
+                                              >
+                                                キャンセル
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <>
+                                              <span
+                                                style={{
+                                                  flex: 1,
+                                                  textDecoration: sub.done
+                                                    ? "line-through"
+                                                    : "none",
+                                                  color: sub.done
+                                                    ? T.ts
+                                                    : T.tx,
+                                                  cursor: "pointer",
+                                                }}
+                                                onClick={() =>
+                                                  handleToggleSubtask(
+                                                    proc.id,
+                                                    sec.id,
+                                                    sub.id
+                                                  )
+                                                }
+                                              >
+                                                {sub.name}
+                                              </span>
+                                              <button
+                                                onClick={() => {
+                                                  setEditingSubtaskId(sub.id);
+                                                  setEditingSubtaskName(
+                                                    sub.name
+                                                  );
+                                                }}
+                                                title="編集"
+                                                style={{
+                                                  padding: "4px",
+                                                  background: "none",
+                                                  border: "none",
+                                                  color: T.ts,
+                                                  cursor: "pointer",
+                                                  opacity: 0.7,
+                                                }}
+                                              >
+                                                {Icons.edit}
+                                              </button>
+                                              <button
+                                                onClick={() => {
+                                                  if (
+                                                    confirm(
+                                                      `「${sub.name}」を削除しますか？`
+                                                    )
+                                                  )
+                                                    handleDeleteSubtask(
+                                                      proc.id,
+                                                      sec.id,
+                                                      sub.id
+                                                    );
+                                                }}
+                                                title="削除"
+                                                style={{
+                                                  padding: "4px",
+                                                  background: "none",
+                                                  border: "none",
+                                                  color: T.dg,
+                                                  cursor: "pointer",
+                                                  opacity: 0.7,
+                                                }}
+                                              >
+                                                {Icons.trash}
+                                              </button>
+                                            </>
+                                          )}
+                                        </div>
                                       ))}
                                       {addSubtaskSecId === sec.id ? (
                                         <div

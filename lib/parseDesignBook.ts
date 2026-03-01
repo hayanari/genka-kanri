@@ -10,7 +10,28 @@ const isDiameter = (s: string) => /^φ\d+$/.test(s);
 const isHeader = (s: string) =>
   /^(工事費内訳|国費|工事区分|単位|数量|単価|金額|摘要)/.test(s) || s === "式";
 
-/** 設計書（内訳1）をパースして ProjectProcess[] を生成 */
+/** 代価1シートからスパン情報を抽出 */
+function extractSpansFromDaika(wb: XLSX.WorkBook): { dia: string; len: string }[] {
+  const sh = wb.Sheets["代価1"];
+  if (!sh) return [];
+  const data = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" }) as string[][];
+  const spans: { dia: string; len: string }[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < data.length; i++) {
+    const c0 = (data[i]?.[0] || "").toString().trim();
+    const m = c0.match(/(\d+)mm\s+([\d.]+)m/);
+    if (m && c0.includes("更生延長")) {
+      const key = `${m[1]}_${m[2]}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        spans.push({ dia: `φ${m[1]}`, len: `${m[2]}m` });
+      }
+    }
+  }
+  return spans;
+}
+
+/** 設計書（内訳1 + 代価1）をパースして ProjectProcess[] を生成 */
 export function parseDesignBookToProcesses(buffer: ArrayBuffer): ProjectProcess[] {
   const wb = XLSX.read(buffer, { type: "array" });
   const sh = wb.Sheets["内訳1"];
@@ -51,50 +72,101 @@ export function parseDesignBookToProcesses(buffer: ArrayBuffer): ProjectProcess[
     shMap.get(r.shubetsu)!.push(r.saimoku);
   }
 
-  // 3. 管きょ更生工を管径単位で集約して pm04
-  const koseiGroups = new Map<string, { shubetsu: string; subs: string[] }[]>();
-  for (const [kosyu, shMap] of kosyuMap) {
-    if (!kosyu.includes("管きょ更生工")) continue;
-    const m = kosyu.match(/既設管径(\d+)mm/);
-    const dia = m ? `φ${m[1]}` : "";
-    if (!dia) continue;
-    for (const [shubetsu, saimokus] of shMap) {
-      const rain = shubetsu.includes("雨水") ? "雨水" : shubetsu.includes("合流") ? "合流" : "";
-      const seikei = shubetsu.includes("製管") ? "製管" : "";
-      const key = seikei ? `${dia}（${rain}・製管）` : rain ? `${dia}（${rain}）` : dia;
-      if (!koseiGroups.has(key)) koseiGroups.set(key, []);
-      const subs = seikei
-        ? [...new Set(saimokus)]
-        : KOSEI_SUBTASKS;
-      koseiGroups.get(key)!.push({ shubetsu, subs });
-    }
-  }
+  // 3. 管きょ更生工: 代価1のスパン情報があればスパン単位で区間生成、なければ雨水/合流で生成
+  const spans = extractSpansFromDaika(wb);
+  const hasKosei = [...kosyuMap.keys()].some((k) => k.includes("管きょ更生工"));
 
-  if (koseiGroups.size > 0) {
-    const sectionEntries = Array.from(koseiGroups.entries());
-    sectionEntries.sort(([a], [b]) => {
-      const ma = a.match(/φ(\d+)/);
-      const mb = b.match(/φ(\d+)/);
-      const na = ma ? parseInt(ma[1], 10) : 0;
-      const nb = mb ? parseInt(mb[1], 10) : 0;
-      if (na !== nb) return na - nb;
-      return a.includes("雨水") ? -1 : a.includes("合流") ? 1 : 0;
-    });
-    const sections: ProjectSection[] = sectionEntries.map(([key, grps], si) => {
-      const first = grps[0];
-      const subs = first.subs;
-      return {
+  if (hasKosei) {
+    let sections: ProjectSection[];
+    const seikeiKosyu = [...kosyuMap.entries()].find(
+      ([k, sh]) =>
+        k.includes("管きょ更生工") &&
+        k.includes("800") &&
+        [...sh.keys()].some((s) => s.includes("製管"))
+    );
+    const seikeiSubs = ["管更生工", "既設管整備工", "取付管工"];
+
+    if (spans.length > 0) {
+      const sorted = [...spans].sort((a, b) => {
+        const na = parseInt(a.dia.replace(/\D/g, ""), 10) || 0;
+        const nb = parseInt(b.dia.replace(/\D/g, ""), 10) || 0;
+        if (na !== nb) return na - nb;
+        const la = parseFloat(a.len) || 0;
+        const lb = parseFloat(b.len) || 0;
+        return la - lb;
+      });
+      sections = sorted.map((s, si) => ({
         id: genId(),
-        name: key,
+        name: `${s.dia} ${s.len}`,
         sortOrder: si,
-        subtasks: subs.map((n, idx) => ({
+        subtasks: KOSEI_SUBTASKS.map((n, idx) => ({
           id: genId(),
           name: n,
           done: false,
           sortOrder: idx,
         })),
-      };
-    });
+      }));
+      if (seikeiKosyu) {
+        const [_, shMap] = seikeiKosyu;
+        for (const [shubetsu, saimokus] of shMap) {
+          if (shubetsu.includes("製管")) {
+            sections.push({
+              id: genId(),
+              name: "φ800（合流・製管）",
+              sortOrder: sections.length,
+              subtasks: seikeiSubs.map((n, idx) => ({
+                id: genId(),
+                name: n,
+                done: false,
+                sortOrder: idx,
+              })),
+            });
+            break;
+          }
+        }
+      }
+    } else {
+      const koseiGroups = new Map<string, { shubetsu: string; subs: string[] }[]>();
+      for (const [kosyu, shMap] of kosyuMap) {
+        if (!kosyu.includes("管きょ更生工")) continue;
+        const m = kosyu.match(/既設管径(\d+)mm/);
+        const dia = m ? `φ${m[1]}` : "";
+        if (!dia) continue;
+        for (const [shubetsu, saimokus] of shMap) {
+          const rain = shubetsu.includes("雨水") ? "雨水" : shubetsu.includes("合流") ? "合流" : "";
+          const seikei = shubetsu.includes("製管") ? "製管" : "";
+          const key = seikei ? `${dia}（${rain}・製管）` : rain ? `${dia}（${rain}）` : dia;
+          if (!koseiGroups.has(key)) koseiGroups.set(key, []);
+          const subs = seikei ? [...new Set(saimokus)] : KOSEI_SUBTASKS;
+          koseiGroups.get(key)!.push({ shubetsu, subs });
+        }
+      }
+      const sectionEntries = Array.from(koseiGroups.entries());
+      sectionEntries.sort(([a], [b]) => {
+        const ma = a.match(/φ(\d+)/);
+        const mb = b.match(/φ(\d+)/);
+        const na = ma ? parseInt(ma[1], 10) : 0;
+        const nb = mb ? parseInt(mb[1], 10) : 0;
+        if (na !== nb) return na - nb;
+        return a.includes("雨水") ? -1 : a.includes("合流") ? 1 : 0;
+      });
+      sections = sectionEntries.map(([key, grps], si) => {
+        const first = grps[0];
+        const subs = first.subs;
+        return {
+          id: genId(),
+          name: key,
+          sortOrder: si,
+          subtasks: subs.map((n, idx) => ({
+            id: genId(),
+            name: n,
+            done: false,
+            sortOrder: idx,
+          })),
+        };
+      });
+    }
+
     if (sections.length > 0) {
       processes.push({
         id: genId(),
