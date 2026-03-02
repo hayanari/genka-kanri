@@ -35,12 +35,12 @@ const genId = () => Math.random().toString(36).slice(2, 10);
 
 const KOSEI_SUBTASKS = ["更生材料", "反転・形成", "仕上（管口切断・仕上）", "仮設備（設置・撤去）"];
 const EXCLUDE_KOSYU = ["現場管理費", "一般管理費等", "消費税相当額"];
-const isDiameter = (s) => /^φ\d+$/.test(s);
+const isDiameter = (s) => /^φ\d+(mm)?$/.test(s);
 const isHeader = (s) =>
-  /^(工事費内訳|国費|工事区分|単位|数量|単価|金額|摘要)/.test(s) || s === "式";
+  /^(工事費内訳|国費|工事区分|単位|数量|単価|金額|摘要|第\s*\d+\s*号)/.test(s) || s === "式";
 
 function extractSpansFromDaika(wb) {
-  const sh = wb.Sheets["代価1"] || wb.Sheets["代価"];
+  const sh = wb.Sheets["代価1"] || wb.Sheets["代価"] || wb.Sheets["代価(工事)"];
   if (!sh) return [];
   const data = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" });
   const spans = [];
@@ -61,7 +61,7 @@ function extractSpansFromDaika(wb) {
 
 function parseDesignBook(buffer) {
   const wb = XLSX.read(buffer, { type: "buffer" });
-  const sh = wb.Sheets["内訳1"] || wb.Sheets["内訳"];
+  const sh = wb.Sheets["内訳1"] || wb.Sheets["内訳"] || wb.Sheets["内訳(工事)"];
   if (!sh) return [];
 
   const data = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" });
@@ -73,15 +73,17 @@ function parseDesignBook(buffer) {
     const row = data[i] || [];
     const c1 = (row[1] || "").toString().trim();
     const c2 = (row[2] || "").toString().trim();
+    const c4 = (row[4] || "").toString().trim();
     const c5 = (row[5] || "").toString().trim();
+    const saimoku = ([c4, c5].find((s) => s && !isDiameter(s) && !isHeader(s)) || "").trim();
 
-    if (c1 && !isHeader(c1)) {
+    if (c1 && !isHeader(c1) && c1 !== "管路" && !String(c1).startsWith("単費")) {
       curKosyu = c1;
       curShubetsu = "";
     }
     if (c2 && !c1 && !isHeader(c2)) curShubetsu = c2;
-    if (c5 && !isHeader(c5) && !isDiameter(c5)) {
-      rows.push({ kosyu: curKosyu, shubetsu: curShubetsu || "(全体)", saimoku: c5 });
+    if (saimoku && !isHeader(saimoku) && !isDiameter(saimoku)) {
+      rows.push({ kosyu: curKosyu, shubetsu: curShubetsu || "(全体)", saimoku });
     }
   }
 
@@ -118,17 +120,30 @@ function parseDesignBook(buffer) {
         const lb = parseFloat(b.len) || 0;
         return la - lb;
       });
-      sections = sorted.map((s, si) => ({
-        id: genId(),
-        name: "\u03C6" + s.dia.replace(/\D/g, "") + " " + s.len,
-        sortOrder: si,
-        subtasks: KOSEI_SUBTASKS.map((n, idx) => ({
+      const getSaimokuForDia = (dia) => {
+        const mm = dia.replace(/\D/g, "");
+        const kosyu = [...kosyuMap.keys()].find(
+          (k) => k.includes("管きょ更生工") && k.includes("既設管径" + mm + "mm")
+        );
+        if (!kosyu) return KOSEI_SUBTASKS;
+        const shMap = kosyuMap.get(kosyu);
+        const all = [...shMap.values()].flat();
+        return [...new Set(all)].length > 0 ? [...new Set(all)] : KOSEI_SUBTASKS;
+      };
+      sections = sorted.map((s, si) => {
+        const subs = getSaimokuForDia(s.dia);
+        return {
           id: genId(),
-          name: n,
-          done: false,
-          sortOrder: idx,
-        })),
-      }));
+          name: "\u03C6" + s.dia.replace(/\D/g, "") + " " + s.len,
+          sortOrder: si,
+          subtasks: subs.map((n, idx) => ({
+            id: genId(),
+            name: n,
+            done: false,
+            sortOrder: idx,
+          })),
+        };
+      });
     }
     if (!sections) {
       const koseiGroups = new Map();
@@ -233,18 +248,26 @@ function parseDesignBook(buffer) {
     }
   };
 
-  const otherKosyu = [
-    ["換気工", "pm05"],
-    ["管きょ工(開削)", "pm25"],
-    ["ﾏﾝﾎｰﾙ工", "pm26"],
-    ["取付管およびます工", "pm27"],
-    ["仮設工", "pm07"],
-    ["附帯工", "pm28"],
-    ["管きょ更生水替工", "pm29"],
-    ["共通仮設費", "pm30"],
+  const processedKosyu = new Set();
+  const kosyuToProcess = [
+    ["換気工", "pm05", (k) => k === "換気工"],
+    ["管きょ工(開削)", "pm25", (k) => k === "管きょ工(開削)"],
+    ["ﾏﾝﾎｰﾙ工", "pm26", (k) => k === "ﾏﾝﾎｰﾙ工"],
+    ["取付管およびます工", "pm27", (k) => k === "取付管およびます工"],
+    ["仮設工", "pm07", (k) => k === "仮設工"],
+    ["附帯工", "pm28", (k) => k === "附帯工"],
+    ["管きょ更生水替工", "pm29", (k) => k === "管きょ更生水替工"],
+    ["共通仮設費", "pm30", (k) => k.includes("共通仮設費")],
   ];
-  for (const [kosyu, mid] of otherKosyu) {
-    if (kosyuMap.has(kosyu)) addProcess(mid, kosyu);
+  for (const [, mid, match] of kosyuToProcess) {
+    for (const [kosyu] of kosyuMap) {
+      if (processedKosyu.has(kosyu)) continue;
+      if (match(kosyu)) {
+        addProcess(mid, kosyu);
+        processedKosyu.add(kosyu);
+        break;
+      }
+    }
   }
 
   return processes.map((p, i) => ({ ...p, sortOrder: i }));
@@ -292,7 +315,7 @@ async function main() {
     process.exit(1);
   }
 
-  projects[idx] = { ...projects[idx], projectProcesses };
+  projects[idx] = { ...projects[idx], projectProcesses, updatedAt: new Date().toISOString() };
   const { error: saveErr } = await supabase
     .from("genka_kanri_data")
     .upsert({ id: "default", data: { ...stored, projects }, updated_at: new Date().toISOString() }, { onConflict: "id" });

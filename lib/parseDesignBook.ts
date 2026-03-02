@@ -6,13 +6,16 @@ import { DEFAULT_PROCESS_MASTERS } from "./utils";
 const KOSEI_SUBTASKS = ["更生材料", "反転・形成", "仕上（管口切断・仕上）", "仮設備（設置・撤去）"];
 
 const EXCLUDE_KOSYU = ["現場管理費", "一般管理費等", "消費税相当額"];
-const isDiameter = (s: string) => /^φ\d+$/.test(s);
+const isDiameter = (s: string) => /^φ\d+(mm)?$/.test(s);
 const isHeader = (s: string) =>
-  /^(工事費内訳|国費|工事区分|単位|数量|単価|金額|摘要)/.test(s) || s === "式";
+  /^(工事費内訳|国費|工事区分|単位|数量|単価|金額|摘要|第\s*\d+\s*号)/.test(s) || s === "式";
 
 /** 代価シート（代価1 or 代価）からスパン情報を抽出 */
 function extractSpansFromDaika(wb: XLSX.WorkBook): { dia: string; len: string }[] {
-  const sh = wb.Sheets["代価1"] ?? wb.Sheets["代価"];
+  const sh =
+    wb.Sheets["代価1"] ??
+    wb.Sheets["代価"] ??
+    wb.Sheets["代価(工事)"];
   if (!sh) return [];
   const data = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" }) as string[][];
   const spans: { dia: string; len: string }[] = [];
@@ -34,7 +37,10 @@ function extractSpansFromDaika(wb: XLSX.WorkBook): { dia: string; len: string }[
 /** 設計書（内訳1 + 代価1）をパースして ProjectProcess[] を生成 */
 export function parseDesignBookToProcesses(buffer: ArrayBuffer): ProjectProcess[] {
   const wb = XLSX.read(buffer, { type: "array" });
-  const sh = wb.Sheets["内訳1"] ?? wb.Sheets["内訳"];
+  const sh =
+    wb.Sheets["内訳1"] ??
+    wb.Sheets["内訳"] ??
+    wb.Sheets["内訳(工事)"];
   if (!sh) return [];
 
   const data = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" }) as string[][];
@@ -50,15 +56,17 @@ export function parseDesignBookToProcesses(buffer: ArrayBuffer): ProjectProcess[
     const row = data[i] || [];
     const c1 = (row[1] || "").toString().trim();
     const c2 = (row[2] || "").toString().trim();
+    const c4 = (row[4] || "").toString().trim();
     const c5 = (row[5] || "").toString().trim();
+    const saimoku = ([c4, c5].find((s) => s && !isDiameter(s) && !isHeader(s)) || "").trim();
 
-    if (c1 && !isHeader(c1)) {
+    if (c1 && !isHeader(c1) && c1 !== "管路" && !c1.startsWith("単費")) {
       curKosyu = c1;
       curShubetsu = "";
     }
     if (c2 && !c1 && !isHeader(c2)) curShubetsu = c2;
-    if (c5 && !isHeader(c5) && !isDiameter(c5)) {
-      rows.push({ kosyu: curKosyu, shubetsu: curShubetsu || "(全体)", saimoku: c5 });
+    if (saimoku && !isHeader(saimoku) && !isDiameter(saimoku)) {
+      rows.push({ kosyu: curKosyu, shubetsu: curShubetsu || "(全体)", saimoku });
     }
   }
 
@@ -95,17 +103,30 @@ export function parseDesignBookToProcesses(buffer: ArrayBuffer): ProjectProcess[
         const lb = parseFloat(b.len) || 0;
         return la - lb;
       });
-      sections = sorted.map((s, si) => ({
-        id: genId(),
-        name: `${s.dia} ${s.len}`,
-        sortOrder: si,
-        subtasks: KOSEI_SUBTASKS.map((n, idx) => ({
+      const getSaimokuForDia = (dia: string): string[] => {
+        const mm = dia.replace(/\D/g, "");
+        const kosyu = [...kosyuMap.keys()].find(
+          (k) => k.includes("管きょ更生工") && k.includes(`既設管径${mm}mm`)
+        );
+        if (!kosyu) return KOSEI_SUBTASKS;
+        const shMap = kosyuMap.get(kosyu)!;
+        const all = [...shMap.values()].flat();
+        return [...new Set(all)].length > 0 ? [...new Set(all)] : KOSEI_SUBTASKS;
+      };
+      sections = sorted.map((s, si) => {
+        const subs = getSaimokuForDia(s.dia);
+        return {
           id: genId(),
-          name: n,
-          done: false,
-          sortOrder: idx,
-        })),
-      }));
+          name: `${s.dia} ${s.len}`,
+          sortOrder: si,
+          subtasks: subs.map((n, idx) => ({
+            id: genId(),
+            name: n,
+            done: false,
+            sortOrder: idx,
+          })),
+        };
+      });
       if (seikeiKosyu) {
         const [_, shMap] = seikeiKosyu;
         for (const [shubetsu, saimokus] of shMap) {
@@ -244,7 +265,7 @@ export function parseDesignBookToProcesses(buffer: ArrayBuffer): ProjectProcess[
     } else if (kosyu === "管きょ更生水替工") {
       addProcess("pm29", kosyu);
       processedKosyu.add(kosyu);
-    } else if (kosyu === "共通仮設費") {
+    } else if (kosyu.includes("共通仮設費")) {
       addProcess("pm30", kosyu);
       processedKosyu.add(kosyu);
     }

@@ -5,6 +5,7 @@ type ExcelProject = {
   id?: string;
   name: string;
   client: string;
+  personInCharge?: string;
   category: string;
   mode?: string;
   originalAmount?: number;
@@ -97,6 +98,7 @@ export function convertExcelProjectsToApp(
       id: genId(),
       name: ep.name || "（無題）",
       client: ep.client || "",
+      personInCharge: ep.personInCharge ?? undefined,
       category: ep.category === "工事" || ep.category === "業務" ? ep.category : "業務",
       contractAmount,
       originalAmount,

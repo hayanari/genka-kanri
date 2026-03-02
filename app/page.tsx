@@ -78,6 +78,7 @@ export default function Home() {
     const projWithNum = {
       ...proj,
       managementNumber: getNextManagementNumber(data.projects, proj.category),
+      updatedAt: new Date().toISOString(),
     };
     const next = { ...data, projects: [...data.projects, projWithNum] };
     setData(next);
@@ -86,11 +87,13 @@ export default function Home() {
   };
 
   const importProjects = (projects: Project[]) => {
+    const now = new Date().toISOString();
     let currentProjects = [...data.projects];
     const toAdd = projects.map((p) => {
       const num = getNextManagementNumber(currentProjects, p.category);
-      currentProjects = [...currentProjects, { ...p, managementNumber: num }];
-      return { ...p, managementNumber: num };
+      const withNum = { ...p, managementNumber: num, updatedAt: now };
+      currentProjects = [...currentProjects, withNum];
+      return withNum;
     });
     const next = { ...data, projects: [...data.projects, ...toAdd] };
     setData(next);
@@ -132,6 +135,7 @@ export default function Home() {
     if ((b.status !== "won" && b.status !== "expected") || b.projectId) return;
     const proj = bidScheduleToProject(b, genId());
     proj.managementNumber = getNextManagementNumber(data.projects, b.category);
+    proj.updatedAt = new Date().toISOString();
     const next = {
       ...data,
       projects: [...data.projects, proj],
@@ -147,7 +151,9 @@ export default function Home() {
   const updateProject = (u: Project) => {
     setData((d) => ({
       ...d,
-      projects: d.projects.map((p) => (p.id === u.id ? { ...p, ...u } : p)),
+      projects: d.projects.map((p) =>
+        p.id === u.id ? { ...p, ...u, updatedAt: new Date().toISOString() } : p
+      ),
     }));
   };
 

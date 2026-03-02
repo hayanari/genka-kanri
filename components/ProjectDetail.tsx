@@ -580,8 +580,9 @@ export default function ProjectDetail({
               )}
             </div>
             <div style={{ fontSize: "13px", color: T.ts }}>
-              顧客: {p.client} ｜ 工期: {fmtDate(p.startDate)} 〜{" "}
-              {fmtDate(p.endDate)}
+              顧客: {p.client}
+              {p.personInCharge && ` ｜ 担当: ${p.personInCharge}`} ｜ 工期:{" "}
+              {fmtDate(p.startDate)} 〜 {fmtDate(p.endDate)}
               {p.notes && ` ｜ ${p.notes}`}
             </div>
           </div>
@@ -3218,7 +3219,14 @@ export default function ProjectDetail({
                 <option value="業務">業務</option>
               </Sel>
             </div>
-
+            <Inp
+              label="担当者"
+              placeholder="例: 山田太郎"
+              value={ef.personInCharge ?? ""}
+              onChange={(e) =>
+                setEf((f) => ({ ...f!, personInCharge: e.target.value }))
+              }
+            />
             <div>
               <label
                 style={{

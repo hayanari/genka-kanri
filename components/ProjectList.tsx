@@ -47,7 +47,7 @@ export default function ProjectList({
   showDeletedAt?: boolean;
   onImport?: (projects: Project[]) => void;
 }) {
-  const [sortBy, setSortBy] = useState("date_desc");
+  const [sortBy, setSortBy] = useState("updated_desc");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImportClick = () => {
@@ -71,12 +71,10 @@ export default function ProjectList({
     reader.readAsText(file, "UTF-8");
   };
 
-  const isStatusOnlySort =
-    sortBy.startsWith("status_") && sortBy !== "status_flow";
-  const statusFilter =
-    isStatusOnlySort ? sortBy.replace("status_", "") : sf;
+  const statusFilter = sf;
 
-  const isCatOnlySort = sortBy === "cat_koji" || sortBy === "cat_gyomu";
+  const isCatOnlySort =
+    sortBy === "cat_koji" || sortBy === "cat_gyomu";
   const categoryFilter = isCatOnlySort
     ? sortBy === "cat_koji"
       ? "工事"
@@ -99,28 +97,28 @@ export default function ProjectList({
   const sorted = [...filtered].sort((a, b) => {
     const dateCmp = (x: Project, y: Project) =>
       new Date(y.startDate).getTime() - new Date(x.startDate).getTime();
+    const updatedCmp = (x: Project, y: Project) => {
+      const xT = x.updatedAt ? new Date(x.updatedAt).getTime() : new Date(x.startDate).getTime();
+      const yT = y.updatedAt ? new Date(y.updatedAt).getTime() : new Date(y.startDate).getTime();
+      return yT - xT;
+    };
     switch (sortBy) {
       case "mgmt":
         return (a.managementNumber ?? "").localeCompare(b.managementNumber ?? "");
+      case "updated_desc":
+        return updatedCmp(a, b);
       case "date_desc":
         return dateCmp(a, b);
       case "date_asc":
         return -dateCmp(a, b);
       case "cat_koji":
       case "cat_gyomu":
-        return dateCmp(a, b);
-      case "status_estimate":
-      case "status_ordered":
-      case "status_in_progress":
-      case "status_completed":
-      case "status_billed":
-      case "status_paid":
-        return dateCmp(a, b);
+        return updatedCmp(a, b);
       case "status_flow":
         if (statusRank(a.status) !== statusRank(b.status)) {
           return statusRank(a.status) - statusRank(b.status);
         }
-        return dateCmp(a, b);
+        return updatedCmp(a, b);
       default:
         return 0;
     }
@@ -179,6 +177,8 @@ export default function ProjectList({
           gap: "10px",
           marginBottom: "16px",
           flexWrap: "wrap",
+          position: "relative",
+          zIndex: 1,
         }}
       >
         <div
@@ -251,18 +251,13 @@ export default function ProjectList({
             minWidth: "200px",
           }}
         >
+          <option value="updated_desc">最新の更新順</option>
           <option value="mgmt">管理番号</option>
           <option value="date_desc">登録年月（新しい順）</option>
           <option value="date_asc">登録年月（古い順）</option>
-          <option value="cat_koji">工事のみ表示</option>
-          <option value="cat_gyomu">業務のみ表示</option>
+          <option value="cat_koji">工事のみ</option>
+          <option value="cat_gyomu">業務のみ</option>
           <option value="status_flow">ステータス（進捗順）</option>
-          <option value="status_estimate">見積中のみ表示</option>
-          <option value="status_ordered">受注済のみ表示</option>
-          <option value="status_in_progress">施工中のみ表示</option>
-          <option value="status_completed">完了のみ表示</option>
-          <option value="status_billed">請求済のみ表示</option>
-          <option value="status_paid">入金済のみ表示</option>
         </select>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -372,7 +367,9 @@ export default function ProjectList({
                     )}
                   </div>
                   <div style={{ fontSize: "12px", color: T.ts }}>
-                    {p.client} ｜ {fmtDate(p.startDate)} 〜 {fmtDate(p.endDate)}
+                    {p.client}
+                    {p.personInCharge && ` ｜ 担当: ${p.personInCharge}`} ｜{" "}
+                    {fmtDate(p.startDate)} 〜 {fmtDate(p.endDate)}
                   </div>
                 </div>
                 <div

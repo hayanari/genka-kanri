@@ -18,6 +18,7 @@ export default function NewProject({
   const [f, setF] = useState({
     name: "",
     client: "",
+    personInCharge: "",
     category: "工事",
     contractAmount: "",
     budget: "",
@@ -128,7 +129,12 @@ export default function NewProject({
               <option value="業務">業務</option>
             </Sel>
           </div>
-
+          <Inp
+            label="担当者"
+            placeholder="例: 山田太郎"
+            value={f.personInCharge}
+            onChange={(e) => setF((p) => ({ ...p, personInCharge: e.target.value }))}
+          />
           <div>
             <label
               style={{
