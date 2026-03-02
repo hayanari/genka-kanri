@@ -82,7 +82,11 @@ export default function ProjectList({
     : "";
 
   const filtered = projects.filter((p) => {
-    const ms = !sq || p.name.includes(sq) || p.client.includes(sq);
+    const ms =
+      !sq ||
+      p.name.includes(sq) ||
+      p.client.includes(sq) ||
+      (p.personInCharge ?? "").includes(sq);
     const mf = !statusFilter || p.status === statusFilter;
     const mcat = !categoryFilter || p.category === categoryFilter;
     return ms && mf && mcat;
@@ -200,7 +204,7 @@ export default function ProjectList({
             {Icons.search}
           </div>
           <input
-            placeholder="案件名・顧客名で検索..."
+            placeholder="案件名・顧客名・担当者名で検索..."
             value={sq}
             onChange={(e) => setSq(e.target.value)}
             style={{
