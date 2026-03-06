@@ -2213,81 +2213,28 @@ export default function ProjectDetail({
               color={p.billedAmount - p.paidAmount > 0 ? T.dg : T.tx}
             />
           </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
-              gap: "12px",
-              marginBottom: "20px",
-            }}
-          >
-            <div>
-              <label
-                style={{
-                  fontSize: "11px",
-                  color: T.ts,
-                  marginBottom: "4px",
-                  display: "block",
-                }}
-              >
-                請求書送付済み
-              </label>
-              <Inp
-                type="date"
-                value={p.invoiceSentDate ?? ""}
-                onChange={(e) =>
-                  onUpdateProject({
-                    ...p,
-                    invoiceSentDate: e.target.value || undefined,
-                  })
-                }
-              />
+          {(p.invoiceSentDate || p.expectedPaymentDate || p.paymentConfirmedDate) && (
+            <div
+              style={{
+                fontSize: "12px",
+                color: T.ts,
+                marginBottom: "16px",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "12px",
+              }}
+            >
+              {p.invoiceSentDate && (
+                <span>請求書送付: {fmtDate(p.invoiceSentDate)}</span>
+              )}
+              {p.expectedPaymentDate && (
+                <span>入金予定: {fmtDate(p.expectedPaymentDate)}</span>
+              )}
+              {p.paymentConfirmedDate && (
+                <span>入金確認: {fmtDate(p.paymentConfirmedDate)}</span>
+              )}
             </div>
-            <div>
-              <label
-                style={{
-                  fontSize: "11px",
-                  color: T.ts,
-                  marginBottom: "4px",
-                  display: "block",
-                }}
-              >
-                入金予定日
-              </label>
-              <Inp
-                type="date"
-                value={p.expectedPaymentDate ?? ""}
-                onChange={(e) =>
-                  onUpdateProject({
-                    ...p,
-                    expectedPaymentDate: e.target.value || undefined,
-                  })
-                }
-              />
-            </div>
-            <div>
-              <label
-                style={{
-                  fontSize: "11px",
-                  color: T.ts,
-                  marginBottom: "4px",
-                  display: "block",
-                }}
-              >
-                入金確認済み
-              </label>
-              <Inp
-                type="date"
-                value={p.paymentConfirmedDate ?? ""}
-                onChange={(e) =>
-                  onUpdateProject({
-                    ...p,
-                    paymentConfirmedDate: e.target.value || undefined,
-                  })
-                }
-              />
-            </div>
-          </div>
+          )}
           <div style={{ marginBottom: "16px" }}>
             <div
               style={{
@@ -2964,8 +2911,63 @@ export default function ProjectDetail({
         </div>
       </Modal>
 
-      <Modal open={payModal} onClose={() => setPayModal(false)} title="入金登録" w={420}>
+      <Modal open={payModal} onClose={() => setPayModal(false)} title="入金登録" w={460}>
         <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          <div
+            style={{
+              fontSize: "11px",
+              color: T.ts,
+              marginBottom: "4px",
+              paddingBottom: "8px",
+              borderBottom: `1px solid ${T.bd}`,
+            }}
+          >
+            入金スケジュール
+          </div>
+          <Inp
+            label="請求書送付済み"
+            type="date"
+            value={p.invoiceSentDate ?? ""}
+            onChange={(e) =>
+              onUpdateProject({
+                ...p,
+                invoiceSentDate: e.target.value || undefined,
+              })
+            }
+          />
+          <Inp
+            label="入金予定日"
+            type="date"
+            value={p.expectedPaymentDate ?? ""}
+            onChange={(e) =>
+              onUpdateProject({
+                ...p,
+                expectedPaymentDate: e.target.value || undefined,
+              })
+            }
+          />
+          <Inp
+            label="入金確認済み"
+            type="date"
+            value={p.paymentConfirmedDate ?? ""}
+            onChange={(e) =>
+              onUpdateProject({
+                ...p,
+                paymentConfirmedDate: e.target.value || undefined,
+              })
+            }
+          />
+          <div
+            style={{
+              fontSize: "11px",
+              color: T.ts,
+              marginBottom: "4px",
+              paddingBottom: "8px",
+              borderBottom: `1px solid ${T.bd}`,
+            }}
+          >
+            入金登録
+          </div>
           <Inp
             label="入金日"
             type="date"
