@@ -23,6 +23,12 @@ export interface Project {
   subcontractAmount: number;
   subcontractVendor: string;
   payments: { id: string; date: string; amount: number; note: string }[];
+  /** 請求書送付日 */
+  invoiceSentDate?: string;
+  /** 入金予定日 */
+  expectedPaymentDate?: string;
+  /** 入金確認日 */
+  paymentConfirmedDate?: string;
   changes: {
     id: string;
     date: string;
@@ -459,11 +465,14 @@ export const exportCSV = (
   const fmtDate = (d: string) =>
     d ? new Date(d).toLocaleDateString("ja-JP") : "—";
   let csv =
-    "管理番号,案件名,顧客,担当者,区分,施工形態,工期開始,工期終了,当初契約額,増減後受注額,実行予算,原価合計,粗利,利益率,マージン率,人工(人日),車両(台日),売上/人工,粗利/人工,進捗,ステータス,アーカイブ年度,削除日\n";
+    "管理番号,案件名,顧客,担当者,区分,施工形態,工期開始,工期終了,当初契約額,増減後受注額,実行予算,原価合計,粗利,利益率,マージン率,人工(人日),車両(台日),売上/人工,粗利/人工,進捗,ステータス,請求書送付日,入金予定日,入金確認日,アーカイブ年度,削除日\n";
   projects.forEach((p) => {
     const st = projStats(p, costs, quantities);
     const deletedAt = p.deletedAt ? fmtDate(p.deletedAt) : "—";
-    csv += `"${p.managementNumber ?? ""}","${p.name}","${p.client}","${p.personInCharge ?? ""}","${p.category}","${p.mode === "subcontract" ? "一括外注" : "自社施工"}","${fmtDate(p.startDate)}","${fmtDate(p.endDate)}",${p.originalAmount},${st.effectiveContract},${p.budget},${st.totalCost},${st.profit},${st.profitRate}%,${p.mode === "subcontract" ? p.marginRate + "%" : "—"},${st.laborDays},${st.vehicleDays},${st.laborDays ? st.revenuePerLabor : "—"},${st.laborDays ? st.profitPerLabor : "—"},${p.progress}%,${STATUS_MAP[p.status]?.label},${p.archiveYear || "—"},${deletedAt}\n`;
+    const invSent = p.invoiceSentDate ? fmtDate(p.invoiceSentDate) : "—";
+    const expPay = p.expectedPaymentDate ? fmtDate(p.expectedPaymentDate) : "—";
+    const payConf = p.paymentConfirmedDate ? fmtDate(p.paymentConfirmedDate) : "—";
+    csv += `"${p.managementNumber ?? ""}","${p.name}","${p.client}","${p.personInCharge ?? ""}","${p.category}","${p.mode === "subcontract" ? "一括外注" : "自社施工"}","${fmtDate(p.startDate)}","${fmtDate(p.endDate)}",${p.originalAmount},${st.effectiveContract},${p.budget},${st.totalCost},${st.profit},${st.profitRate}%,${p.mode === "subcontract" ? p.marginRate + "%" : "—"},${st.laborDays},${st.vehicleDays},${st.laborDays ? st.revenuePerLabor : "—"},${st.laborDays ? st.profitPerLabor : "—"},${p.progress}%,${STATUS_MAP[p.status]?.label},${invSent},${expPay},${payConf},${p.archiveYear || "—"},${deletedAt}\n`;
   });
   const blob = new Blob(["\uFEFF" + csv], {
     type: "text/csv;charset=utf-8;",

@@ -23,6 +23,9 @@ type ExcelProject = {
   subcontractVendor?: string;
   payments?: { id?: string; date?: string; amount?: number; note?: string }[];
   changes?: { id?: string; type?: string; amount?: number; description?: string; date?: string }[];
+  invoiceSentDate?: string;
+  expectedPaymentDate?: string;
+  paymentConfirmedDate?: string;
 };
 
 function isValidDateStr(s: string): boolean {
@@ -110,6 +113,9 @@ export function convertExcelProjectsToApp(
       billedAmount: toTaxExclusive(ep.billedAmount ?? 0),
       paidAmount: toTaxExclusive(ep.paidAmount ?? 0),
       notes: notesParts.length > 0 ? notesParts.join("\n\n") : undefined,
+      invoiceSentDate: ep.invoiceSentDate && isValidDateStr(ep.invoiceSentDate) ? normalizeDate(ep.invoiceSentDate) : undefined,
+      expectedPaymentDate: ep.expectedPaymentDate && isValidDateStr(ep.expectedPaymentDate) ? normalizeDate(ep.expectedPaymentDate) : undefined,
+      paymentConfirmedDate: ep.paymentConfirmedDate && isValidDateStr(ep.paymentConfirmedDate) ? normalizeDate(ep.paymentConfirmedDate) : undefined,
       mode,
       marginRate: ep.marginRate ?? 0,
       subcontractAmount: toTaxExclusive(ep.subcontractAmount ?? 0),

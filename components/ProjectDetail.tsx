@@ -2213,6 +2213,81 @@ export default function ProjectDetail({
               color={p.billedAmount - p.paidAmount > 0 ? T.dg : T.tx}
             />
           </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: "12px",
+              marginBottom: "20px",
+            }}
+          >
+            <div>
+              <label
+                style={{
+                  fontSize: "11px",
+                  color: T.ts,
+                  marginBottom: "4px",
+                  display: "block",
+                }}
+              >
+                請求書送付済み
+              </label>
+              <Inp
+                type="date"
+                value={p.invoiceSentDate ?? ""}
+                onChange={(e) =>
+                  onUpdateProject({
+                    ...p,
+                    invoiceSentDate: e.target.value || undefined,
+                  })
+                }
+              />
+            </div>
+            <div>
+              <label
+                style={{
+                  fontSize: "11px",
+                  color: T.ts,
+                  marginBottom: "4px",
+                  display: "block",
+                }}
+              >
+                入金予定日
+              </label>
+              <Inp
+                type="date"
+                value={p.expectedPaymentDate ?? ""}
+                onChange={(e) =>
+                  onUpdateProject({
+                    ...p,
+                    expectedPaymentDate: e.target.value || undefined,
+                  })
+                }
+              />
+            </div>
+            <div>
+              <label
+                style={{
+                  fontSize: "11px",
+                  color: T.ts,
+                  marginBottom: "4px",
+                  display: "block",
+                }}
+              >
+                入金確認済み
+              </label>
+              <Inp
+                type="date"
+                value={p.paymentConfirmedDate ?? ""}
+                onChange={(e) =>
+                  onUpdateProject({
+                    ...p,
+                    paymentConfirmedDate: e.target.value || undefined,
+                  })
+                }
+              />
+            </div>
+          </div>
           <div style={{ marginBottom: "16px" }}>
             <div
               style={{
