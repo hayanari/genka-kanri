@@ -37,6 +37,7 @@ import {
   Metric,
 } from "./ui/primitives";
 import { parseDesignBookToProcesses } from "@/lib/parseDesignBook";
+import { parseQuantityTableToSections } from "@/lib/parseQuantityTable";
 
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 
@@ -97,7 +98,9 @@ export default function ProjectDetail({
   const [unarchiveConfirmModal, setUnarchiveConfirmModal] = useState(false);
   const [processAddModal, setProcessAddModal] = useState(false);
   const [designImportLoading, setDesignImportLoading] = useState(false);
+  const [quantityImportLoading, setQuantityImportLoading] = useState(false);
   const designFileInputRef = useRef<HTMLInputElement>(null);
+  const quantityFileInputRef = useRef<HTMLInputElement>(null);
   const [expandedProcId, setExpandedProcId] = useState<string | null>(null);
   const [expandedSecId, setExpandedSecId] = useState<string | null>(null);
   const [addSectionProcId, setAddSectionProcId] = useState<string | null>(null);
@@ -263,12 +266,17 @@ export default function ProjectDetail({
     setDesignImportLoading(true);
     try {
       const buf = await file.arrayBuffer();
-      const parsed = parseDesignBookToProcesses(buf);
+      const parsed = parseDesignBookToProcesses(buf, { excludeKosei: true });
       if (parsed.length > 0) {
         const sorted = parsed
           .sort((a, b) => a.sortOrder - b.sortOrder)
           .map((pr, i) => ({ ...pr, sortOrder: i }));
-        updateProjectProcesses(sorted);
+        const existing = p.projectProcesses ?? [];
+        const existingKosei = existing.find((pr) => pr.processMasterId === "pm04");
+        const merged = existingKosei
+          ? [...sorted, { ...existingKosei, sortOrder: sorted.length }]
+          : sorted;
+        updateProjectProcesses(merged);
         setProcessAddModal(false);
       }
     } catch (err) {
@@ -276,6 +284,55 @@ export default function ProjectDetail({
       alert("設計書の読み取りに失敗しました。");
     } finally {
       setDesignImportLoading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleQuantityImport = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.name.endsWith(".xlsx")) {
+      e.target.value = "";
+      return;
+    }
+    setQuantityImportLoading(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const sections = parseQuantityTableToSections(buf);
+      if (sections.length > 0) {
+        const procs = p.projectProcesses ?? [];
+        const koseiProc = procs.find((pr) => pr.processMasterId === "pm04");
+        if (koseiProc) {
+          updateProjectProcesses(
+            procs.map((pr) =>
+              pr.id === koseiProc.id
+                ? { ...pr, sections }
+                : pr
+            )
+          );
+        } else {
+          updateProjectProcesses([
+            ...procs,
+            {
+              id: genId(),
+              processMasterId: "pm04",
+              status: "pending" as const,
+              sortOrder: procs.length,
+              sections,
+            },
+          ]);
+        }
+        setProcessAddModal(false);
+        if (expandedProcId) setExpandedProcId(null);
+      } else {
+        alert("数量表から更生工区間を読み取れませんでした。フォーマットを確認してください。");
+      }
+    } catch (err) {
+      console.error("数量表取込みエラー:", err);
+      alert("数量表の読み取りに失敗しました。");
+    } finally {
+      setQuantityImportLoading(false);
       e.target.value = "";
     }
   };
@@ -1367,6 +1424,13 @@ export default function ProjectDetail({
                 style={{ display: "none" }}
                 onChange={handleDesignImport}
               />
+              <input
+                ref={quantityFileInputRef}
+                type="file"
+                accept=".xlsx"
+                style={{ display: "none" }}
+                onChange={handleQuantityImport}
+              />
               <Btn
                 v="default"
                 sm
@@ -1374,6 +1438,14 @@ export default function ProjectDetail({
                 onClick={() => designFileInputRef.current?.click()}
               >
                 {designImportLoading ? "取込中…" : "設計書から取り込み"}
+              </Btn>
+              <Btn
+                v="default"
+                sm
+                disabled={quantityImportLoading}
+                onClick={() => quantityFileInputRef.current?.click()}
+              >
+                {quantityImportLoading ? "取込中…" : "数量表から取り込み（更生工）"}
               </Btn>
               <Btn v="primary" sm onClick={() => setProcessAddModal(true)}>
                 {Icons.plus} 工程追加
@@ -1608,6 +1680,290 @@ export default function ProjectDetail({
                                         background: T.bg,
                                       }}
                                     >
+                                      {(sec.managementNumber ??
+                                        sec.diaBefore ??
+                                        sec.diaAfter ??
+                                        sec.lengthBefore ??
+                                        sec.lengthAfter) != null && (
+                                        <div
+                                          style={{
+                                            display: "grid",
+                                            gridTemplateColumns:
+                                              "repeat(auto-fill, minmax(120px, 1fr))",
+                                            gap: "8px",
+                                            marginBottom: "12px",
+                                            paddingBottom: "12px",
+                                            borderBottom: `1px solid ${T.bd}44`,
+                                            fontSize: "11px",
+                                          }}
+                                        >
+                                          {sec.managementNumber && (
+                                            <span
+                                              style={{ color: T.ts }}
+                                            >
+                                              管理番号: {sec.managementNumber}
+                                            </span>
+                                          )}
+                                          {sec.rosenNumber && (
+                                            <span
+                                              style={{ color: T.ts }}
+                                            >
+                                              路線: {sec.rosenNumber}
+                                            </span>
+                                          )}
+                                          <div>
+                                            <span
+                                              style={{
+                                                color: T.ts,
+                                                display: "block",
+                                              }}
+                                            >
+                                              管径（前→後）
+                                            </span>
+                                            <div
+                                              style={{
+                                                display: "flex",
+                                                gap: "4px",
+                                                alignItems: "center",
+                                              }}
+                                            >
+                                              <input
+                                                type="number"
+                                                placeholder="前"
+                                                value={
+                                                  sec.diaBefore ?? ""
+                                                }
+                                                onChange={(e) => {
+                                                  const v = e.target.value;
+                                                  updateProjectProcesses(
+                                                    (p.projectProcesses ?? []).map(
+                                                      (pr) =>
+                                                        pr.id === proc.id
+                                                          ? {
+                                                              ...pr,
+                                                              sections:
+                                                                pr.sections.map(
+                                                                  (s) =>
+                                                                    s.id ===
+                                                                    sec.id
+                                                                      ? {
+                                                                          ...s,
+                                                                          diaBefore:
+                                                                            v ===
+                                                                            ""
+                                                                              ? undefined
+                                                                              : Number(
+                                                                                  v
+                                                                                ),
+                                                                        }
+                                                                      : s
+                                                                ),
+                                                            }
+                                                          : pr
+                                                    )
+                                                  );
+                                                }}
+                                                style={{
+                                                  width: "50px",
+                                                  padding: "4px 6px",
+                                                  fontSize: "12px",
+                                                  background: T.s,
+                                                  border: `1px solid ${T.bd}`,
+                                                  borderRadius: "4px",
+                                                  color: T.tx,
+                                                }}
+                                              />
+                                              <span
+                                                style={{
+                                                  color: T.ts,
+                                                  fontSize: "10px",
+                                                }}
+                                              >
+                                                →
+                                              </span>
+                                              <input
+                                                type="number"
+                                                placeholder="後"
+                                                value={
+                                                  sec.diaAfter ?? ""
+                                                }
+                                                onChange={(e) => {
+                                                  const v = e.target.value;
+                                                  updateProjectProcesses(
+                                                    (p.projectProcesses ?? []).map(
+                                                      (pr) =>
+                                                        pr.id === proc.id
+                                                          ? {
+                                                              ...pr,
+                                                              sections:
+                                                                pr.sections.map(
+                                                                  (s) =>
+                                                                    s.id ===
+                                                                    sec.id
+                                                                      ? {
+                                                                          ...s,
+                                                                          diaAfter:
+                                                                            v ===
+                                                                            ""
+                                                                              ? undefined
+                                                                              : Number(
+                                                                                  v
+                                                                                ),
+                                                                        }
+                                                                      : s
+                                                                ),
+                                                            }
+                                                          : pr
+                                                    )
+                                                  );
+                                                }}
+                                                style={{
+                                                  width: "50px",
+                                                  padding: "4px 6px",
+                                                  fontSize: "12px",
+                                                  background: T.s,
+                                                  border: `1px solid ${T.bd}`,
+                                                  borderRadius: "4px",
+                                                  color: T.tx,
+                                                }}
+                                              />
+                                              <span
+                                                style={{
+                                                  color: T.ts,
+                                                  fontSize: "10px",
+                                                }}
+                                              >
+                                                mm
+                                              </span>
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <span
+                                              style={{
+                                                color: T.ts,
+                                                display: "block",
+                                              }}
+                                            >
+                                              管実長（前→後）m
+                                            </span>
+                                            <div
+                                              style={{
+                                                display: "flex",
+                                                gap: "4px",
+                                                alignItems: "center",
+                                              }}
+                                            >
+                                              <input
+                                                type="number"
+                                                step="0.01"
+                                                placeholder="前"
+                                                value={
+                                                  sec.lengthBefore ?? ""
+                                                }
+                                                onChange={(e) => {
+                                                  const v = e.target.value;
+                                                  updateProjectProcesses(
+                                                    (p.projectProcesses ?? []).map(
+                                                      (pr) =>
+                                                        pr.id === proc.id
+                                                          ? {
+                                                              ...pr,
+                                                              sections:
+                                                                pr.sections.map(
+                                                                  (s) =>
+                                                                    s.id ===
+                                                                    sec.id
+                                                                      ? {
+                                                                          ...s,
+                                                                          lengthBefore:
+                                                                            v ===
+                                                                            ""
+                                                                              ? undefined
+                                                                              : Number(
+                                                                                  v
+                                                                                ),
+                                                                        }
+                                                                      : s
+                                                                ),
+                                                            }
+                                                          : pr
+                                                    )
+                                                  );
+                                                }}
+                                                style={{
+                                                  width: "55px",
+                                                  padding: "4px 6px",
+                                                  fontSize: "12px",
+                                                  background: T.s,
+                                                  border: `1px solid ${T.bd}`,
+                                                  borderRadius: "4px",
+                                                  color: T.tx,
+                                                }}
+                                              />
+                                              <span
+                                                style={{
+                                                  color: T.ts,
+                                                  fontSize: "10px",
+                                                }}
+                                              >
+                                                →
+                                              </span>
+                                              <input
+                                                type="number"
+                                                step="0.01"
+                                                placeholder="後"
+                                                value={
+                                                  sec.lengthAfter ?? ""
+                                                }
+                                                onChange={(e) => {
+                                                  const v = e.target.value;
+                                                  updateProjectProcesses(
+                                                    (p.projectProcesses ?? []).map(
+                                                      (pr) =>
+                                                        pr.id === proc.id
+                                                          ? {
+                                                              ...pr,
+                                                              sections:
+                                                                pr.sections.map(
+                                                                  (s) =>
+                                                                    s.id ===
+                                                                    sec.id
+                                                                      ? {
+                                                                          ...s,
+                                                                          lengthAfter:
+                                                                            v ===
+                                                                            ""
+                                                                              ? undefined
+                                                                              : Number(
+                                                                                  v
+                                                                                ),
+                                                                          name:
+                                                                            v !== "" &&
+                                                                            (sec.diaAfter ?? sec.diaBefore) != null
+                                                                              ? `φ${sec.diaAfter ?? sec.diaBefore} ${v}m`
+                                                                              : s.name,
+                                                                        }
+                                                                      : s
+                                                                ),
+                                                            }
+                                                          : pr
+                                                    )
+                                                  );
+                                                }}
+                                                style={{
+                                                  width: "55px",
+                                                  padding: "4px 6px",
+                                                  fontSize: "12px",
+                                                  background: T.s,
+                                                  border: `1px solid ${T.bd}`,
+                                                  borderRadius: "4px",
+                                                  color: T.tx,
+                                                }}
+                                              />
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
                                       {sec.subtasks.map((sub) => (
                                         <div
                                           key={sub.id}

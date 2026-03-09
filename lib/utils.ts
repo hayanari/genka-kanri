@@ -61,6 +61,18 @@ export interface ProjectSection {
   name: string;
   sortOrder: number;
   subtasks: ProjectSubtask[];
+  /** 数量表の管理番号（更生工用） */
+  managementNumber?: string;
+  /** 路線番号 */
+  rosenNumber?: string;
+  /** 管径（事前・設計） */
+  diaBefore?: number;
+  /** 管径（事後・実施） */
+  diaAfter?: number;
+  /** 管実長（事前）m */
+  lengthBefore?: number;
+  /** 管実長（事後）m */
+  lengthAfter?: number;
 }
 
 export interface ProjectSubtask {

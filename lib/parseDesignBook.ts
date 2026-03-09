@@ -34,8 +34,13 @@ function extractSpansFromDaika(wb: XLSX.WorkBook): { dia: string; len: string }[
   return spans;
 }
 
-/** 設計書（内訳1 + 代価1）をパースして ProjectProcess[] を生成 */
-export function parseDesignBookToProcesses(buffer: ArrayBuffer): ProjectProcess[] {
+/** 設計書（内訳1 + 代価1）をパースして ProjectProcess[] を生成
+ * @param excludeKosei true のとき管きょ更生工をスキップ（数量表から取り込む場合） */
+export function parseDesignBookToProcesses(
+  buffer: ArrayBuffer,
+  options?: { excludeKosei?: boolean }
+): ProjectProcess[] {
+  const excludeKosei = options?.excludeKosei ?? false;
   const wb = XLSX.read(buffer, { type: "array" });
   const sh =
     wb.Sheets["内訳1"] ??
@@ -81,8 +86,9 @@ export function parseDesignBookToProcesses(buffer: ArrayBuffer): ProjectProcess[
   }
 
   // 3. 管きょ更生工: 代価1のスパン情報があればスパン単位で区間生成、なければ雨水/合流で生成
+  // excludeKosei=true のときは数量表から取り込むためスキップ
   const spans = extractSpansFromDaika(wb);
-  const hasKosei = [...kosyuMap.keys()].some((k) => k.includes("管きょ更生工"));
+  const hasKosei = !excludeKosei && [...kosyuMap.keys()].some((k) => k.includes("管きょ更生工"));
 
   if (hasKosei) {
     let sections: ProjectSection[];
