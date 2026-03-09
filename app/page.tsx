@@ -61,15 +61,39 @@ export default function Home() {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, [data, loading]);
+
+  const VIEW_KEY = "genka_view";
+  const SEL_ID_KEY = "genka_sel_id";
+  const readStored = () => {
+    if (typeof window === "undefined") return { v: "dashboard", id: null };
+    try {
+      const v = sessionStorage.getItem(VIEW_KEY) || "dashboard";
+      const id = sessionStorage.getItem(SEL_ID_KEY);
+      return { v, id };
+    } catch {
+      return { v: "dashboard", id: null };
+    }
+  };
   const [view, setView] = useState("dashboard");
   const [selId, setSelId] = useState<string | null>(null);
   const [sq, setSq] = useState("");
   const [sf, setSf] = useState("");
   const [showCsvExportModal, setShowCsvExportModal] = useState(false);
 
+  useEffect(() => {
+    const { v, id } = readStored();
+    setView(v);
+    setSelId(id);
+  }, []);
+
   const nav = useCallback((v: string, pid?: string) => {
     setView(v);
-    if (pid) setSelId(pid);
+    setSelId(pid ?? null);
+    try {
+      sessionStorage.setItem(VIEW_KEY, v);
+      if (pid) sessionStorage.setItem(SEL_ID_KEY, pid);
+      else sessionStorage.removeItem(SEL_ID_KEY);
+    } catch {}
   }, []);
 
   const selProj = data.projects.find((p) => p.id === selId);
@@ -83,7 +107,7 @@ export default function Home() {
     const next = { ...data, projects: [...data.projects, projWithNum] };
     setData(next);
     saveData(next);
-    setView("list");
+    nav("list");
   };
 
   const importProjects = (projects: Project[]) => {
@@ -98,7 +122,7 @@ export default function Home() {
     const next = { ...data, projects: [...data.projects, ...toAdd] };
     setData(next);
     saveData(next);
-    setView("list");
+    nav("list");
   };
 
   const addBidSchedule = (b: BidSchedule) => {
@@ -108,7 +132,7 @@ export default function Home() {
     };
     setData(next);
     saveData(next);
-    setView("bidschedule");
+    nav("bidschedule");
   };
 
   const updateBidSchedule = (b: BidSchedule) => {
@@ -166,8 +190,7 @@ export default function Home() {
           : p
       ),
     }));
-    setView("list");
-    setSelId(null);
+    nav("list");
   };
 
   const restoreProject = (pid: string) => {
@@ -177,8 +200,7 @@ export default function Home() {
         p.id === pid ? { ...p, deleted: false, deletedAt: undefined } : p
       ),
     }));
-    setView("list");
-    setSelId(null);
+    nav("list");
   };
 
   const archiveProject = (pid: string, archiveYear: string) => {
@@ -190,8 +212,7 @@ export default function Home() {
           : p
       ),
     }));
-    setView("archive");
-    setSelId(null);
+    nav("archive");
   };
 
   const unarchiveProject = (pid: string) => {
@@ -203,8 +224,7 @@ export default function Home() {
           : p
       ),
     }));
-    setView("list");
-    setSelId(null);
+    nav("list");
   };
 
   const activeProjects = data.projects.filter(
