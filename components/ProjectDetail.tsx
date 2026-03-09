@@ -1653,17 +1653,45 @@ export default function ProjectDetail({
                                       alignItems: "center",
                                       gap: "8px",
                                       justifyContent: "space-between",
+                                      flexWrap: "wrap",
                                       background: T.s,
                                     }}
                                   >
-                                    <span
+                                    <div
                                       style={{
-                                        fontSize: "13px",
-                                        color: T.tx,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "10px",
+                                        flexWrap: "wrap",
                                       }}
                                     >
-                                      {sec.name}
-                                    </span>
+                                      <span
+                                        style={{
+                                          fontSize: "13px",
+                                          color: T.tx,
+                                        }}
+                                      >
+                                        {sec.name}
+                                      </span>
+                                      {(sec.managementNumber ||
+                                        sec.rosenNumber) && (
+                                        <span
+                                          style={{
+                                            fontSize: "11px",
+                                            color: T.ts,
+                                          }}
+                                        >
+                                          {[
+                                            sec.managementNumber &&
+                                              `管理番号:${sec.managementNumber}`,
+                                            sec.rosenNumber &&
+                                              `路線:${sec.rosenNumber}`,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" ")}
+                                        </span>
+                                      )}
+                                    </div>
                                     <span
                                       style={{
                                         fontSize: "11px",
