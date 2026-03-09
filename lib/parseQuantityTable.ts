@@ -45,8 +45,8 @@ export function parseQuantityTableToSections(buffer: ArrayBuffer): ProjectSectio
     const lenBefore = toNum(row[COLS.ACTUAL_LENGTH]) ?? toNum(row[COLS.LENGTH]);
     const lenAfter = toNum(nextRow[COLS.ACTUAL_LENGTH]) ?? toNum(nextRow[COLS.LENGTH]);
 
-    const dia = diaAfter > 0 ? diaAfter : diaBefore;
-    const len = (lenAfter > 0 ? lenAfter : lenBefore) || 0;
+    const dia = (diaAfter != null && diaAfter > 0) ? diaAfter : (diaBefore ?? 0);
+    const len = (lenAfter != null && lenAfter > 0 ? lenAfter : lenBefore) || 0;
     const name = dia > 0 && len > 0 ? `φ${dia} ${len}m` : rosen || `#${mgmt}`;
 
     sections.push({
@@ -61,10 +61,10 @@ export function parseQuantityTableToSections(buffer: ArrayBuffer): ProjectSectio
       })),
       managementNumber: mgmt,
       rosenNumber: rosen || undefined,
-      diaBefore: diaBefore > 0 ? diaBefore : undefined,
-      diaAfter: diaAfter > 0 ? diaAfter : undefined,
-      lengthBefore: lenBefore > 0 ? lenBefore : undefined,
-      lengthAfter: lenAfter > 0 ? lenAfter : undefined,
+      diaBefore: (diaBefore != null && diaBefore > 0) ? diaBefore : undefined,
+      diaAfter: (diaAfter != null && diaAfter > 0) ? diaAfter : undefined,
+      lengthBefore: (lenBefore != null && lenBefore > 0) ? lenBefore : undefined,
+      lengthAfter: (lenAfter != null && lenAfter > 0) ? lenAfter : undefined,
     });
   }
 
