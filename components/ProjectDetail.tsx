@@ -1792,13 +1792,14 @@ export default function ProjectDetail({
                                                   );
                                                 }}
                                                 style={{
-                                                  width: "50px",
+                                                  width: "64px",
                                                   padding: "4px 6px",
                                                   fontSize: "12px",
                                                   background: T.s,
                                                   border: `1px solid ${T.bd}`,
                                                   borderRadius: "4px",
                                                   color: T.tx,
+                                                  minWidth: "64px",
                                                 }}
                                               />
                                               <span
@@ -1846,13 +1847,14 @@ export default function ProjectDetail({
                                                   );
                                                 }}
                                                 style={{
-                                                  width: "50px",
+                                                  width: "64px",
                                                   padding: "4px 6px",
                                                   fontSize: "12px",
                                                   background: T.s,
                                                   border: `1px solid ${T.bd}`,
                                                   borderRadius: "4px",
                                                   color: T.tx,
+                                                  minWidth: "64px",
                                                 }}
                                               />
                                               <span
@@ -1919,13 +1921,14 @@ export default function ProjectDetail({
                                                   );
                                                 }}
                                                 style={{
-                                                  width: "55px",
+                                                  width: "72px",
                                                   padding: "4px 6px",
                                                   fontSize: "12px",
                                                   background: T.s,
                                                   border: `1px solid ${T.bd}`,
                                                   borderRadius: "4px",
                                                   color: T.tx,
+                                                  minWidth: "72px",
                                                 }}
                                               />
                                               <span
@@ -1979,13 +1982,14 @@ export default function ProjectDetail({
                                                   );
                                                 }}
                                                 style={{
-                                                  width: "55px",
+                                                  width: "72px",
                                                   padding: "4px 6px",
                                                   fontSize: "12px",
                                                   background: T.s,
                                                   border: `1px solid ${T.bd}`,
                                                   borderRadius: "4px",
                                                   color: T.tx,
+                                                  minWidth: "72px",
                                                 }}
                                               />
                                             </div>
