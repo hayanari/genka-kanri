@@ -14,21 +14,10 @@ const COLS = {
   ACTUAL_LENGTH: 33,
 };
 
-/** 数量表から 更生工 区間を抽出（事前・事後対応） */
-export function parseQuantityTableToSections(buffer: ArrayBuffer): ProjectSection[] {
-  const wb = XLSX.read(buffer, { type: "array" });
-  const sh =
-    wb.Sheets["数量表"] ??
-    wb.Sheets["数量表 2"] ??
-    wb.Sheets["数量表 3"] ??
-    wb.Sheets["数量表 (4)"] ??
-    wb.Sheets[wb.SheetNames.find((n) => n.includes("数量表")) ?? ""];
-  if (!sh) return [];
 
-  const data = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" }) as (string | number)[][];
+/** 1シートから区間を抽出 */
+function extractFromSheet(data: (string | number)[][]): ProjectSection[] {
   const sections: ProjectSection[] = [];
-  let sortOrder = 0;
-
   for (let i = 3; i < data.length - 1; i++) {
     const row = data[i] || [];
     const nextRow = data[i + 1] || [];
@@ -52,7 +41,7 @@ export function parseQuantityTableToSections(buffer: ArrayBuffer): ProjectSectio
     sections.push({
       id: genId(),
       name,
-      sortOrder: sortOrder++,
+      sortOrder: 0,
       subtasks: KOSEI_SUBTASKS.map((n, idx) => ({
         id: genId(),
         name: n,
@@ -67,8 +56,40 @@ export function parseQuantityTableToSections(buffer: ArrayBuffer): ProjectSectio
       lengthAfter: (lenAfter != null && lenAfter > 0) ? lenAfter : undefined,
     });
   }
-
   return sections;
+}
+
+/** 数量表から 更生工 区間を抽出（数量表シートのみ、管理番号・距離・管径あり） */
+export function parseQuantityTableToSections(buffer: ArrayBuffer): ProjectSection[] {
+  const wb = XLSX.read(buffer, { type: "array" });
+  const seen = new Set<string>();
+  const allSections: ProjectSection[] = [];
+
+  const addSection = (sec: ProjectSection) => {
+    const key = `${sec.managementNumber ?? ""}_${sec.rosenNumber ?? ""}_${sec.diaAfter ?? sec.diaBefore ?? ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    allSections.push(sec);
+  };
+
+  const quantitySheetNames = wb.SheetNames.filter((n) => n.includes("数量表"));
+  for (const sheetName of quantitySheetNames) {
+    const sh = wb.Sheets[sheetName];
+    if (!sh) continue;
+    const data = XLSX.utils.sheet_to_json(sh, { header: 1, defval: "" }) as (string | number)[][];
+    for (const sec of extractFromSheet(data)) addSection(sec);
+  }
+
+  allSections.sort((a, b) => {
+    const na = parseInt(a.managementNumber ?? "0", 10) || 0;
+    const nb = parseInt(b.managementNumber ?? "0", 10) || 0;
+    if (na !== nb) return na - nb;
+    return (a.rosenNumber ?? "").localeCompare(b.rosenNumber ?? "");
+  });
+  allSections.forEach((sec, i) => {
+    sec.sortOrder = i;
+  });
+  return allSections;
 }
 
 function toNum(v: unknown): number | undefined {
