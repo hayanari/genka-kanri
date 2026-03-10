@@ -27,7 +27,8 @@ export const STATUS_MAP: Record<
   estimate: { label: "見積中", color: "#94a3b8", bg: "#f1f5f9" },
   ordered: { label: "受注済", color: "#3b82f6", bg: "#eff6ff" },
   in_progress: { label: "施工中", color: "#f59e0b", bg: "#fffbeb" },
-  completed: { label: "完了", color: "#10b981", bg: "#ecfdf5" },
+  completed: { label: "現場完了", color: "#10b981", bg: "#ecfdf5" },
+  doc_completed: { label: "書類完了", color: "#06b6d4", bg: "#ecfeff" },
   billed: { label: "請求済", color: "#8b5cf6", bg: "#f5f3ff" },
   paid: { label: "入金済", color: "#059669", bg: "#d1fae5" },
 };

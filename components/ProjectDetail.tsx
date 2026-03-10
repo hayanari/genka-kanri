@@ -2621,7 +2621,7 @@ export default function ProjectDetail({
               color={p.billedAmount - p.paidAmount > 0 ? T.dg : T.tx}
             />
           </div>
-          {(p.invoiceSentDate || p.expectedPaymentDate || p.paymentConfirmedDate) && (
+          {(p.invoiceSentDate || p.expectedPaymentDate || p.expectedPaymentAmount != null || p.paymentConfirmedDate) && (
             <div
               style={{
                 fontSize: "12px",
@@ -2637,6 +2637,9 @@ export default function ProjectDetail({
               )}
               {p.expectedPaymentDate && (
                 <span>入金予定: {fmtDate(p.expectedPaymentDate)}</span>
+              )}
+              {p.expectedPaymentAmount != null && (
+                <span>入金予定金額: ¥{fmt(p.expectedPaymentAmount)}</span>
               )}
               {p.paymentConfirmedDate && (
                 <span>入金確認: {fmtDate(p.paymentConfirmedDate)}</span>
@@ -3407,6 +3410,18 @@ export default function ProjectDetail({
               onUpdateProject({
                 ...p,
                 expectedPaymentDate: e.target.value || undefined,
+              })
+            }
+          />
+          <Inp
+            label="入金予定金額"
+            type="number"
+            placeholder="例: 500000"
+            value={p.expectedPaymentAmount != null ? String(p.expectedPaymentAmount) : ""}
+            onChange={(e) =>
+              onUpdateProject({
+                ...p,
+                expectedPaymentAmount: e.target.value ? Number(e.target.value) : undefined,
               })
             }
           />

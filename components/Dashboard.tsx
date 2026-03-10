@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { COST_CATEGORIES, STATUS_MAP, Icons } from "@/lib/constants";
 import { projStats } from "@/lib/utils";
 import type { Project, Cost, Quantity } from "@/lib/utils";
@@ -7,17 +8,46 @@ import { Metric, Card, Bar, Btn } from "./ui/primitives";
 import { T } from "@/lib/constants";
 import { fmt } from "@/lib/constants";
 
+function buildMonthOptions() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const opts: { value: string; label: string }[] = [];
+  for (let yy = y - 1; yy <= y + 2; yy++) {
+    for (let m = 1; m <= 12; m++) {
+      const v = `${yy}-${String(m).padStart(2, "0")}`;
+      opts.push({ value: v, label: `${yy}年${m}月` });
+    }
+  }
+  return opts;
+}
+
+const MONTH_OPTS = buildMonthOptions();
+
 export default function Dashboard({
   projects,
   costs,
   quantities,
   onNav,
+  onNavToCashflowMonth,
 }: {
   projects: Project[];
   costs: Cost[];
   quantities: Quantity[];
   onNav: (v: string, pid?: string) => void;
+  onNavToCashflowMonth?: (yyyyMM: string) => void;
 }) {
+  const now = new Date();
+  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const [cashflowMonth, setCashflowMonth] = useState(defaultMonth);
+
+  const cashflowProjects = projects.filter(
+    (p) => p.expectedPaymentDate && p.expectedPaymentDate.startsWith(cashflowMonth)
+  );
+  const cashflowCount = cashflowProjects.length;
+  const cashflowTotal = cashflowProjects.reduce((s, p) => {
+    const amt = p.expectedPaymentAmount ?? (p.billedAmount - p.paidAmount);
+    return s + (amt > 0 ? amt : 0);
+  }, 0);
   const allStats = projects.map((p) => projStats(p, costs, quantities));
   const totalContract = allStats.reduce((s, st) => s + st.effectiveContract, 0);
   const totalCost = allStats.reduce((s, st) => s + st.totalCost, 0);
@@ -92,6 +122,73 @@ export default function Dashboard({
           color={T.ok}
         />
       </div>
+
+      <Card
+        style={{ marginBottom: "24px" }}
+        onClick={
+          onNavToCashflowMonth && cashflowCount > 0
+            ? () => onNavToCashflowMonth(cashflowMonth)
+            : undefined
+        }
+      >
+        <div
+          style={{
+            fontSize: "11px",
+            color: T.ts,
+            marginBottom: "10px",
+          }}
+        >
+          💰 キャッシュフロー確認（入金予定）
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "12px 16px",
+          }}
+        >
+          <select
+            value={cashflowMonth}
+            onChange={(e) => setCashflowMonth(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              padding: "8px 12px",
+              background: T.s2,
+              border: `1px solid ${T.bd}`,
+              borderRadius: "6px",
+              color: T.tx,
+              fontSize: "13px",
+            }}
+          >
+            {MONTH_OPTS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <div style={{ display: "flex", gap: "20px", alignItems: "baseline" }}>
+            <div>
+              <span style={{ fontSize: "11px", color: T.ts }}>件数</span>
+              <span style={{ fontSize: "20px", fontWeight: 700, color: T.tx, marginLeft: "8px" }}>
+                {cashflowCount}
+              </span>
+              <span style={{ fontSize: "12px", color: T.ts }}>件</span>
+            </div>
+            <div>
+              <span style={{ fontSize: "11px", color: T.ts }}>合計</span>
+              <span style={{ fontSize: "20px", fontWeight: 700, color: T.ac, marginLeft: "8px" }}>
+                ¥{fmt(cashflowTotal)}
+              </span>
+            </div>
+          </div>
+          {cashflowCount > 0 && onNavToCashflowMonth && (
+            <span style={{ fontSize: "12px", color: T.ac }}>
+              → クリックで該当案件を表示
+            </span>
+          )}
+        </div>
+      </Card>
 
       <div
         style={{

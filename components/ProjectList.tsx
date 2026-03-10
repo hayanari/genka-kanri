@@ -29,6 +29,8 @@ export default function ProjectList({
   showDeletedAt = false,
   onRestore,
   onImport,
+  expectedPaymentMonthFilter,
+  onClearExpectedPaymentMonthFilter,
 }: {
   projects: Project[];
   costs: Cost[];
@@ -46,6 +48,8 @@ export default function ProjectList({
   showRestoreButton?: boolean;
   showDeletedAt?: boolean;
   onImport?: (projects: Project[]) => void;
+  expectedPaymentMonthFilter?: string | null;
+  onClearExpectedPaymentMonthFilter?: () => void;
 }) {
   const [sortBy, setSortBy] = useState("updated_desc");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -73,6 +77,14 @@ export default function ProjectList({
 
   const statusFilter = sf;
 
+  const monthFiltered = expectedPaymentMonthFilter
+    ? projects.filter(
+        (p) =>
+          p.expectedPaymentDate &&
+          p.expectedPaymentDate.startsWith(expectedPaymentMonthFilter)
+      )
+    : projects;
+
   const isCatOnlySort =
     sortBy === "cat_koji" || sortBy === "cat_gyomu";
   const categoryFilter = isCatOnlySort
@@ -81,7 +93,7 @@ export default function ProjectList({
       : "業務"
     : "";
 
-  const filtered = projects.filter((p) => {
+  const filtered = monthFiltered.filter((p) => {
     const ms =
       !sq ||
       p.name.includes(sq) ||
@@ -92,7 +104,7 @@ export default function ProjectList({
     return ms && mf && mcat;
   });
 
-  const STATUS_ORDER = ["estimate", "ordered", "in_progress", "completed", "billed", "paid"];
+  const STATUS_ORDER = ["estimate", "ordered", "in_progress", "completed", "doc_completed", "billed", "paid"];
   const statusRank = (s: string) => {
     const i = STATUS_ORDER.indexOf(s);
     return i >= 0 ? i : 999;
@@ -147,10 +159,36 @@ export default function ProjectList({
               fontWeight: 700,
             }}
           >
-            {title}
+            {expectedPaymentMonthFilter
+              ? (() => {
+                  const [y, m] = expectedPaymentMonthFilter.split("-");
+                  return `${y}年${parseInt(m, 10)}月 入金予定の案件`;
+                })()
+              : title}
           </h2>
           <p style={{ margin: "6px 0 0", fontSize: "13px", color: T.ts }}>
             {filtered.length}件
+            {expectedPaymentMonthFilter && onClearExpectedPaymentMonthFilter && (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  onClick={onClearExpectedPaymentMonthFilter}
+                  style={{
+                    marginLeft: "8px",
+                    padding: "2px 8px",
+                    fontSize: "11px",
+                    color: T.ac,
+                    background: "transparent",
+                    border: `1px solid ${T.ac}`,
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                  }}
+                >
+                  フィルタ解除
+                </button>
+              </>
+            )}
           </p>
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>

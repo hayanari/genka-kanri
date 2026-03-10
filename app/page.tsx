@@ -78,6 +78,7 @@ export default function Home() {
   const [selId, setSelId] = useState<string | null>(null);
   const [sq, setSq] = useState("");
   const [sf, setSf] = useState("");
+  const [expectedPaymentMonthFilter, setExpectedPaymentMonthFilter] = useState<string | null>(null);
   const [showCsvExportModal, setShowCsvExportModal] = useState(false);
 
   useEffect(() => {
@@ -619,6 +620,10 @@ export default function Home() {
             costs={data.costs}
             quantities={data.quantities}
             onNav={navWithClose}
+            onNavToCashflowMonth={(yyyyMM) => {
+              setExpectedPaymentMonthFilter(yyyyMM);
+              navWithClose("list");
+            }}
           />
         )}
         {!loading && view === "list" && (
@@ -632,6 +637,8 @@ export default function Home() {
             setSq={setSq}
             sf={sf}
             setSf={setSf}
+            expectedPaymentMonthFilter={expectedPaymentMonthFilter}
+            onClearExpectedPaymentMonthFilter={() => setExpectedPaymentMonthFilter(null)}
           />
         )}
         {!loading && view === "archive" && (

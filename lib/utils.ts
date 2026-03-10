@@ -27,6 +27,8 @@ export interface Project {
   invoiceSentDate?: string;
   /** 入金予定日 */
   expectedPaymentDate?: string;
+  /** 入金予定金額 */
+  expectedPaymentAmount?: number;
   /** 入金確認日 */
   paymentConfirmedDate?: string;
   changes: {
