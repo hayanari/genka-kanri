@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import { STATUS_MAP, Icons } from "@/lib/constants";
 import { parseExcelImportJson } from "@/lib/importExcel";
 import { fmtDate } from "@/lib/constants";
-import { projStats } from "@/lib/utils";
+import { projStats, normalizePersonName } from "@/lib/utils";
 import type { Project, Cost, Quantity } from "@/lib/utils";
 import { Badge, ModeBadge, Card, Bar, Btn } from "./ui/primitives";
 import { T } from "@/lib/constants";
@@ -91,7 +91,7 @@ export default function ProjectList({
 
   const personFiltered = personInChargeFilter
     ? monthFiltered.filter((p) => {
-        const pc = p.personInCharge?.trim() || "未定";
+        const pc = normalizePersonName(p.personInCharge) || "未定";
         return pc === personInChargeFilter;
       })
     : monthFiltered;

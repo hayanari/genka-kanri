@@ -1,6 +1,12 @@
 import { fmt, pct, div, genId } from "./constants";
 import { STATUS_MAP } from "./constants";
 
+/** 担当者名を統一（trim + スペース除去）。同じ漢字でスペース有無のみ違うものを同一とみなす */
+export function normalizePersonName(s: string | undefined): string {
+  if (!s || typeof s !== "string") return "";
+  return s.trim().replace(/\s+/g, "");
+}
+
 export interface Project {
   id: string;
   /** 管理番号（工事: K-0001, 業務: G-0001） */

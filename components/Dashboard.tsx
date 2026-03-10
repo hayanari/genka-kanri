@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { COST_CATEGORIES, STATUS_MAP, Icons } from "@/lib/constants";
-import { projStats } from "@/lib/utils";
+import { projStats, normalizePersonName } from "@/lib/utils";
 import type { Project, Cost, Quantity } from "@/lib/utils";
 import { Metric, Card, Bar, Btn } from "./ui/primitives";
 import { T } from "@/lib/constants";
@@ -76,10 +76,12 @@ export default function Dashboard({
 
   const personNames = [
     ...new Set(
-      projects.map((p) => p.personInCharge?.trim()).filter((v): v is string => !!v)
+      projects
+        .map((p) => normalizePersonName(p.personInCharge))
+        .filter((v): v is string => !!v)
     ),
   ].sort();
-  const hasUnassigned = projects.some((p) => !p.personInCharge?.trim());
+  const hasUnassigned = projects.some((p) => !normalizePersonName(p.personInCharge));
 
   return (
     <div>
@@ -641,7 +643,7 @@ export default function Dashboard({
             </thead>
             <tbody>
               {projects.map((p) => {
-                const pc = p.personInCharge?.trim() || (hasUnassigned ? "未定" : null);
+                const pc = normalizePersonName(p.personInCharge) || (hasUnassigned ? "未定" : null);
                 return (
                   <tr
                     key={p.id}
