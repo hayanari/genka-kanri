@@ -256,28 +256,40 @@ export default function Dashboard({
                 ¥{fmt(div(grossProfit, totalLabor))}
               </div>
             </div>
-          </div>
-        </Card>
-        <Card
-          style={{
-            flex: "1 1 140px",
-            minWidth: "140px",
-            background: "#1f1a3d",
-            borderColor: "#33285e",
-          }}
-        >
-          <div
-            style={{
-              fontSize: "11px",
-              color: T.ts,
-              marginBottom: "10px",
-            }}
-          >
-            🚛 車両稼働
-          </div>
-          <div style={{ fontSize: "24px", fontWeight: 700, color: T.tx }}>
-            {fmt(totalVehicle)}
-            <span style={{ fontSize: "12px", color: T.ts }}> 台日</span>
+            <div style={{ minWidth: "140px" }}>
+              <div style={{ fontSize: "10px", color: "#6b9fff" }}>総車両</div>
+              <div style={{ fontSize: "20px", fontWeight: 700, color: T.tx }}>
+                {fmt(totalVehicle)}
+                <span style={{ fontSize: "11px", color: T.ts }}> 台日</span>
+              </div>
+            </div>
+            <div style={{ minWidth: "160px" }}>
+              <div style={{ fontSize: "10px", color: "#6b9fff" }}>売上/台日</div>
+              <div
+                style={{
+                  fontSize: "20px",
+                  fontWeight: 700,
+                  color: "#60a5fa",
+                }}
+              >
+                ¥{fmt(div(totalContract, totalVehicle))}
+              </div>
+            </div>
+            <div style={{ minWidth: "160px" }}>
+              <div style={{ fontSize: "10px", color: "#6b9fff" }}>
+                粗利/台日
+              </div>
+              <div
+                style={{
+                  fontSize: "20px",
+                  fontWeight: 700,
+                  color:
+                    grossProfit / (totalVehicle || 1) >= 30000 ? T.ok : T.wn,
+                }}
+              >
+                ¥{fmt(div(grossProfit, totalVehicle))}
+              </div>
+            </div>
           </div>
         </Card>
       </div>
