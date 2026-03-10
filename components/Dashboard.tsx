@@ -72,6 +72,13 @@ export default function Dashboard({
 
   const div = (a: number, b: number) => (b ? Math.round(a / b) : 0);
 
+  const personNames = [
+    ...new Set(
+      projects.map((p) => p.personInCharge?.trim()).filter((v): v is string => !!v)
+    ),
+  ].sort();
+  const hasUnassigned = projects.some((p) => !p.personInCharge?.trim());
+
   return (
     <div>
       <div style={{ marginBottom: "28px" }}>
@@ -532,6 +539,133 @@ export default function Dashboard({
               </div>
             );
           })}
+        </div>
+      </Card>
+
+      <Card>
+        <h4
+          style={{
+            margin: "0 0 12px",
+            fontSize: "14px",
+            color: T.tx,
+          }}
+        >
+          案件 × 担当者マトリックス
+        </h4>
+        <div
+          className="table-scroll"
+          style={{
+            overflowX: "auto",
+            maxWidth: "100%",
+          }}
+        >
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: "12px",
+              minWidth: "300px",
+            }}
+          >
+            <thead>
+              <tr>
+                <th
+                  style={{
+                    padding: "8px 12px",
+                    textAlign: "left",
+                    borderBottom: `2px solid ${T.bd}`,
+                    color: T.ts,
+                    fontWeight: 500,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  案件名
+                </th>
+                {personNames.map((name) => (
+                    <th
+                      key={name}
+                      style={{
+                        padding: "8px 12px",
+                        textAlign: "center",
+                        borderBottom: `2px solid ${T.bd}`,
+                        color: T.ts,
+                        fontWeight: 500,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {name}
+                    </th>
+                  ))}
+                {hasUnassigned && (
+                  <th
+                    style={{
+                      padding: "8px 12px",
+                      textAlign: "center",
+                      borderBottom: `2px solid ${T.bd}`,
+                      color: T.ts,
+                      fontWeight: 500,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    未定
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {projects.map((p) => {
+                const pc = p.personInCharge?.trim() || (hasUnassigned ? "未定" : null);
+                return (
+                  <tr
+                    key={p.id}
+                    style={{
+                      borderBottom: `1px solid ${T.bd}44`,
+                      cursor: "pointer",
+                    }}
+                    onClick={() => onNav("detail", p.id)}
+                  >
+                    <td
+                      style={{
+                        padding: "6px 12px",
+                        color: T.tx,
+                        maxWidth: 280,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {p.name}
+                    </td>
+                    {personNames.map((name) => (
+                      <td
+                        key={name}
+                        style={{
+                          padding: "6px 12px",
+                          textAlign: "center",
+                          color: pc === name ? T.ac : T.ts,
+                          opacity: pc === name ? 1 : 0.3,
+                        }}
+                      >
+                        {pc === name ? "〇" : "—"}
+                      </td>
+                    ))}
+                    {hasUnassigned && (
+                      <td
+                        style={{
+                          padding: "6px 12px",
+                          textAlign: "center",
+                          color: pc === "未定" ? T.ac : T.ts,
+                          opacity: pc === "未定" ? 1 : 0.3,
+                        }}
+                      >
+                        {pc === "未定" ? "〇" : "—"}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </Card>
     </div>
