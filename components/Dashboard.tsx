@@ -663,8 +663,9 @@ export default function Dashboard({
         <div
           className="table-scroll"
           style={{
-            overflowX: "auto",
+            overflow: "auto",
             maxWidth: "100%",
+            maxHeight: "60vh",
           }}
         >
           <table
@@ -687,8 +688,9 @@ export default function Dashboard({
                     whiteSpace: "nowrap",
                     position: "sticky",
                     left: 0,
+                    top: 0,
                     background: T.s,
-                    zIndex: 2,
+                    zIndex: 3,
                     boxShadow: "2px 0 4px rgba(0,0,0,0.3)",
                   }}
                 >
@@ -706,6 +708,11 @@ export default function Dashboard({
                         whiteSpace: "nowrap",
                         cursor: onNavToPersonFilter ? "pointer" : "default",
                         textDecoration: onNavToPersonFilter ? "underline" : "none",
+                        position: "sticky",
+                        top: 0,
+                        background: T.s,
+                        zIndex: 2,
+                        boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
                       }}
                       onClick={
                         onNavToPersonFilter
@@ -730,6 +737,11 @@ export default function Dashboard({
                       whiteSpace: "nowrap",
                       cursor: onNavToPersonFilter ? "pointer" : "default",
                       textDecoration: onNavToPersonFilter ? "underline" : "none",
+                      position: "sticky",
+                      top: 0,
+                      background: T.s,
+                      zIndex: 2,
+                      boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
                     }}
                     onClick={
                       onNavToPersonFilter
