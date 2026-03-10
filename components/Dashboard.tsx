@@ -78,10 +78,13 @@ export default function Dashboard({
     ...new Set(
       projects
         .map((p) => normalizePersonName(p.personInCharge))
-        .filter((v): v is string => !!v)
+        .filter((v): v is string => !!v && v !== "未定")
     ),
   ].sort();
-  const hasUnassigned = projects.some((p) => !normalizePersonName(p.personInCharge));
+  const hasUnassigned = projects.some((p) => {
+    const n = normalizePersonName(p.personInCharge);
+    return !n || n === "未定";
+  });
 
   return (
     <div>

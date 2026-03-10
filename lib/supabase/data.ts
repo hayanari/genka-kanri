@@ -1,6 +1,6 @@
 import { createClient } from "./client";
 import type { Project, Cost, Quantity, Vehicle, BidSchedule, ProcessMaster } from "../utils";
-import { createEmptyData, DEFAULT_VEHICLES, DEFAULT_PROCESS_MASTERS, ensureRegisteredProjects, ensureManagementNumbers, normalizePersonName } from "../utils";
+import { createEmptyData, DEFAULT_VEHICLES, DEFAULT_PROCESS_MASTERS, ensureRegisteredProjects, ensureManagementNumbers, toStoredPersonName } from "../utils";
 
 /** データ消失を防ぐ: 空の projects/vehicles を保存しない */
 function sanitizeBeforeSave(data: {
@@ -67,10 +67,9 @@ export async function loadData(): Promise<{
     let projects = ensureRegisteredProjects((stored.projects ?? []) as Project[]);
     projects = projects.map((p) => {
       const base = p.category === "清掃業務" ? { ...p, category: "業務" } : p;
-      const normalized = normalizePersonName(p.personInCharge);
       return {
         ...base,
-        personInCharge: normalized || undefined,
+        personInCharge: toStoredPersonName(p.personInCharge),
       };
     });
     projects = ensureManagementNumbers(projects);

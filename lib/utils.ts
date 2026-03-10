@@ -7,6 +7,12 @@ export function normalizePersonName(s: string | undefined): string {
   return s.trim().replace(/\s+/g, "");
 }
 
+/** 担当者名を正規化し、保存用に変換。"未定"や空は undefined */
+export function toStoredPersonName(s: string | undefined): string | undefined {
+  const n = normalizePersonName(s);
+  return n && n !== "未定" ? n : undefined;
+}
+
 export interface Project {
   id: string;
   /** 管理番号（工事: K-0001, 業務: G-0001） */

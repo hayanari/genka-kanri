@@ -16,7 +16,7 @@ import type {
   BidSchedule,
   ProcessMaster as ProcessMasterType,
 } from "@/lib/utils";
-import { bidScheduleToProject, getNextManagementNumber, normalizePersonName } from "@/lib/utils";
+import { bidScheduleToProject, getNextManagementNumber, toStoredPersonName } from "@/lib/utils";
 import { genId } from "@/lib/constants";
 import AuthGuard from "@/components/AuthGuard";
 import Dashboard from "@/components/Dashboard";
@@ -103,7 +103,7 @@ export default function Home() {
   const addProject = (proj: Project) => {
     const projWithNum = {
       ...proj,
-      personInCharge: normalizePersonName(proj.personInCharge) || undefined,
+      personInCharge: toStoredPersonName(proj.personInCharge),
       managementNumber: getNextManagementNumber(data.projects, proj.category),
       updatedAt: new Date().toISOString(),
     };
@@ -118,7 +118,7 @@ export default function Home() {
     let currentProjects = [...data.projects];
     const toAdd = projects.map((p) => {
       const num = getNextManagementNumber(currentProjects, p.category);
-      const withNum = { ...p, personInCharge: normalizePersonName(p.personInCharge) || undefined, managementNumber: num, updatedAt: now };
+      const withNum = { ...p, personInCharge: toStoredPersonName(p.personInCharge), managementNumber: num, updatedAt: now };
       currentProjects = [...currentProjects, withNum];
       return withNum;
     });
@@ -178,7 +178,7 @@ export default function Home() {
   const updateProject = (u: Project) => {
     const normalized = {
       ...u,
-      personInCharge: normalizePersonName(u.personInCharge) || undefined,
+      personInCharge: toStoredPersonName(u.personInCharge),
       updatedAt: new Date().toISOString(),
     };
     setData((d) => ({
