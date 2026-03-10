@@ -33,6 +33,7 @@ export default function ProjectList({
   onClearExpectedPaymentMonthFilter,
   personInChargeFilter,
   onClearPersonInChargeFilter,
+  isMobile,
 }: {
   projects: Project[];
   costs: Cost[];
@@ -54,6 +55,7 @@ export default function ProjectList({
   onClearExpectedPaymentMonthFilter?: () => void;
   personInChargeFilter?: string | null;
   onClearPersonInChargeFilter?: () => void;
+  isMobile?: boolean;
 }) {
   const [sortBy, setSortBy] = useState("updated_desc");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -307,7 +309,8 @@ export default function ProjectList({
             color: T.tx,
             fontSize: "13px",
             fontFamily: "inherit",
-            minWidth: "200px",
+            minWidth: isMobile ? undefined : "200px",
+            width: isMobile ? "100%" : undefined,
           }}
         >
           <option value="updated_desc">最新の更新順</option>

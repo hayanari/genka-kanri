@@ -25,6 +25,28 @@ body {
   overflow-x: hidden;
 }
 
+/* スマホ向けタッチ・表示最適化 */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]), select {
+    min-height: 44px;
+  }
+  input[type="text"], input[type="search"], input[type="number"], input[type="date"], input[type="email"], input[type="password"] {
+    font-size: 16px !important; /* iOS フォーカス時ズーム防止 */
+  }
+  .table-scroll {
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -16px;
+    padding: 0 16px;
+  }
+  .modal-content-mobile {
+    width: calc(100vw - 32px) !important;
+    max-width: calc(100vw - 32px) !important;
+    max-height: 85vh !important;
+    padding: 20px !important;
+    border-radius: 12px;
+  }
+}
+
 /* モバイル用テーブル横スクロール */
 .table-scroll {
   overflow-x: auto;

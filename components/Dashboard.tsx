@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import { COST_CATEGORIES, STATUS_MAP, Icons } from "@/lib/constants";
 import { projStats, normalizePersonName } from "@/lib/utils";
 import type { Project, Cost, Quantity } from "@/lib/utils";
@@ -86,13 +87,15 @@ export default function Dashboard({
     return !n || n === "未定";
   });
 
+  const isMobile = useMediaQuery("(max-width: 767px)");
+
   return (
     <div>
-      <div style={{ marginBottom: "28px" }}>
+      <div style={{ marginBottom: isMobile ? "16px" : "28px" }}>
         <h2
           style={{
             margin: 0,
-            fontSize: "22px",
+            fontSize: isMobile ? "18px" : "22px",
             color: T.tx,
             fontWeight: 700,
           }}
@@ -102,7 +105,7 @@ export default function Dashboard({
         <p
           style={{
             margin: "6px 0 0",
-            fontSize: "13px",
+            fontSize: isMobile ? "12px" : "13px",
             color: T.ts,
           }}
         >
@@ -559,6 +562,104 @@ export default function Dashboard({
         >
           案件 × 担当者マトリックス
         </h4>
+        {isMobile ? (
+          <>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "8px",
+                marginBottom: "16px",
+              }}
+            >
+              {personNames.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => onNavToPersonFilter?.(name)}
+                  style={{
+                    padding: "8px 14px",
+                    background: T.s2,
+                    border: `1px solid ${T.bd}`,
+                    borderRadius: "8px",
+                    color: T.ac,
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    minHeight: "44px",
+                  }}
+                >
+                  {name}
+                </button>
+              ))}
+              {hasUnassigned && (
+                <button
+                  type="button"
+                  onClick={() => onNavToPersonFilter?.("未定")}
+                  style={{
+                    padding: "8px 14px",
+                    background: T.s2,
+                    border: `1px solid ${T.bd}`,
+                    borderRadius: "8px",
+                    color: T.ac,
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    minHeight: "44px",
+                  }}
+                >
+                  未定
+                </button>
+              )}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "400px", overflowY: "auto" }}>
+              {projects.map((p) => {
+                const pc = normalizePersonName(p.personInCharge) || (hasUnassigned ? "未定" : "");
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => onNav("detail", p.id)}
+                    style={{
+                      padding: "12px 14px",
+                      background: T.s2,
+                      borderRadius: "8px",
+                      border: `1px solid ${T.bd}`,
+                      cursor: "pointer",
+                      minHeight: "44px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "12px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "14px",
+                        color: T.tx,
+                        flex: 1,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {p.name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        color: T.ac,
+                        flexShrink: 0,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {pc || "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
         <div
           className="table-scroll"
           style={{
@@ -704,6 +805,7 @@ export default function Dashboard({
             </tbody>
           </table>
         </div>
+        )}
       </Card>
     </div>
   );

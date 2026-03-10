@@ -396,8 +396,8 @@ export default function Home() {
           onClick={() => setSidebarOpen(true)}
           style={{
             position: "fixed",
-            top: 12,
-            left: 12,
+            top: "max(12px, env(safe-area-inset-top, 0px))",
+            left: "max(12px, env(safe-area-inset-left, 0px))",
             zIndex: 100,
             padding: "10px 12px",
             background: T.s,
@@ -408,6 +408,8 @@ export default function Home() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            minWidth: 44,
+            minHeight: 44,
           }}
           aria-label="メニューを開く"
         >
@@ -601,7 +603,7 @@ export default function Home() {
         style={{
           flex: 1,
           marginLeft: isMobile ? 0 : "220px",
-          padding: isMobile ? "56px 16px 24px" : "28px 32px",
+          padding: isMobile ? "56px 16px calc(24px + env(safe-area-inset-bottom, 0px)) 16px" : "28px 32px",
           maxWidth: "1100px",
           width: "100%",
           boxSizing: "border-box",
@@ -654,10 +656,12 @@ export default function Home() {
             onClearExpectedPaymentMonthFilter={() => setExpectedPaymentMonthFilter(null)}
             personInChargeFilter={personInChargeFilter}
             onClearPersonInChargeFilter={() => setPersonInChargeFilter(null)}
+            isMobile={isMobile}
           />
         )}
         {!loading && view === "archive" && (
           <ProjectList
+            isMobile={isMobile}
             projects={archivedProjects}
             costs={data.costs}
             quantities={data.quantities}
@@ -673,6 +677,7 @@ export default function Home() {
         )}
         {!loading && view === "deleted" && (
           <ProjectList
+            isMobile={isMobile}
             projects={deletedProjects}
             costs={data.costs}
             quantities={data.quantities}

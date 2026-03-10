@@ -290,6 +290,7 @@ export const Modal = ({
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="modal-content-mobile"
         style={{
           background: T.s,
           border: `1px solid ${T.bd}`,
@@ -316,7 +317,16 @@ export const Modal = ({
               border: "none",
               color: T.ts,
               cursor: "pointer",
+              padding: "8px",
+              fontSize: "24px",
+              lineHeight: 1,
+              minWidth: 44,
+              minHeight: 44,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
+            aria-label="閉じる"
           >
             ×
           </button>
