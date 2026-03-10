@@ -123,6 +123,7 @@ export default function ProjectDetail({
     category: "labor",
     description: "",
     vehicleId: "",
+    vehicleIds: [] as string[],
     quantity: "",
     date: new Date().toISOString().slice(0, 10),
     note: "",
@@ -192,28 +193,46 @@ export default function ProjectDetail({
   };
   const handleAddQty = () => {
     const isVehicle = qf.category === "vehicle";
-    if (isVehicle && !qf.vehicleId) return; // 車両種別は選択必須
-    if (!isVehicle && !qf.description.trim()) return; // 人工は内容入力必須
-    const vehicle = isVehicle && qf.vehicleId ? vehicles.find((v) => v.id === qf.vehicleId) : null;
-    // 車両: 表示用に「ナンバー（内容）」形式、人工: 内容のみ
-    const displayDesc = isVehicle && vehicle
-      ? (qf.description.trim() ? `${vehicle.registration}（${qf.description.trim()}）` : vehicle.registration)
-      : qf.description;
-    onAddQty({
-      id: genId(),
-      projectId: p.id,
-      category: qf.category,
-      description: displayDesc,
-      vehicleId: isVehicle ? qf.vehicleId || undefined : undefined,
-      quantity: Number(qf.quantity),
-      date: qf.date,
-      note: qf.note,
-    });
+    const selectedIds = isVehicle ? qf.vehicleIds : [];
+    if (isVehicle && selectedIds.length === 0) return;
+    if (!isVehicle && !qf.description.trim()) return;
+    const qty = Number(qf.quantity);
+    if (!qty || qty <= 0) return;
+
+    if (isVehicle && selectedIds.length > 0) {
+      for (const vid of selectedIds) {
+        const vehicle = vehicles.find((v) => v.id === vid);
+        const displayDesc = vehicle
+          ? (qf.description.trim() ? `${vehicle.registration}（${qf.description.trim()}）` : vehicle.registration)
+          : "";
+        onAddQty({
+          id: genId(),
+          projectId: p.id,
+          category: "vehicle",
+          description: displayDesc,
+          vehicleId: vid,
+          quantity: qty,
+          date: qf.date,
+          note: qf.note,
+        });
+      }
+    } else {
+      onAddQty({
+        id: genId(),
+        projectId: p.id,
+        category: qf.category,
+        description: qf.description,
+        quantity: qty,
+        date: qf.date,
+        note: qf.note,
+      });
+    }
     setQtyModal(false);
     setQf({
       category: "labor",
       description: "",
       vehicleId: "",
+      vehicleIds: [],
       quantity: "",
       date: new Date().toISOString().slice(0, 10),
       note: "",
@@ -3210,6 +3229,7 @@ export default function ProjectDetail({
                 ...f,
                 category: e.target.value,
                 vehicleId: e.target.value === "vehicle" ? f.vehicleId : "",
+                vehicleIds: e.target.value === "vehicle" ? f.vehicleIds : [],
                 description: e.target.value === "labor" ? f.description : "",
               }))
             }
@@ -3222,20 +3242,74 @@ export default function ProjectDetail({
           </Sel>
           {qf.category === "vehicle" ? (
             vehicles.length > 0 ? (
-              <Sel
-                label="車両種別"
-                value={qf.vehicleId}
-                onChange={(e) =>
-                  setQf((f) => ({ ...f, vehicleId: e.target.value }))
-                }
-              >
-                <option value="">選択してください</option>
-                {vehicles.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.registration}
-                  </option>
-                ))}
-              </Sel>
+              <div>
+                <label
+                  style={{
+                    fontSize: "12px",
+                    color: T.ts,
+                    fontWeight: 500,
+                    marginBottom: "8px",
+                    display: "block",
+                  }}
+                >
+                  車両種別（複数選択可）
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                    maxHeight: "200px",
+                    overflowY: "auto",
+                    padding: "10px",
+                    background: T.s2,
+                    borderRadius: "8px",
+                    border: `1px solid ${T.bd}`,
+                  }}
+                >
+                  {vehicles.map((v) => {
+                    const checked = qf.vehicleIds.includes(v.id);
+                    return (
+                      <label
+                        key={v.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          cursor: "pointer",
+                          fontSize: "13px",
+                          color: T.tx,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            setQf((f) => ({
+                              ...f,
+                              vehicleIds: e.target.checked
+                                ? [...f.vehicleIds, v.id]
+                                : f.vehicleIds.filter((id) => id !== v.id),
+                            }));
+                          }}
+                        />
+                        {v.registration}
+                      </label>
+                    );
+                  })}
+                </div>
+                {qf.vehicleIds.length > 0 && (
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: T.ts,
+                      marginTop: "4px",
+                    }}
+                  >
+                    {qf.vehicleIds.length}台選択中
+                  </div>
+                )}
+              </div>
             ) : (
               <p style={{ fontSize: "12px", color: T.wn }}>
                 車両マスタに車両を登録してください
@@ -3289,7 +3363,7 @@ export default function ProjectDetail({
               onClick={handleAddQty}
               disabled={
                 !Number(qf.quantity) ||
-                (qf.category === "vehicle" && !qf.vehicleId) ||
+                (qf.category === "vehicle" && qf.vehicleIds.length === 0) ||
                 (qf.category === "labor" && !qf.description.trim())
               }
             >
