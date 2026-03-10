@@ -29,12 +29,14 @@ export default function Dashboard({
   quantities,
   onNav,
   onNavToCashflowMonth,
+  onNavToPersonFilter,
 }: {
   projects: Project[];
   costs: Cost[];
   quantities: Quantity[];
   onNav: (v: string, pid?: string) => void;
   onNavToCashflowMonth?: (yyyyMM: string) => void;
+  onNavToPersonFilter?: (personName: string) => void;
 }) {
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -577,6 +579,11 @@ export default function Dashboard({
                     color: T.ts,
                     fontWeight: 500,
                     whiteSpace: "nowrap",
+                    position: "sticky",
+                    left: 0,
+                    background: T.s,
+                    zIndex: 2,
+                    boxShadow: "2px 0 4px rgba(0,0,0,0.3)",
                   }}
                 >
                   案件名
@@ -588,10 +595,20 @@ export default function Dashboard({
                         padding: "8px 12px",
                         textAlign: "center",
                         borderBottom: `2px solid ${T.bd}`,
-                        color: T.ts,
+                        color: onNavToPersonFilter ? T.ac : T.ts,
                         fontWeight: 500,
                         whiteSpace: "nowrap",
+                        cursor: onNavToPersonFilter ? "pointer" : "default",
+                        textDecoration: onNavToPersonFilter ? "underline" : "none",
                       }}
+                      onClick={
+                        onNavToPersonFilter
+                          ? (e) => {
+                              e.stopPropagation();
+                              onNavToPersonFilter(name);
+                            }
+                          : undefined
+                      }
                     >
                       {name}
                     </th>
@@ -602,10 +619,20 @@ export default function Dashboard({
                       padding: "8px 12px",
                       textAlign: "center",
                       borderBottom: `2px solid ${T.bd}`,
-                      color: T.ts,
+                      color: onNavToPersonFilter ? T.ac : T.ts,
                       fontWeight: 500,
                       whiteSpace: "nowrap",
+                      cursor: onNavToPersonFilter ? "pointer" : "default",
+                      textDecoration: onNavToPersonFilter ? "underline" : "none",
                     }}
+                    onClick={
+                      onNavToPersonFilter
+                        ? (e) => {
+                            e.stopPropagation();
+                            onNavToPersonFilter("未定");
+                          }
+                        : undefined
+                    }
                   >
                     未定
                   </th>
@@ -632,6 +659,11 @@ export default function Dashboard({
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
+                        position: "sticky",
+                        left: 0,
+                        background: T.s,
+                        zIndex: 1,
+                        boxShadow: "2px 0 4px rgba(0,0,0,0.2)",
                       }}
                     >
                       {p.name}

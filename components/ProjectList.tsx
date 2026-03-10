@@ -31,6 +31,8 @@ export default function ProjectList({
   onImport,
   expectedPaymentMonthFilter,
   onClearExpectedPaymentMonthFilter,
+  personInChargeFilter,
+  onClearPersonInChargeFilter,
 }: {
   projects: Project[];
   costs: Cost[];
@@ -50,6 +52,8 @@ export default function ProjectList({
   onImport?: (projects: Project[]) => void;
   expectedPaymentMonthFilter?: string | null;
   onClearExpectedPaymentMonthFilter?: () => void;
+  personInChargeFilter?: string | null;
+  onClearPersonInChargeFilter?: () => void;
 }) {
   const [sortBy, setSortBy] = useState("updated_desc");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -85,6 +89,13 @@ export default function ProjectList({
       )
     : projects;
 
+  const personFiltered = personInChargeFilter
+    ? monthFiltered.filter((p) => {
+        const pc = p.personInCharge?.trim() || "未定";
+        return pc === personInChargeFilter;
+      })
+    : monthFiltered;
+
   const isCatOnlySort =
     sortBy === "cat_koji" || sortBy === "cat_gyomu";
   const categoryFilter = isCatOnlySort
@@ -93,7 +104,7 @@ export default function ProjectList({
       : "業務"
     : "";
 
-  const filtered = monthFiltered.filter((p) => {
+  const filtered = personFiltered.filter((p) => {
     const ms =
       !sq ||
       p.name.includes(sq) ||
@@ -164,16 +175,22 @@ export default function ProjectList({
                   const [y, m] = expectedPaymentMonthFilter.split("-");
                   return `${y}年${parseInt(m, 10)}月 入金予定の案件`;
                 })()
-              : title}
+              : personInChargeFilter
+                ? `${personInChargeFilter} 担当案件`
+                : title}
           </h2>
           <p style={{ margin: "6px 0 0", fontSize: "13px", color: T.ts }}>
             {filtered.length}件
-            {expectedPaymentMonthFilter && onClearExpectedPaymentMonthFilter && (
+            {(expectedPaymentMonthFilter || personInChargeFilter) &&
+              (onClearExpectedPaymentMonthFilter || onClearPersonInChargeFilter) && (
               <>
                 {" "}
                 <button
                   type="button"
-                  onClick={onClearExpectedPaymentMonthFilter}
+                  onClick={() => {
+                    onClearExpectedPaymentMonthFilter?.();
+                    onClearPersonInChargeFilter?.();
+                  }}
                   style={{
                     marginLeft: "8px",
                     padding: "2px 8px",
