@@ -196,8 +196,9 @@ export default function ProjectDetail({
     const selectedIds = isVehicle ? qf.vehicleIds : [];
     if (isVehicle && selectedIds.length === 0) return;
     if (!isVehicle && !qf.description.trim()) return;
-    const qty = Number(qf.quantity);
-    if (!qty || qty <= 0) return;
+    // 車両はナンバーで1台に特定されるため数量は常に1。人工のみ数量入力が必要。
+    const qty = isVehicle ? 1 : Number(qf.quantity);
+    if (!isVehicle && (!qty || qty <= 0)) return;
 
     if (isVehicle && selectedIds.length > 0) {
       for (const vid of selectedIds) {
@@ -211,7 +212,7 @@ export default function ProjectDetail({
           category: "vehicle",
           description: displayDesc,
           vehicleId: vid,
-          quantity: qty,
+          quantity: 1,
           date: qf.date,
           note: qf.note,
         });
@@ -3328,15 +3329,17 @@ export default function ProjectDetail({
               setQf((f) => ({ ...f, description: e.target.value }))
             }
           />
-          <Inp
-            label={`数量（${QUANTITY_CATEGORIES[qf.category].unit}）`}
-            type="number"
-            placeholder="例: 50"
-            value={qf.quantity}
-            onChange={(e) =>
-              setQf((f) => ({ ...f, quantity: e.target.value }))
-            }
-          />
+          {qf.category !== "vehicle" && (
+            <Inp
+              label={`数量（${QUANTITY_CATEGORIES[qf.category].unit}）`}
+              type="number"
+              placeholder="例: 50"
+              value={qf.quantity}
+              onChange={(e) =>
+                setQf((f) => ({ ...f, quantity: e.target.value }))
+              }
+            />
+          )}
           <Inp
             label="日付"
             type="date"
@@ -3362,9 +3365,8 @@ export default function ProjectDetail({
               v="primary"
               onClick={handleAddQty}
               disabled={
-                !Number(qf.quantity) ||
                 (qf.category === "vehicle" && qf.vehicleIds.length === 0) ||
-                (qf.category === "labor" && !qf.description.trim())
+                (qf.category === "labor" && (!qf.description.trim() || !Number(qf.quantity)))
               }
             >
               追加
