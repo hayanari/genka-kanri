@@ -7,6 +7,8 @@ import { Icons, T } from "@/lib/constants";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { createEmptyData, exportCSV } from "@/lib/utils";
 import { loadData, saveData } from "@/lib/supabase/data";
+import { saveLocalBackup, shouldRunDailyBackup, setLastRemoteBackupAt } from "@/lib/backup";
+import { createRemoteBackup } from "@/lib/supabase/backup";
 import { signOut } from "@/lib/supabase/auth";
 import type {
   Project,
@@ -41,26 +43,51 @@ export default function Home() {
     }
   >(createEmptyData);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasLoadedSuccessfully = useRef(false);
 
   useEffect(() => {
-    loadData().then((loaded) => {
-      setData(loaded);
-      setLoading(false);
-    });
+    loadData()
+      .then((loaded) => {
+        if (loaded === null) {
+          setLoadError(true);
+        } else {
+          setData(loaded);
+          saveLocalBackup(loaded);
+          hasLoadedSuccessfully.current = true;
+          setLoadError(false);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoadError(true);
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || loadError || !hasLoadedSuccessfully.current) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      saveData(data);
+    saveTimeoutRef.current = setTimeout(async () => {
+      const result = await saveData(data);
       saveTimeoutRef.current = null;
+      if (!result.ok) {
+        setSaveError(result.reason === "guard" ? "データ保護のため保存をキャンセルしました" : "保存に失敗しました");
+      } else {
+        setSaveError(null);
+        if (shouldRunDailyBackup()) {
+          createRemoteBackup(data).then((res) => {
+            if (res.ok) setLastRemoteBackupAt();
+          });
+        }
+      }
     }, 500);
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [data, loading]);
+  }, [data, loading, loadError]);
 
   const VIEW_KEY = "genka_view";
   const SEL_ID_KEY = "genka_sel_id";
@@ -534,6 +561,37 @@ export default function Home() {
           }}
         >
           <button
+            onClick={() => {
+              const blob = new Blob(
+                [JSON.stringify({ ...data, exportedAt: new Date().toISOString() }, null, 2)],
+                { type: "application/json" }
+              );
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = `genka-kanri-backup-${new Date().toISOString().slice(0, 10)}.json`;
+              a.click();
+              URL.revokeObjectURL(a.href);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 12px",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: "12px",
+              fontWeight: 500,
+              background: "transparent",
+              color: T.ts,
+              width: "100%",
+              textAlign: "left",
+            }}
+          >
+            {Icons.dl} データバックアップ（JSON）
+          </button>
+          <button
             onClick={() => setShowCsvExportModal(true)}
             style={{
               display: "flex",
@@ -574,7 +632,7 @@ export default function Home() {
               textDecoration: "none",
             }}
           >
-            🔐 パスワード変更
+            ⚙️ 設定・バックアップ
           </Link>
           <button
             onClick={handleLogout}
@@ -623,7 +681,60 @@ export default function Home() {
             読み込み中...
           </div>
         )}
-        {!loading && view === "dashboard" && (
+        {!loading && loadError && (
+          <div
+            style={{
+              padding: "24px",
+              background: "#7f1d1d",
+              borderRadius: "12px",
+              color: "#fecaca",
+              fontSize: "14px",
+              lineHeight: 1.6,
+            }}
+          >
+            <strong>データの読み込みに失敗しました</strong>
+            <p style={{ margin: "12px 0 0" }}>
+              ネットワーク接続を確認し、ページを再読み込みしてください。
+              データは上書きされていません。
+            </p>
+          </div>
+        )}
+        {saveError && (
+          <div
+            style={{
+              position: "fixed",
+              bottom: 24,
+              right: 24,
+              padding: "16px 20px",
+              background: "#7f1d1d",
+              borderRadius: "12px",
+              color: "#fecaca",
+              fontSize: "14px",
+              zIndex: 1000,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+            }}
+          >
+            <span>{saveError}</span>
+            <button
+              type="button"
+              onClick={() => setSaveError(null)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#fecaca",
+                cursor: "pointer",
+                padding: 4,
+                fontSize: 18,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+        {!loading && !loadError && view === "dashboard" && (
           <Dashboard
             projects={activeProjects}
             costs={data.costs}
@@ -641,7 +752,7 @@ export default function Home() {
             }}
           />
         )}
-        {!loading && view === "list" && (
+        {!loading && !loadError && view === "list" && (
           <ProjectList
             projects={activeProjects}
             costs={data.costs}
@@ -659,7 +770,7 @@ export default function Home() {
             isMobile={isMobile}
           />
         )}
-        {!loading && view === "archive" && (
+        {!loading && !loadError && view === "archive" && (
           <ProjectList
             isMobile={isMobile}
             projects={archivedProjects}
@@ -675,7 +786,7 @@ export default function Home() {
             showArchiveYear
           />
         )}
-        {!loading && view === "deleted" && (
+        {!loading && !loadError && view === "deleted" && (
           <ProjectList
             isMobile={isMobile}
             projects={deletedProjects}
@@ -693,10 +804,10 @@ export default function Home() {
             showDeletedAt
           />
         )}
-        {!loading && view === "new" && (
+        {!loading && !loadError && view === "new" && (
           <NewProject onSave={addProject} onCancel={() => navWithClose("list")} />
         )}
-        {!loading && view === "bidschedule" && (
+        {!loading && !loadError && view === "bidschedule" && (
           <BidScheduleList
             bidSchedules={data.bidSchedules || []}
             onAdd={() => navWithClose("newbidschedule")}
@@ -705,25 +816,25 @@ export default function Home() {
             onAddToProjects={addBidScheduleToProjects}
           />
         )}
-        {!loading && view === "newbidschedule" && (
+        {!loading && !loadError && view === "newbidschedule" && (
           <NewBidSchedule
             onSave={addBidSchedule}
             onCancel={() => navWithClose("bidschedule")}
           />
         )}
-        {!loading && view === "vehicles" && (
+        {!loading && !loadError && view === "vehicles" && (
           <VehicleMaster
             vehicles={data.vehicles}
             onUpdate={updateVehicles}
           />
         )}
-        {!loading && view === "processmasters" && (
+        {!loading && !loadError && view === "processmasters" && (
           <ProcessMaster
             processMasters={data.processMasters}
             onUpdate={updateProcessMasters}
           />
         )}
-        {!loading && view === "detail" && selProj && (
+        {!loading && !loadError && view === "detail" && selProj && (
           <ProjectDetail
             project={selProj}
             costs={data.costs}

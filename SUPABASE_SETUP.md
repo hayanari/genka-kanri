@@ -22,6 +22,7 @@
 1. Supabase ダッシュボードで **SQL Editor** を開く
 2. `supabase/schema.sql` の内容をコピーして実行
 3. 現在は RLS「Allow all」でデータアクセスを許可（ログインはUI側で制御）
+4. バックアップ機能を使う場合は `genka_kanri_backups` テーブルも同じ SQL で作成されます
 
 ## 4. 環境変数設定
 

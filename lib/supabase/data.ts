@@ -1,6 +1,13 @@
 import { createClient } from "./client";
 import type { Project, Cost, Quantity, Vehicle, BidSchedule, ProcessMaster } from "../utils";
 import { createEmptyData, DEFAULT_VEHICLES, DEFAULT_PROCESS_MASTERS, ensureRegisteredProjects, ensureManagementNumbers, toStoredPersonName } from "../utils";
+import {
+  saveLocalBackup,
+  loadLocalBackup,
+  setLastRemoteCount,
+  isDangerousOverwrite,
+} from "../backup";
+import type { BackupData } from "../backup";
 
 /** データ消失を防ぐ: 空の projects/vehicles を保存しない */
 function sanitizeBeforeSave(data: {
@@ -36,7 +43,7 @@ export async function loadData(): Promise<{
   vehicles: Vehicle[];
   processMasters: ProcessMaster[];
   bidSchedules: BidSchedule[];
-}> {
+} | null> {
   try {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -74,7 +81,7 @@ export async function loadData(): Promise<{
     });
     projects = ensureManagementNumbers(projects);
     const bidSchedules = (stored.bidSchedules ?? []) as BidSchedule[];
-    return {
+    const result = {
       projects,
       costs: (stored.costs ?? []) as Cost[],
       quantities: (stored.quantities ?? []) as Quantity[],
@@ -82,23 +89,35 @@ export async function loadData(): Promise<{
       processMasters: Array.isArray(processMasters) && processMasters.length > 0 ? processMasters : DEFAULT_PROCESS_MASTERS,
       bidSchedules,
     };
-  } catch {
-    return createEmptyData();
+    setLastRemoteCount(result.projects.length, result.costs.length, result.quantities.length);
+    return result;
+  } catch (e) {
+    console.error("[loadData] Error:", e);
+    return null;
   }
 }
 
-export async function saveData(data: {
-  projects: Project[];
-  costs: Cost[];
-  quantities: Quantity[];
-  vehicles?: { id: string; registration: string }[];
-  processMasters?: ProcessMaster[];
-  bidSchedules?: BidSchedule[];
-}): Promise<boolean> {
+/** loadData が失敗した際の localStorage フォールバック */
+export function loadFromLocalBackup(): BackupData | null {
+  return loadLocalBackup();
+}
+
+export type SaveResult = { ok: true } | { ok: false; reason: "guard" | "error" };
+
+export async function saveData(
+  data: {
+    projects: Project[];
+    costs: Cost[];
+    quantities: Quantity[];
+    vehicles?: { id: string; registration: string }[];
+    processMasters?: ProcessMaster[];
+    bidSchedules?: BidSchedule[];
+  },
+  options?: { force?: boolean }
+): Promise<SaveResult> {
   try {
-    const supabase = createClient();
     const sanitized = sanitizeBeforeSave(data);
-    const payload = {
+    const backupPayload = {
       projects: sanitized.projects,
       costs: sanitized.costs,
       quantities: sanitized.quantities,
@@ -106,20 +125,61 @@ export async function saveData(data: {
       processMasters: sanitized.processMasters,
       bidSchedules: sanitized.bidSchedules,
     };
-    const { error } = await supabase
-      .from("genka_kanri_data")
-      .upsert(
-        { id: "default", data: payload, updated_at: new Date().toISOString() },
-        { onConflict: "id" }
-      );
 
-    if (error) {
-      console.error("[saveData] Supabase error:", error.message);
-      return false;
+    if (!options?.force && isDangerousOverwrite(backupPayload)) {
+      console.warn("[saveData] ガード: 空データでの上書きをブロック");
+      return { ok: false, reason: "guard" };
     }
-    return true;
+
+    const supabase = createClient();
+    const payload = {
+      projects: backupPayload.projects,
+      costs: backupPayload.costs,
+      quantities: backupPayload.quantities,
+      vehicles: backupPayload.vehicles,
+      processMasters: backupPayload.processMasters,
+      bidSchedules: backupPayload.bidSchedules,
+    };
+
+    const maxRetries = 3;
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const { error } = await supabase
+        .from("genka_kanri_data")
+        .upsert(
+          { id: "default", data: payload, updated_at: new Date().toISOString() },
+          { onConflict: "id" }
+        );
+
+      if (!error) {
+        saveLocalBackup(backupPayload);
+        setLastRemoteCount(
+          sanitized.projects.length,
+          sanitized.costs.length,
+          sanitized.quantities.length
+        );
+        return { ok: true };
+      }
+      lastError = error;
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
+    }
+
+    console.error("[saveData] Supabase error after retries:", lastError);
+    saveLocalBackup(backupPayload);
+    return { ok: false, reason: "error" };
   } catch (e) {
     console.error("[saveData] Error:", e);
-    return false;
+    saveLocalBackup({
+      projects: data.projects,
+      costs: data.costs,
+      quantities: data.quantities,
+      vehicles: data.vehicles,
+      processMasters: data.processMasters,
+      bidSchedules: data.bidSchedules,
+    });
+    return { ok: false, reason: "error" };
   }
 }
