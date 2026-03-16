@@ -65,18 +65,19 @@ export const CHANGE_TYPES: Record<
   decrease: { label: "減額", color: "#ef4444", sign: "−" },
 };
 
+/** 白基調テーマ */
 export const T = {
-  bg: "#0c0e14",
-  s: "#161923",
-  s2: "#1e2231",
-  bd: "#282d3e",
-  tx: "#e4e7ef",
-  ts: "#7c84a0",
-  ac: "#4f8cff",
-  al: "#4f8cff20",
-  dg: "#ef4444",
-  ok: "#10b981",
-  wn: "#f59e0b",
+  bg: "#f8fafc",
+  s: "#ffffff",
+  s2: "#f1f5f9",
+  bd: "#e2e8f0",
+  tx: "#0f172a",
+  ts: "#64748b",
+  ac: "#2563eb",
+  al: "#3b82f620",
+  dg: "#dc2626",
+  ok: "#059669",
+  wn: "#d97706",
 };
 
 export const Icons = {

@@ -11,12 +11,7 @@
   --font-sans: var(--font-noto-sans-jp), sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* アプリは白基調テーマのため dark モードを無効化 */
 
 body {
   background: var(--background);

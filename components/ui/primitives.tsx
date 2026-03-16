@@ -57,8 +57,8 @@ export const ModeBadge = ({ mode }: { mode: string }) =>
         borderRadius: "6px",
         fontSize: "11px",
         fontWeight: 600,
-        color: "#4f8cff",
-        background: "#4f8cff18",
+        color: T.ac,
+        background: T.al,
       }}
     >
       🔧 自社施工

@@ -1,6 +1,6 @@
 import { createClient } from "./client";
 import type { Project, Cost, Quantity, Vehicle, BidSchedule, ProcessMaster } from "../utils";
-import { createEmptyData, DEFAULT_VEHICLES, DEFAULT_PROCESS_MASTERS, ensureRegisteredProjects, ensureManagementNumbers, toStoredPersonName } from "../utils";
+import { createEmptyData, DEFAULT_VEHICLES, DEFAULT_PROCESS_MASTERS, ensureManagementNumbers, toStoredPersonName } from "../utils";
 import {
   saveLocalBackup,
   loadLocalBackup,
@@ -71,7 +71,7 @@ export async function loadData(): Promise<{
     const storedIds = new Set(processMasters.map((m) => m.id));
     const toAdd = DEFAULT_PROCESS_MASTERS.filter((m) => !storedIds.has(m.id));
     if (toAdd.length > 0) processMasters = [...processMasters, ...toAdd];
-    let projects = ensureRegisteredProjects((stored.projects ?? []) as Project[]);
+    let projects = (stored.projects ?? []) as Project[];
     projects = projects.map((p) => {
       const base = p.category === "清掃業務" ? { ...p, category: "業務" } : p;
       return {

@@ -464,14 +464,7 @@ export const bidScheduleToProject = (b: BidSchedule, id: string): Project => {
   };
 };
 
-export const ensureRegisteredProjects = (projects: Project[]): Project[] => {
-  const names = new Set(projects.map((p) => p.name));
-  const toAdd = REGISTERED_PROJECTS.filter((r) => !names.has(r.name));
-  if (toAdd.length === 0) return projects;
-  const added = toAdd.map((r) => ({ ...r, id: genId() } as Project));
-  return ensureManagementNumbers([...projects, ...added]);
-};
-
+/** 初回・空DB時のみ使用。DBに保存されれば通常の案件として扱われる */
 export const createEmptyData = () => ({
   vehicles: [...DEFAULT_VEHICLES],
   processMasters: [...DEFAULT_PROCESS_MASTERS],

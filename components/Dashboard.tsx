@@ -219,8 +219,8 @@ export default function Dashboard({
           style={{
             flex: 1,
             minWidth: "280px",
-            background: "#1a2744",
-            borderColor: "#253a5e",
+            background: "#eff6ff",
+            borderColor: "#bfdbfe",
           }}
         >
           <div
@@ -240,26 +240,26 @@ export default function Dashboard({
             }}
           >
             <div style={{ minWidth: "140px" }}>
-              <div style={{ fontSize: "10px", color: "#6b9fff" }}>総人工</div>
+              <div style={{ fontSize: "10px", color: "#1d4ed8" }}>総人工</div>
               <div style={{ fontSize: "20px", fontWeight: 700, color: T.tx }}>
                 {fmt(totalLabor)}
                 <span style={{ fontSize: "11px", color: T.ts }}> 人日</span>
               </div>
             </div>
             <div style={{ minWidth: "160px" }}>
-              <div style={{ fontSize: "10px", color: "#6b9fff" }}>売上/人工</div>
+              <div style={{ fontSize: "10px", color: "#1d4ed8" }}>売上/人工</div>
               <div
                 style={{
                   fontSize: "20px",
                   fontWeight: 700,
-                  color: "#60a5fa",
+                  color: T.ac,
                 }}
               >
                 ¥{fmt(div(totalContract, totalLabor))}
               </div>
             </div>
             <div style={{ minWidth: "160px" }}>
-              <div style={{ fontSize: "10px", color: "#6b9fff" }}>
+              <div style={{ fontSize: "10px", color: "#1d4ed8" }}>
                 粗利/人工
               </div>
               <div
@@ -274,26 +274,26 @@ export default function Dashboard({
               </div>
             </div>
             <div style={{ minWidth: "140px" }}>
-              <div style={{ fontSize: "10px", color: "#6b9fff" }}>総車両</div>
+              <div style={{ fontSize: "10px", color: "#1d4ed8" }}>総車両</div>
               <div style={{ fontSize: "20px", fontWeight: 700, color: T.tx }}>
                 {fmt(totalVehicle)}
                 <span style={{ fontSize: "11px", color: T.ts }}> 台日</span>
               </div>
             </div>
             <div style={{ minWidth: "160px" }}>
-              <div style={{ fontSize: "10px", color: "#6b9fff" }}>売上/台日</div>
+              <div style={{ fontSize: "10px", color: "#1d4ed8" }}>売上/台日</div>
               <div
                 style={{
                   fontSize: "20px",
                   fontWeight: 700,
-                  color: "#60a5fa",
+                  color: T.ac,
                 }}
               >
                 ¥{fmt(div(totalContract, totalVehicle))}
               </div>
             </div>
             <div style={{ minWidth: "160px" }}>
-              <div style={{ fontSize: "10px", color: "#6b9fff" }}>
+              <div style={{ fontSize: "10px", color: "#1d4ed8" }}>
                 粗利/台日
               </div>
               <div
@@ -480,7 +480,7 @@ export default function Dashboard({
                   style={{
                     fontSize: "12px",
                     fontWeight: 600,
-                    color: "#60a5fa",
+                    color: T.ac,
                     textAlign: "right",
                   }}
                 >

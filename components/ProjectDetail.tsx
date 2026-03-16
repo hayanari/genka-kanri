@@ -825,9 +825,9 @@ export default function ProjectDetail({
               <div
                 style={{
                   padding: "12px 16px",
-                  background: "#1a2744",
+                  background: "#eff6ff",
                   borderRadius: "8px",
-                  border: "1px solid #253a5e",
+                  border: "1px solid #bfdbfe",
                   display: "flex",
                   gap: "24px",
                   flex: 1,
@@ -835,7 +835,7 @@ export default function ProjectDetail({
                 }}
               >
                 <div>
-                  <div style={{ fontSize: "10px", color: "#6b9fff" }}>人工</div>
+                  <div style={{ fontSize: "10px", color: "#1d4ed8" }}>人工</div>
                   <div
                     style={{ fontSize: "17px", fontWeight: 700, color: T.tx }}
                   >
@@ -844,7 +844,7 @@ export default function ProjectDetail({
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "10px", color: "#6b9fff" }}>車両</div>
+                  <div style={{ fontSize: "10px", color: "#1d4ed8" }}>車両</div>
                   <div
                     style={{ fontSize: "17px", fontWeight: 700, color: T.tx }}
                   >
@@ -854,26 +854,26 @@ export default function ProjectDetail({
                 </div>
                 <div
                   style={{
-                    borderLeft: "1px solid #253a5e",
+                    borderLeft: "1px solid #bfdbfe",
                     paddingLeft: "16px",
                   }}
                 >
-                  <div style={{ fontSize: "10px", color: "#6b9fff" }}>
+                  <div style={{ fontSize: "10px", color: "#1d4ed8" }}>
                     売上/人工
                   </div>
                   <div
                     style={{
                       fontSize: "17px",
                       fontWeight: 700,
-                      color: "#60a5fa",
+                      color: T.ac,
                     }}
                   >
                     {st.laborDays ? `¥${fmt(st.revenuePerLabor)}` : "—"}
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "10px", color: "#6b9fff" }}>
-                    粗利/人工
+<div style={{ fontSize: "10px", color: "#1d4ed8" }}>
+                  粗利/人工
                   </div>
                   <div
                     style={{
@@ -1218,9 +1218,9 @@ export default function ProjectDetail({
           <div
             style={{
               padding: "16px",
-              background: "#1a2744",
+              background: "#eff6ff",
               borderRadius: "10px",
-              border: "1px solid #253a5e",
+              border: "1px solid #bfdbfe",
               marginBottom: "20px",
             }}
           >
@@ -1241,7 +1241,7 @@ export default function ProjectDetail({
               }}
             >
               <div>
-                <div style={{ fontSize: "10px", color: "#6b9fff" }}>
+                <div style={{ fontSize: "10px", color: "#1d4ed8" }}>
                   👷 人工合計
                 </div>
                 <div
@@ -1252,7 +1252,7 @@ export default function ProjectDetail({
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: "10px", color: "#6b9fff" }}>
+                <div style={{ fontSize: "10px", color: "#1d4ed8" }}>
                   🚛 車両合計
                 </div>
                 <div
@@ -1263,21 +1263,21 @@ export default function ProjectDetail({
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: "10px", color: "#6b9fff" }}>
+                <div style={{ fontSize: "10px", color: "#1d4ed8" }}>
                   売上/人工
                 </div>
                 <div
                   style={{
                     fontSize: "20px",
                     fontWeight: 700,
-                    color: "#60a5fa",
+                    color: T.ac,
                   }}
                 >
                   {st.laborDays ? `¥${fmt(st.revenuePerLabor)}` : "—"}
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: "10px", color: "#6b9fff" }}>
+                <div style={{ fontSize: "10px", color: "#1d4ed8" }}>
                   粗利/人工
                 </div>
                 <div
@@ -3040,15 +3040,15 @@ export default function ProjectDetail({
               style={{
                 marginTop: "16px",
                 padding: "20px",
-                background: "#1a2744",
+                background: "#eff6ff",
                 borderRadius: "12px",
-                border: "1px solid #253a5e",
+                border: "1px solid #bfdbfe",
               }}
             >
               <div
                 style={{
                   fontSize: "12px",
-                  color: "#6b9fff",
+                  color: "#1d4ed8",
                   fontWeight: 600,
                   marginBottom: "14px",
                 }}
@@ -3117,7 +3117,7 @@ export default function ProjectDetail({
                     style={{
                       fontSize: "20px",
                       fontWeight: 700,
-                      color: "#60a5fa",
+                      color: T.ac,
                     }}
                   >
                     ¥{fmt(st.revenuePerLabor)}

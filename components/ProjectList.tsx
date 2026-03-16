@@ -637,7 +637,7 @@ export default function ProjectList({
                     }}
                   >
                     <div
-                      style={{ fontSize: "11px", color: "#6b9fff" }}
+                      style={{ fontSize: "11px", color: "#1d4ed8" }}
                     >
                       👷 {st.laborDays}人日 🚛 {st.vehicleDays}台日
                     </div>
