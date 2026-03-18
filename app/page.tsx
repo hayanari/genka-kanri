@@ -9,6 +9,7 @@ import { createEmptyData, exportCSV } from "@/lib/utils";
 import { loadData, saveData } from "@/lib/supabase/data";
 import { saveLocalBackup, shouldRunDailyBackup, setLastRemoteBackupAt } from "@/lib/backup";
 import { createRemoteBackup } from "@/lib/supabase/backup";
+import { loadScheduleData } from "@/lib/scheduleStorage";
 import { signOut } from "@/lib/supabase/auth";
 import type {
   Project,
@@ -49,13 +50,16 @@ export default function Home() {
   const hasLoadedSuccessfully = useRef(false);
 
   useEffect(() => {
-    loadData()
-      .then((loaded) => {
+    Promise.all([loadData(), loadScheduleData()])
+      .then(([loaded, schedule]) => {
         if (loaded === null) {
           setLoadError(true);
         } else {
           setData(loaded);
-          saveLocalBackup(loaded);
+          saveLocalBackup({
+            ...loaded,
+            schedule: schedule ?? { workers: [], schedules: [], dayMemos: {} },
+          });
           hasLoadedSuccessfully.current = true;
           setLoadError(false);
         }
@@ -559,9 +563,14 @@ export default function Home() {
           }}
         >
           <button
-            onClick={() => {
+            onClick={async () => {
+              const schedule = await loadScheduleData();
               const blob = new Blob(
-                [JSON.stringify({ ...data, exportedAt: new Date().toISOString() }, null, 2)],
+                [JSON.stringify({
+                  ...data,
+                  schedule: schedule ?? { workers: [], schedules: [], dayMemos: {} },
+                  exportedAt: new Date().toISOString(),
+                }, null, 2)],
                 { type: "application/json" }
               );
               const a = document.createElement("a");

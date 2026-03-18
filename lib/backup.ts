@@ -2,6 +2,7 @@
  * データ保護: localStorage バックアップ・復元・ガード
  */
 import type { Project, Cost, Quantity, Vehicle, BidSchedule, ProcessMaster } from "./utils";
+import type { ScheduleData } from "@/types/schedule";
 
 const BACKUP_KEY = "genka_kanri_backup";
 const BACKUP_TIMESTAMP_KEY = "genka_kanri_backup_at";
@@ -15,6 +16,8 @@ export type BackupData = {
   vehicles?: { id: string; registration: string }[];
   processMasters?: ProcessMaster[];
   bidSchedules?: BidSchedule[];
+  /** 工事スケジュール（予定・作業員・日次メモ） */
+  schedule?: ScheduleData;
 };
 
 function isValidBackup(raw: unknown): raw is BackupData {
@@ -37,6 +40,7 @@ export function saveLocalBackup(data: BackupData): void {
       vehicles: data.vehicles ?? [],
       processMasters: data.processMasters ?? [],
       bidSchedules: data.bidSchedules ?? [],
+      schedule: data.schedule ?? { workers: [], schedules: [], dayMemos: {} },
     });
     localStorage.setItem(BACKUP_KEY, payload);
     localStorage.setItem(BACKUP_TIMESTAMP_KEY, new Date().toISOString());

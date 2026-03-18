@@ -157,12 +157,14 @@ export default function ScheduleBoard() {
     </button>
   )
 
+  const handlePrint = () => window.print()
+
   // ── レンダー ──────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: 'Noto Sans JP,sans-serif', background: '#f5f7fa', minHeight: '100vh', fontSize: 13, color: '#1a2535' }}>
+    <div className="schedule-print-root" style={{ fontFamily: 'Noto Sans JP,sans-serif', background: '#f5f7fa', minHeight: '100vh', fontSize: 13, color: '#1a2535' }}>
 
       {/* ── Header ── */}
-      <div style={{
+      <div className="schedule-no-print" style={{
         background: '#fff', borderBottom: '2px solid #e65c00',
         padding: '10px 16px', display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100,
@@ -183,15 +185,27 @@ export default function ScheduleBoard() {
             <div style={{ fontSize: 10, color: '#4a6280', letterSpacing: 2 }}>PROJECT-BASED SCHEDULE BOARD</div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 3 }}>
+        <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
           {(['cal', 'list', 'worker', 'master'] as ViewType[]).map(v =>
             navBtn(view === v, () => { setView(v); setSelectedWorker(null) }, VIEW_LABELS[v])
           )}
+          <button
+            onClick={handlePrint}
+            className="schedule-no-print"
+            style={{
+              padding: '5px 12px', borderRadius: 4, marginLeft: 8,
+              border: '1px solid #d0d8e4', background: '#fff',
+              color: '#4a6280', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11,
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}
+          >
+            🖨 印刷 / PDF
+          </button>
         </div>
       </div>
 
       {/* ── Toolbar ── */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #d0d8e4', padding: '8px 16px',
+      <div className="schedule-no-print" style={{ background: '#fff', borderBottom: '1px solid #d0d8e4', padding: '8px 16px',
         display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minHeight: 48 }}>
 
         {view === 'cal' && <>
@@ -235,7 +249,7 @@ export default function ScheduleBoard() {
 
       {/* ── 統計バー（カレンダーのみ） ── */}
       {view === 'cal' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(110px,1fr))', gap: 8, padding: '10px 16px', background: '#eef1f6', borderBottom: '1px solid #d0d8e4' }}>
+        <div className="schedule-no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(110px,1fr))', gap: 8, padding: '10px 16px', background: '#eef1f6', borderBottom: '1px solid #d0d8e4' }}>
           {[
             { n: stats.total,     l: '今月の予定数',  c: '#e65c00' },
             { n: stats.nights,    l: '夜勤件数',      c: '#1a237e' },
@@ -253,7 +267,7 @@ export default function ScheduleBoard() {
         </div>
       )}
 
-      {/* ── Main ── */}
+      {/* ── Main（印刷対象） ── */}
       <div style={{ flex: 1, padding: '12px 16px', overflow: 'auto', background: '#f5f7fa' }}>
 
         {view === 'cal' && (
@@ -295,7 +309,7 @@ export default function ScheduleBoard() {
         )}
       </div>
 
-      {/* ── Modal ── */}
+      {/* ── Modal（印刷時非表示） ── */}
       {modal && (
         <EntryModal
           entry={modal.entry}

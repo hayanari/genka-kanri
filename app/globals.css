@@ -50,3 +50,17 @@ body {
 .table-scroll table {
   min-width: 480px;
 }
+
+/* スケジュール印刷用 */
+@media print {
+  .schedule-no-print {
+    display: none !important;
+  }
+  .schedule-print-root {
+    background: #fff !important;
+  }
+  .schedule-print-root * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

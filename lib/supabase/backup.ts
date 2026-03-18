@@ -4,6 +4,7 @@
 import { createClient } from "./client";
 import type { BackupData } from "../backup";
 import { saveData } from "./data";
+import { loadScheduleData, saveScheduleData } from "@/lib/scheduleStorage";
 
 export type RemoteBackupItem = {
   id: string;
@@ -11,16 +12,17 @@ export type RemoteBackupItem = {
   created_by: string | null;
   data: BackupData;
   /** サマリ（件数表示用） */
-  summary: { projects: number; costs: number; quantities: number };
+  summary: { projects: number; costs: number; quantities: number; schedule: number };
 };
 
 const BACKUPS_TABLE = "genka_kanri_backups";
 
-/** リモートバックアップを作成 */
+/** リモートバックアップを作成（工事スケジュール含む） */
 export async function createRemoteBackup(data: BackupData): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
+    const schedule = await loadScheduleData();
     const payload = {
       data: {
         projects: data.projects,
@@ -29,6 +31,7 @@ export async function createRemoteBackup(data: BackupData): Promise<{ ok: true; 
         vehicles: data.vehicles ?? [],
         processMasters: data.processMasters ?? [],
         bidSchedules: data.bidSchedules ?? [],
+        schedule: schedule ?? { workers: [], schedules: [], dayMemos: {} },
       },
       created_by: user?.email ?? null,
     };
@@ -67,6 +70,7 @@ export async function listRemoteBackups(): Promise<RemoteBackupItem[]> {
 
     return (data ?? []).map((r) => {
       const d = (r.data ?? {}) as BackupData;
+      const sched = d.schedule;
       return {
         id: r.id,
         created_at: r.created_at,
@@ -76,6 +80,7 @@ export async function listRemoteBackups(): Promise<RemoteBackupItem[]> {
           projects: d.projects?.length ?? 0,
           costs: d.costs?.length ?? 0,
           quantities: d.quantities?.length ?? 0,
+          schedule: sched?.schedules?.length ?? 0,
         },
       };
     });
@@ -85,7 +90,7 @@ export async function listRemoteBackups(): Promise<RemoteBackupItem[]> {
   }
 }
 
-/** バックアップを復元（genka_kanri_data を上書き） */
+/** バックアップを復元（genka_kanri_data + 工事スケジュールを上書き） */
 export async function restoreRemoteBackup(
   backupData: BackupData
 ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -107,5 +112,10 @@ export async function restoreRemoteBackup(
       error: result.reason === "guard" ? "データ保護のため復元をキャンセルしました" : "復元に失敗しました",
     };
   }
+
+  if (backupData.schedule && (backupData.schedule.schedules?.length > 0 || backupData.schedule.workers?.length > 0 || Object.keys(backupData.schedule.dayMemos ?? {}).length > 0)) {
+    await saveScheduleData(backupData.schedule);
+  }
+
   return { ok: true };
 }
