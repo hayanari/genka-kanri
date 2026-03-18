@@ -394,6 +394,7 @@ export default function Home() {
     { id: "dashboard", label: "ダッシュボード", icon: Icons.dash },
     { id: "list", label: "案件一覧", icon: Icons.list },
     { id: "new", label: "新規案件", icon: Icons.plus },
+    { id: "schedule", label: "スケジュール管理", icon: Icons.calendar, href: "/schedule" },
     { id: "bidschedule", label: "入札スケジュール", icon: Icons.calendar },
     { id: "archive", label: "アーカイブ", icon: Icons.archive },
     { id: "deleted", label: "削除済み", icon: Icons.trash },
@@ -509,47 +510,44 @@ export default function Home() {
             flex: 1,
           }}
         >
-          {navItems.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => navWithClose(n.id)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "10px 12px",
-                border: "none",
-                borderRadius: "8px",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: "13px",
-                fontWeight: 500,
-                textAlign: "left",
-                width: "100%",
-                background:
-                  view === n.id ||
-                  (view === "detail" &&
-                    (n.id === "list" || n.id === "archive" || n.id === "deleted")) ||
-                  (view === "vehicles" && n.id === "vehicles") ||
-                  (view === "processmasters" && n.id === "processmasters") ||
-                  ((view === "bidschedule" || view === "newbidschedule") && n.id === "bidschedule")
-                    ? T.al
-                    : "transparent",
-                color:
-                  view === n.id ||
-                  (view === "detail" &&
-                    (n.id === "list" || n.id === "archive" || n.id === "deleted")) ||
-                  (view === "vehicles" && n.id === "vehicles") ||
-                  (view === "processmasters" && n.id === "processmasters") ||
-                  ((view === "bidschedule" || view === "newbidschedule") && n.id === "bidschedule")
-                    ? T.ac
-                    : T.ts,
-                transition: "all .15s",
-              }}
-            >
-              {n.icon} {n.label}
-            </button>
-          ))}
+          {navItems.map((n) => {
+            const href = "href" in n ? (n as { href?: string }).href : undefined;
+            const isActive = view === n.id ||
+              (view === "detail" && (n.id === "list" || n.id === "archive" || n.id === "deleted")) ||
+              (view === "vehicles" && n.id === "vehicles") ||
+              (view === "processmasters" && n.id === "processmasters") ||
+              ((view === "bidschedule" || view === "newbidschedule") && n.id === "bidschedule");
+            const style = {
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "10px 12px",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: "13px",
+              fontWeight: 500,
+              textAlign: "left" as const,
+              width: "100%",
+              background: isActive ? T.al : "transparent",
+              color: isActive ? T.ac : T.ts,
+              transition: "all .15s",
+              textDecoration: "none",
+            };
+            if (href) {
+              return (
+                <Link key={n.id} href={href} style={style}>
+                  {n.icon} {n.label}
+                </Link>
+              );
+            }
+            return (
+              <button key={n.id} onClick={() => navWithClose(n.id)} style={style}>
+                {n.icon} {n.label}
+              </button>
+            );
+          })}
         </div>
         <div
           style={{
