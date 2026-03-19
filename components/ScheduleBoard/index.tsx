@@ -290,7 +290,7 @@ export default function ScheduleBoard() {
               display: 'flex', alignItems: 'center', gap: 4,
             }}
           >
-            {pdfLoading ? '作成中...' : '📄 PDFダウンロード'}
+            {pdfLoading ? '作成中...' : '📄 PDF'}
           </button>
           <button
             onClick={handlePrint}
