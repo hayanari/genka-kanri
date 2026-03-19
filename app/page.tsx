@@ -11,6 +11,8 @@ import { saveLocalBackup, saveDataPendingSync, shouldRunDailyBackup, setLastRemo
 import { createRemoteBackup } from "@/lib/supabase/backup";
 import { loadScheduleData } from "@/lib/scheduleStorage";
 import { signOut } from "@/lib/supabase/auth";
+import { createClient } from "@/lib/supabase/client";
+import { isAdminEmail } from "@/lib/supabase/admin";
 import type {
   Project,
   Cost,
@@ -46,10 +48,17 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedSuccessfully = useRef(false);
   const dataRef = useRef(data);
   dataRef.current = data;
+
+  useEffect(() => {
+    createClient().auth.getSession().then(({ data: { session } }) => {
+      setUserEmail(session?.user?.email ?? null);
+    });
+  }, []);
 
   useEffect(() => {
     Promise.all([loadData(), loadScheduleData()])
@@ -659,6 +668,30 @@ export default function Home() {
           >
             ⚙️ 設定・バックアップ
           </Link>
+          {isAdminEmail(userEmail) && (
+            <Link
+              href="/admin"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "10px 12px",
+                border: "none",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: "12px",
+                fontWeight: 500,
+                background: "transparent",
+                color: T.ts,
+                width: "100%",
+                textAlign: "left",
+                textDecoration: "none",
+              }}
+            >
+              🔐 アカウント管理
+            </Link>
+          )}
           <button
             onClick={handleLogout}
             style={{
