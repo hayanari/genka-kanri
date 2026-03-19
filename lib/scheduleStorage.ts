@@ -34,6 +34,35 @@ export function loadSchedulePending(): ScheduleData | null {
   }
 }
 
+/**
+ * サーバー上のスケジュール関連テーブルの「版」を表す文字列。
+ * 他端末で保存されると変わる（同時編集の保存前チェック・タブ復帰時の検知用）
+ */
+export async function fetchScheduleRevision(): Promise<string> {
+  try {
+    const supabase = createClient()
+    const [
+      { data: eRow },
+      { count: eCount },
+      { data: mRow },
+      { count: mCount },
+      { count: wCount },
+    ] = await Promise.all([
+      supabase.from('schedule_entries').select('updated_at').order('updated_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('schedule_entries').select('*', { count: 'exact', head: true }),
+      supabase.from('schedule_day_memos').select('updated_at').order('updated_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('schedule_day_memos').select('*', { count: 'exact', head: true }),
+      supabase.from('schedule_workers').select('*', { count: 'exact', head: true }),
+    ])
+    const eMax = (eRow as { updated_at?: string } | null)?.updated_at ?? ''
+    const mMax = (mRow as { updated_at?: string } | null)?.updated_at ?? ''
+    return `e:${eMax}|ec:${eCount ?? 0}|m:${mMax}|mc:${mCount ?? 0}|w:${wCount ?? 0}`
+  } catch (e) {
+    console.error('[ScheduleStorage] fetchScheduleRevision error:', e)
+    return ''
+  }
+}
+
 export async function loadScheduleData(): Promise<ScheduleData | null> {
   try {
     const supabase = createClient()

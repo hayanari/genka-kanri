@@ -38,6 +38,24 @@ function sanitizeBeforeSave(data: {
   };
 }
 
+/** 案件管理データのサーバー上の更新時刻（同時編集の検知用） */
+export async function fetchGenkaDataRevision(): Promise<string | null> {
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("genka_kanri_data")
+      .select("updated_at")
+      .eq("id", "default")
+      .maybeSingle();
+    if (error) throw error;
+    const ts = data?.updated_at;
+    return typeof ts === "string" ? ts : null;
+  } catch (e) {
+    console.error("[fetchGenkaDataRevision]", e);
+    return null;
+  }
+}
+
 export async function loadData(): Promise<{
   projects: Project[];
   costs: Cost[];

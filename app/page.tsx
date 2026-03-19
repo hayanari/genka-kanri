@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Icons, T } from "@/lib/constants";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { createEmptyData, exportCSV } from "@/lib/utils";
-import { loadData, saveData } from "@/lib/supabase/data";
+import { loadData, saveData, fetchGenkaDataRevision } from "@/lib/supabase/data";
 import { saveLocalBackup, saveDataPendingSync, shouldRunDailyBackup, setLastRemoteBackupAt } from "@/lib/backup";
 import { createRemoteBackup } from "@/lib/supabase/backup";
 import { loadScheduleData } from "@/lib/scheduleStorage";
@@ -54,6 +54,51 @@ export default function Home() {
   const dataRef = useRef(data);
   dataRef.current = data;
 
+  const [view, setView] = useState("dashboard");
+  const [selId, setSelId] = useState<string | null>(null);
+  const [sq, setSq] = useState("");
+  const [sf, setSf] = useState("");
+  const [expectedPaymentMonthFilter, setExpectedPaymentMonthFilter] = useState<string | null>(null);
+  const [personInChargeFilter, setPersonInChargeFilter] = useState<string | null>(null);
+  const [showCsvExportModal, setShowCsvExportModal] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const lastSyncedRevisionRef = useRef<string | null>(null);
+  const viewRef = useRef(view);
+  const csvModalRef = useRef(showCsvExportModal);
+  viewRef.current = view;
+  csvModalRef.current = showCsvExportModal;
+
+  const saveDataIfCurrent = useCallback(
+    async (
+      d: {
+        projects: Project[];
+        costs: Cost[];
+        quantities: Quantity[];
+        vehicles?: { id: string; registration: string }[];
+        processMasters?: ProcessMasterType[];
+        bidSchedules?: BidSchedule[];
+      },
+      opts?: { force?: boolean }
+    ) => {
+      if (!opts?.force) {
+        const remote = await fetchGenkaDataRevision();
+        if (
+          lastSyncedRevisionRef.current !== null &&
+          remote !== null &&
+          remote !== lastSyncedRevisionRef.current
+        ) {
+          return { ok: false as const, reason: "conflict" as const };
+        }
+      }
+      const result = await saveData(d, opts);
+      if (result.ok) {
+        lastSyncedRevisionRef.current = await fetchGenkaDataRevision();
+      }
+      return result;
+    },
+    []
+  );
+
   useEffect(() => {
     createClient().auth.getSession().then(({ data: { session } }) => {
       setUserEmail(session?.user?.email ?? null);
@@ -62,7 +107,7 @@ export default function Home() {
 
   useEffect(() => {
     Promise.all([loadData(), loadScheduleData()])
-      .then(([loaded, schedule]) => {
+      .then(async ([loaded, schedule]) => {
         if (loaded === null) {
           setLoadError(true);
         } else {
@@ -73,6 +118,7 @@ export default function Home() {
           });
           hasLoadedSuccessfully.current = true;
           setLoadError(false);
+          lastSyncedRevisionRef.current = await fetchGenkaDataRevision();
         }
         setLoading(false);
       })
@@ -87,10 +133,14 @@ export default function Home() {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       const d = dataRef.current;
-      const result = await saveData(d);
+      const result = await saveDataIfCurrent(d);
       saveTimeoutRef.current = null;
       if (!result.ok) {
-        setSaveError(result.reason === "guard" ? "データ保護のため保存をキャンセルしました" : "保存に失敗しました");
+        if (result.reason === "conflict") {
+          setSaveError("別の端末でデータが更新されました。ページを再読み込み（F5）してください。");
+        } else {
+          setSaveError(result.reason === "guard" ? "データ保護のため保存をキャンセルしました" : "保存に失敗しました");
+        }
       } else {
         setSaveError(null);
         if (shouldRunDailyBackup()) {
@@ -103,7 +153,31 @@ export default function Home() {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [data, loading, loadError]);
+  }, [data, loading, loadError, saveDataIfCurrent]);
+
+  // タブ復帰時: 案件データが他端末で更新されていれば自動再読み込み（新規作成画面・CSVモーダル中は除く）
+  useEffect(() => {
+    const onVis = async () => {
+      if (document.visibilityState !== "visible") return;
+      const remote = await fetchGenkaDataRevision();
+      if (remote === null || lastSyncedRevisionRef.current === null) return;
+      if (remote === lastSyncedRevisionRef.current) return;
+      if (viewRef.current === "new" || viewRef.current === "newbidschedule") return;
+      if (csvModalRef.current) return;
+      const loaded = await loadData();
+      if (loaded === null) return;
+      setData(loaded);
+      saveLocalBackup({
+        ...loaded,
+        schedule: (await loadScheduleData()) ?? { workers: [], schedules: [], dayMemos: {} },
+      });
+      lastSyncedRevisionRef.current = await fetchGenkaDataRevision();
+      setSyncNotice("他の端末での更新を取り込みました（案件管理）");
+      window.setTimeout(() => setSyncNotice(null), 5000);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   // beforeunload: リロード・タブ閉じ前に同期的に保存（非同期は完了しないため）
   useEffect(() => {
@@ -132,14 +206,6 @@ export default function Home() {
       return { v: "dashboard", id: null };
     }
   };
-  const [view, setView] = useState("dashboard");
-  const [selId, setSelId] = useState<string | null>(null);
-  const [sq, setSq] = useState("");
-  const [sf, setSf] = useState("");
-  const [expectedPaymentMonthFilter, setExpectedPaymentMonthFilter] = useState<string | null>(null);
-  const [personInChargeFilter, setPersonInChargeFilter] = useState<string | null>(null);
-  const [showCsvExportModal, setShowCsvExportModal] = useState(false);
-
   useEffect(() => {
     const { v, id } = readStored();
     setView(v);
@@ -158,78 +224,118 @@ export default function Home() {
 
   const selProj = data.projects.find((p) => p.id === selId);
 
-  const addProject = (proj: Project) => {
+  const addProject = async (proj: Project) => {
+    const prev = dataRef.current;
     const projWithNum = {
       ...proj,
       personInCharge: toStoredPersonName(proj.personInCharge),
-      managementNumber: getNextManagementNumber(data.projects, proj.category),
+      managementNumber: getNextManagementNumber(prev.projects, proj.category),
       updatedAt: new Date().toISOString(),
     };
-    const next = { ...data, projects: [...data.projects, projWithNum] };
+    const next = { ...prev, projects: [...prev.projects, projWithNum] };
     setData(next);
-    saveData(next);
+    const result = await saveDataIfCurrent(next);
+    if (!result.ok) {
+      if (result.reason === "conflict") {
+        setData(prev);
+        alert("別の端末でデータが更新されました。ページを再読み込み（F5）してください。");
+      }
+      return;
+    }
     nav("list");
   };
 
-  const importProjects = (projects: Project[]) => {
+  const importProjects = async (projects: Project[]) => {
+    const prev = dataRef.current;
     const now = new Date().toISOString();
-    let currentProjects = [...data.projects];
+    let currentProjects = [...prev.projects];
     const toAdd = projects.map((p) => {
       const num = getNextManagementNumber(currentProjects, p.category);
       const withNum = { ...p, personInCharge: toStoredPersonName(p.personInCharge), managementNumber: num, updatedAt: now };
       currentProjects = [...currentProjects, withNum];
       return withNum;
     });
-    const next = { ...data, projects: [...data.projects, ...toAdd] };
+    const next = { ...prev, projects: [...prev.projects, ...toAdd] };
     setData(next);
-    saveData(next);
+    const result = await saveDataIfCurrent(next);
+    if (!result.ok) {
+      if (result.reason === "conflict") {
+        setData(prev);
+        alert("別の端末でデータが更新されました。ページを再読み込み（F5）してください。");
+      }
+      return;
+    }
     nav("list");
   };
 
-  const addBidSchedule = (b: BidSchedule) => {
+  const addBidSchedule = async (b: BidSchedule) => {
+    const prev = dataRef.current;
     const next = {
-      ...data,
-      bidSchedules: [...(data.bidSchedules || []), b],
+      ...prev,
+      bidSchedules: [...(prev.bidSchedules || []), b],
     };
     setData(next);
-    saveData(next);
+    const result = await saveDataIfCurrent(next);
+    if (!result.ok && result.reason === "conflict") {
+      setData(prev);
+      alert("別の端末でデータが更新されました。ページを再読み込み（F5）してください。");
+      return;
+    }
     nav("bidschedule");
   };
 
-  const updateBidSchedule = (b: BidSchedule) => {
+  const updateBidSchedule = async (b: BidSchedule) => {
+    const prev = dataRef.current;
     const next = {
-      ...data,
-      bidSchedules: (data.bidSchedules || []).map((x) =>
+      ...prev,
+      bidSchedules: (prev.bidSchedules || []).map((x) =>
         x.id === b.id ? b : x
       ),
     };
     setData(next);
-    saveData(next);
+    const result = await saveDataIfCurrent(next);
+    if (!result.ok && result.reason === "conflict") {
+      setData(prev);
+      alert("別の端末でデータが更新されました。ページを再読み込み（F5）してください。");
+    }
   };
 
-  const deleteBidSchedule = (id: string) => {
+  const deleteBidSchedule = async (id: string) => {
+    const prev = dataRef.current;
     const next = {
-      ...data,
-      bidSchedules: (data.bidSchedules || []).filter((x) => x.id !== id),
+      ...prev,
+      bidSchedules: (prev.bidSchedules || []).filter((x) => x.id !== id),
     };
     setData(next);
-    saveData(next);
+    const result = await saveDataIfCurrent(next);
+    if (!result.ok && result.reason === "conflict") {
+      setData(prev);
+      alert("別の端末でデータが更新されました。ページを再読み込み（F5）してください。");
+    }
   };
 
-  const addBidScheduleToProjects = (b: BidSchedule) => {
+  const addBidScheduleToProjects = async (b: BidSchedule) => {
     if ((b.status !== "won" && b.status !== "expected") || b.projectId) return;
+    const prev = dataRef.current;
     const proj = bidScheduleToProject(b, genId());
-    proj.managementNumber = getNextManagementNumber(data.projects, b.category);
+    proj.managementNumber = getNextManagementNumber(prev.projects, b.category);
     proj.updatedAt = new Date().toISOString();
     const next = {
-      ...data,
-      projects: [...data.projects, proj],
-      bidSchedules: (data.bidSchedules || []).map((x) =>
+      ...prev,
+      projects: [...prev.projects, proj],
+      bidSchedules: (prev.bidSchedules || []).map((x) =>
         x.id === b.id ? { ...x, ...b, projectId: proj.id } : x
       ),
     };
     setData(next);
-    saveData(next);
+    const result = await saveDataIfCurrent(next);
+    if (!result.ok) {
+      if (result.reason === "conflict") {
+        setData(prev);
+        alert("別の端末でデータが更新されました。ページを再読み込み（F5）してください。");
+      }
+      return;
+    }
     navWithClose("detail", proj.id);
   };
 
@@ -725,6 +831,21 @@ export default function Home() {
           boxSizing: "border-box",
         }}
       >
+        {syncNotice && (
+          <div
+            style={{
+              background: "#e3f2fd",
+              border: "1px solid #90caf9",
+              color: "#1565c0",
+              padding: "10px 16px",
+              borderRadius: "8px",
+              fontSize: "13px",
+              marginBottom: "16px",
+            }}
+          >
+            {syncNotice}
+          </div>
+        )}
         {loading && (
           <div
             style={{
