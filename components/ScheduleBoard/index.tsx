@@ -12,6 +12,9 @@ import type { Project, Vehicle } from '@/lib/utils'
 import { SAMPLE_DATA, getSampleDataForMarch2026 } from '@/lib/sampleData'
 import { loadScheduleData, saveScheduleData, saveSchedulePendingSync } from '@/lib/scheduleStorage'
 import { loadData } from '@/lib/supabase/data'
+import { loadWorkerContacts, saveWorkerContact } from '@/lib/workerContacts'
+import { computeScheduleChanges } from '@/lib/scheduleNotify'
+import { createClient } from '@/lib/supabase/client'
 import {
   TODAY_STR, daysInMonth, genId, workerColor, hexRgba,
   getConflicts, getMonthSchedules, applySameDayKoujimeiSuffix,
@@ -38,6 +41,7 @@ export default function ScheduleBoard() {
   const [modal, setModal] = useState<{ entry: Partial<ScheduleEntry> & { date: string }; isEdit: boolean } | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [workerContacts, setWorkerContacts] = useState<Record<string, string>>({})
   const [pdfLoading, setPdfLoading] = useState(false)
   const pdfAreaRef = useRef<HTMLDivElement>(null)
 
@@ -49,6 +53,7 @@ export default function ScheduleBoard() {
         if (d.vehicles?.length) setVehicles(d.vehicles)
       }
     })
+    loadWorkerContacts().then(setWorkerContacts)
   }, [])
   useEffect(() => {
     loadScheduleData().then(data => {
@@ -121,10 +126,36 @@ export default function ScheduleBoard() {
   }, [workers, schedules, dayMemos])
 
   // ── 保存 ────────────────────────────────────────────────────────
-  const persist = useCallback((w: string[], s: ScheduleEntry[], m: DayMemos) => {
+  const persist = useCallback((w: string[], s: ScheduleEntry[], m: DayMemos, prevSchedules?: ScheduleEntry[]) => {
     const payload = { workers: w, schedules: s, dayMemos: m }
-    saveSchedulePendingSync(payload)  // 即時バックアップ（リロード対策）
+    saveSchedulePendingSync(payload)
     saveScheduleData(payload)
+    if (prevSchedules !== undefined && prevSchedules !== s) {
+      const changes = computeScheduleChanges(prevSchedules, s)
+      if (changes.length > 0) {
+        console.log('[Notify] 変更検知', changes.length, '件', changes.map(c => `${c.workerName}: ${c.message}`))
+        createClient().auth.getSession().then(({ data: { session } }) => {
+          if (session?.access_token) {
+            fetch('/api/schedule/notify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({ changes }),
+            })
+              .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+              .then(({ ok, data }) => {
+                if (ok) {
+                  console.log('[Notify] 通知送信完了', data)
+                } else {
+                  console.warn('[Notify] エラー', data)
+                }
+              })
+              .catch((e) => console.error('[Notify] 送信失敗', e))
+          } else {
+            console.warn('[Notify] 未ログインのためスキップ')
+          }
+        })
+      }
+    }
   }, [])
 
   // ── 予定 CRUD ──────────────────────────────────────────────────
@@ -136,7 +167,7 @@ export default function ScheduleBoard() {
       const next = entry.shift !== 'off' && entry.koujimei
         ? applySameDayKoujimeiSuffix(entry, withEntry)
         : withEntry
-      persist(workers, next, dayMemos)
+      persist(workers, next, dayMemos, prev)
       return next
     })
     setModal(null)
@@ -144,7 +175,7 @@ export default function ScheduleBoard() {
   const handleDeleteEntry = (id: string) => {
     setSchedules(prev => {
       const next = prev.filter(x => x.id !== id)
-      persist(workers, next, dayMemos)
+      persist(workers, next, dayMemos, prev)
       return next
     })
     setModal(null)
@@ -169,8 +200,34 @@ export default function ScheduleBoard() {
   const handleRemoveWorker = (name: string) => {
     if (!confirm(`「${name}」を削除しますか？`)) return
     const next = workers.filter(w => w !== name)
-    setWorkers(next); persist(next, schedules, dayMemos)
+    setWorkers(next)
+    persist(next, schedules, dayMemos)
   }
+  const handleSaveContact = useCallback(async (workerName: string, email: string) => {
+    await saveWorkerContact(workerName, email)
+    setWorkerContacts(prev => ({ ...prev, [workerName]: email }))
+  }, [])
+
+  const handleTestTeams = useCallback(() => {
+    createClient().auth.getSession().then(({ data: { session } }) => {
+      if (!session?.access_token) {
+        alert('ログインしてください')
+        return
+      }
+      const testChanges = [{ workerName: 'テスト', date: new Date().toISOString().slice(0, 10), message: '接続テスト' }]
+      fetch('/api/schedule/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ changes: testChanges }),
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok) alert('送信しました。Teamsチャネルを確認してください')
+          else alert('エラー: ' + (d.error || JSON.stringify(d)))
+        })
+        .catch(e => alert('送信失敗: ' + e.message))
+    })
+  }, [])
 
   // ── filterWorker のトグル ────────────────────────────────────────
   const handleFilterWorker = (w: string) =>
@@ -404,9 +461,13 @@ export default function ScheduleBoard() {
 
         {view === 'master' && (
           <MasterView
-            workers={workers} schedules={schedules}
+            workers={workers}
+            schedules={schedules}
+            workerContacts={workerContacts}
             onAdd={handleAddWorker}
             onRemove={handleRemoveWorker}
+            onSaveContact={handleSaveContact}
+            onTestTeams={handleTestTeams}
           />
         )}
       </div>

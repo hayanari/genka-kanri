@@ -84,6 +84,17 @@ CREATE TRIGGER schedule_day_memos_updated_at
   BEFORE UPDATE ON schedule_day_memos
   FOR EACH ROW EXECUTE PROCEDURE schedule_update_updated_at();
 
+-- 作業員連絡先（通知用）
+CREATE TABLE IF NOT EXISTS worker_contacts (
+  worker_name text PRIMARY KEY,
+  email       text NOT NULL DEFAULT '',
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE worker_contacts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "auth_users_worker_contacts" ON worker_contacts;
+CREATE POLICY "auth_users_worker_contacts" ON worker_contacts
+  FOR ALL USING (auth.role() = 'authenticated');
+
 -- RLS（認証ユーザーのみ操作可）
 ALTER TABLE schedule_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE schedule_workers ENABLE ROW LEVEL SECURITY;
