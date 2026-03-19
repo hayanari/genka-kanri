@@ -4,10 +4,13 @@
 // ================================================================
 import type { ScheduleData, ScheduleEntry } from '@/types/schedule'
 
+/** NGSCの仕事で平日に常時動くメンバー（有休などで編集可） */
+export const NGSC_WORKERS: string[] = ['山城', '清井', '関山', '黒田']
+
 export const DEFAULT_WORKERS: string[] = [
   '吉村', '河居', '宮前', '渡辺', '光嶋', '山本', '西田', '織田',
   '清井', '大江', '青木', '山田', '北野', '平山', '矢山', '市原',
-  '父', '東', '朝', '土', '松井親子', '山城', '和田', '松浦', '藤澤産業',
+  '父', '東', '朝', '土', '松井親子', '山城', '関山', '黒田', '和田', '松浦', '藤澤産業',
 ]
 
 export const SAMPLE_DATA: ScheduleData = {
@@ -70,12 +73,44 @@ export const SAMPLE_DATA: ScheduleData = {
   ],
 }
 
-/** 2026年3月用サンプル（日付を 2026-03 に変換） */
+/** 工事名のベース（NGSC / NGSC A → NGSC） */
+function baseKouji(k: string): string {
+  const m = k.match(/^(.+?)( [A-Z])$/)
+  return m ? m[1].trim() : k.trim()
+}
+
+/** 2026年3月の平日にNGSCエントリを追加（有休などで編集可） */
+function addNGSCForMarch2026(schedules: ScheduleEntry[], workers: string[]): ScheduleEntry[] {
+  const existingDates = new Set(
+    schedules.filter(s => baseKouji(s.koujimei) === 'NGSC').map(s => s.date)
+  )
+  const added: ScheduleEntry[] = []
+  const ngscWorkers = NGSC_WORKERS.filter(w => workers.includes(w))
+  const days = new Date(2026, 3, 0).getDate()
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `2026-03-${String(d).padStart(2, '0')}`
+    const day = new Date(dateStr + 'T12:00:00').getDay()
+    if (day >= 1 && day <= 5 && !existingDates.has(dateStr)) {
+      added.push({
+        id: 'sc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        date: dateStr,
+        koujimei: 'NGSC',
+        shift: 'day',
+        workers: ngscWorkers,
+        memo: '',
+      })
+    }
+  }
+  return [...schedules, ...added].sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/** 2026年3月用サンプル（日付を 2026-03 に変換し、平日にNGSCを追加） */
 export function getSampleDataForMarch2026(): ScheduleData {
-  const schedules: ScheduleEntry[] = SAMPLE_DATA.schedules.map((s) => ({
+  const schedulesBase: ScheduleEntry[] = SAMPLE_DATA.schedules.map((s) => ({
     ...s,
     date: s.date.replace('2025-03', '2026-03'),
   }))
+  const schedules = addNGSCForMarch2026(schedulesBase, SAMPLE_DATA.workers)
   const dayMemos: Record<string, string> = {}
   for (const [k, v] of Object.entries(SAMPLE_DATA.dayMemos)) {
     dayMemos[k.replace('2025-03', '2026-03')] = v

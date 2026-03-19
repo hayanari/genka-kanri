@@ -5,6 +5,35 @@
 import type { ScheduleData } from '@/types/schedule'
 import { createClient } from '@/lib/supabase/client'
 
+const PENDING_KEY = 'schedule_pending'
+const PENDING_TTL_MS = 15_000 // 15秒以内のバックアップのみ復元
+
+/** スケジュールを同期的に sessionStorage にバックアップ（リロード対策） */
+export function saveSchedulePendingSync(data: ScheduleData): void {
+  try {
+    sessionStorage.setItem(PENDING_KEY, JSON.stringify({
+      data,
+      ts: Date.now(),
+    }))
+  } catch {}
+}
+
+/** 直近で保存された未確定データがあれば返す */
+export function loadSchedulePending(): ScheduleData | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_KEY)
+    if (!raw) return null
+    const { data, ts } = JSON.parse(raw) as { data: ScheduleData; ts: number }
+    if (Date.now() - ts > PENDING_TTL_MS) {
+      sessionStorage.removeItem(PENDING_KEY)
+      return null
+    }
+    return data
+  } catch {
+    return null
+  }
+}
+
 export async function loadScheduleData(): Promise<ScheduleData | null> {
   try {
     const supabase = createClient()
@@ -17,6 +46,14 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
       supabase.from('schedule_workers').select('name, sort_order').order('sort_order'),
       supabase.from('schedule_day_memos').select('date, memo'),
     ])
+
+    // 直近でリロードされた可能性: sessionStorage に未確定データがあれば優先
+    const pending = loadSchedulePending()
+    if (pending) {
+      sessionStorage.removeItem(PENDING_KEY)
+      await saveScheduleData(pending)
+      return pending
+    }
 
     // 初回（テーブル未作成や空）は null を返してサンプルデータ投入を促す
     const hasAny =

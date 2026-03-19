@@ -4,6 +4,8 @@ import { createEmptyData, DEFAULT_VEHICLES, DEFAULT_PROCESS_MASTERS, ensureManag
 import {
   saveLocalBackup,
   loadLocalBackup,
+  loadDataPending,
+  clearDataPending,
   setLastRemoteCount,
   isDangerousOverwrite,
 } from "../backup";
@@ -45,6 +47,29 @@ export async function loadData(): Promise<{
   bidSchedules: BidSchedule[];
 } | null> {
   try {
+    const pending = loadDataPending();
+    if (pending) {
+      const result = await saveData({
+        projects: pending.projects,
+        costs: pending.costs,
+        quantities: pending.quantities,
+        vehicles: pending.vehicles,
+        processMasters: pending.processMasters,
+        bidSchedules: pending.bidSchedules,
+      }, { force: true });
+      if (result.ok) {
+        clearDataPending();
+        return {
+          projects: pending.projects,
+          costs: pending.costs,
+          quantities: pending.quantities,
+          vehicles: pending.vehicles as Vehicle[],
+          processMasters: (pending.processMasters ?? []) as ProcessMaster[],
+          bidSchedules: pending.bidSchedules ?? [],
+        };
+      }
+    }
+
     const supabase = createClient();
     const { data, error } = await supabase
       .from("genka_kanri_data")

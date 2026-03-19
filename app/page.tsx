@@ -7,7 +7,7 @@ import { Icons, T } from "@/lib/constants";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { createEmptyData, exportCSV } from "@/lib/utils";
 import { loadData, saveData } from "@/lib/supabase/data";
-import { saveLocalBackup, shouldRunDailyBackup, setLastRemoteBackupAt } from "@/lib/backup";
+import { saveLocalBackup, saveDataPendingSync, shouldRunDailyBackup, setLastRemoteBackupAt } from "@/lib/backup";
 import { createRemoteBackup } from "@/lib/supabase/backup";
 import { loadScheduleData } from "@/lib/scheduleStorage";
 import { signOut } from "@/lib/supabase/auth";
@@ -48,6 +48,8 @@ export default function Home() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedSuccessfully = useRef(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
   useEffect(() => {
     Promise.all([loadData(), loadScheduleData()])
@@ -75,23 +77,39 @@ export default function Home() {
     if (loading || loadError || !hasLoadedSuccessfully.current) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
-      const result = await saveData(data);
+      const d = dataRef.current;
+      const result = await saveData(d);
       saveTimeoutRef.current = null;
       if (!result.ok) {
         setSaveError(result.reason === "guard" ? "データ保護のため保存をキャンセルしました" : "保存に失敗しました");
       } else {
         setSaveError(null);
         if (shouldRunDailyBackup()) {
-          createRemoteBackup(data).then((res) => {
+          createRemoteBackup(d).then((res) => {
             if (res.ok) setLastRemoteBackupAt();
           });
         }
       }
-    }, 500);
+    }, 150);
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, [data, loading, loadError]);
+
+  // beforeunload: リロード・タブ閉じ前に同期的に保存（非同期は完了しないため）
+  useEffect(() => {
+    const handler = () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      const d = dataRef.current;
+      saveLocalBackup({ ...d, schedule: undefined });
+      saveDataPendingSync(d);
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
 
   const VIEW_KEY = "genka_view";
   const SEL_ID_KEY = "genka_sel_id";

@@ -3,16 +3,19 @@
 // components/ScheduleBoard/index.tsx
 // 工事スケジュール管理ボード — メインコンポーネント
 // ================================================================
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
+import html2canvas from 'html2canvas'
+import { jsPDF } from 'jspdf'
 import type { ScheduleEntry, DayMemos, ScheduleData, ViewType } from '@/types/schedule'
 import type { Project, Vehicle } from '@/lib/utils'
 import { SAMPLE_DATA, getSampleDataForMarch2026 } from '@/lib/sampleData'
-import { loadScheduleData, saveScheduleData } from '@/lib/scheduleStorage'
+import { loadScheduleData, saveScheduleData, saveSchedulePendingSync } from '@/lib/scheduleStorage'
 import { loadData } from '@/lib/supabase/data'
 import {
   TODAY_STR, daysInMonth, genId, workerColor, hexRgba,
   getConflicts, getMonthSchedules, applySameDayKoujimeiSuffix,
+  ensureNGSCInData,
 } from '@/lib/scheduleUtils'
 import { CalendarView }            from './CalendarView'
 import { ListView, WorkerView, MasterView } from './OtherViews'
@@ -35,6 +38,8 @@ export default function ScheduleBoard() {
   const [modal, setModal] = useState<{ entry: Partial<ScheduleEntry> & { date: string }; isEdit: boolean } | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const pdfAreaRef = useRef<HTMLDivElement>(null)
 
   // ── 初期ロード ──────────────────────────────────────────────────
   useEffect(() => {
@@ -48,9 +53,19 @@ export default function ScheduleBoard() {
   useEffect(() => {
     loadScheduleData().then(data => {
       if (data) {
-        if (data.workers?.length)  setWorkers(data.workers)
-        if (data.schedules?.length) setSchedules(data.schedules)
-        if (data.dayMemos)          setDayMemos(data.dayMemos)
+        let w = data.workers?.length ? data.workers : SAMPLE_DATA.workers
+        let s = data.schedules ?? []
+        const m = data.dayMemos ?? {}
+        const now = new Date()
+        const ensured = ensureNGSCInData(w, s, m, now.getFullYear(), now.getMonth())
+        setWorkers(ensured.workers)
+        setSchedules(ensured.schedules)
+        setDayMemos(ensured.dayMemos)
+        if (ensured.added) {
+          const payload = { workers: ensured.workers, schedules: ensured.schedules, dayMemos: ensured.dayMemos }
+          saveSchedulePendingSync(payload)
+          saveScheduleData(payload)
+        }
       } else {
         // テーブルが空のとき: 2026年3月のみサンプル表示、4月以降は空のまま
         const now = new Date()
@@ -72,9 +87,33 @@ export default function ScheduleBoard() {
     })
   }, [])
 
+  // 月切り替え時: 表示月の平日にNGSCがなければ追加
+  const prevYM = useRef({ year, month })
+  useEffect(() => {
+    if (workers.length === 0) return
+    if (prevYM.current.year === year && prevYM.current.month === month) return
+    prevYM.current = { year, month }
+    const result = ensureNGSCInData(workers, schedules, dayMemos, year, month)
+    if (result.added) {
+      setSchedules(result.schedules)
+      persist(result.workers, result.schedules, result.dayMemos)
+    }
+  }, [year, month, workers, schedules, dayMemos])
+
+  // beforeunload: リロード・タブ閉じ前に必ずバックアップ
+  useEffect(() => {
+    const handler = () => {
+      saveSchedulePendingSync({ workers, schedules, dayMemos })
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [workers, schedules, dayMemos])
+
   // ── 保存 ────────────────────────────────────────────────────────
   const persist = useCallback((w: string[], s: ScheduleEntry[], m: DayMemos) => {
-    saveScheduleData({ workers: w, schedules: s, dayMemos: m })
+    const payload = { workers: w, schedules: s, dayMemos: m }
+    saveSchedulePendingSync(payload)  // 即時バックアップ（リロード対策）
+    saveScheduleData(payload)
   }, [])
 
   // ── 予定 CRUD ──────────────────────────────────────────────────
@@ -159,6 +198,39 @@ export default function ScheduleBoard() {
 
   const handlePrint = () => window.print()
 
+  const handleExportPdf = useCallback(async () => {
+    const el = pdfAreaRef.current
+    if (!el) return
+    setPdfLoading(true)
+    try {
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#f5f7fa',
+      })
+      const imgData = canvas.toDataURL('image/png', 1.0)
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+      })
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const aspect = canvas.height / canvas.width
+      const imgW = pageW * aspect <= pageH ? pageW : pageH / aspect
+      const imgH = imgW * aspect
+      pdf.addImage(imgData, 'PNG', 0, 0, imgW, imgH)
+      const fname = `schedule-${year}-${String(month + 1).padStart(2, '0')}.pdf`
+      pdf.save(fname)
+    } catch (e) {
+      console.error('[PDF export]', e)
+      alert('PDFの作成に失敗しました')
+    } finally {
+      setPdfLoading(false)
+    }
+  }, [year, month])
+
   // ── レンダー ──────────────────────────────────────────────────
   return (
     <div className="schedule-print-root" style={{ fontFamily: 'Noto Sans JP,sans-serif', background: '#f5f7fa', minHeight: '100vh', fontSize: 13, color: '#1a2535' }}>
@@ -190,16 +262,28 @@ export default function ScheduleBoard() {
             navBtn(view === v, () => { setView(v); setSelectedWorker(null) }, VIEW_LABELS[v])
           )}
           <button
-            onClick={handlePrint}
+            onClick={handleExportPdf}
+            disabled={pdfLoading}
             className="schedule-no-print"
             style={{
               padding: '5px 12px', borderRadius: 4, marginLeft: 8,
-              border: '1px solid #d0d8e4', background: '#fff',
-              color: '#4a6280', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11,
+              border: '1px solid #8b5cf6', background: '#f5f3ff',
+              color: '#8b5cf6', cursor: pdfLoading ? 'wait' : 'pointer', fontFamily: 'inherit', fontSize: 11,
               display: 'flex', alignItems: 'center', gap: 4,
             }}
           >
-            🖨 印刷 / PDF
+            {pdfLoading ? '作成中...' : '📄 PDFダウンロード'}
+          </button>
+          <button
+            onClick={handlePrint}
+            className="schedule-no-print"
+            style={{
+              padding: '5px 12px', borderRadius: 4, marginLeft: 4,
+              border: '1px solid #d0d8e4', background: '#fff',
+              color: '#4a6280', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11,
+            }}
+          >
+            🖨 印刷
           </button>
         </div>
       </div>
@@ -267,8 +351,8 @@ export default function ScheduleBoard() {
         </div>
       )}
 
-      {/* ── Main（印刷対象） ── */}
-      <div style={{ flex: 1, padding: '12px 16px', overflow: 'auto', background: '#f5f7fa' }}>
+      {/* ── Main（印刷・PDF対象） ── */}
+      <div ref={pdfAreaRef} style={{ flex: 1, padding: '12px 16px', overflow: 'auto', background: '#f5f7fa' }}>
 
         {view === 'cal' && (
           <CalendarView

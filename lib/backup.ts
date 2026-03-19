@@ -8,6 +8,8 @@ const BACKUP_KEY = "genka_kanri_backup";
 const BACKUP_TIMESTAMP_KEY = "genka_kanri_backup_at";
 const LAST_REMOTE_COUNT_KEY = "genka_kanri_last_remote_count";
 const LAST_REMOTE_BACKUP_AT_KEY = "genka_kanri_last_remote_backup_at";
+const DATA_PENDING_KEY = "genka_kanri_data_pending";
+const PENDING_TTL_MS = 15_000; // 15秒以内のバックアップのみ復元
 
 export type BackupData = {
   projects: Project[];
@@ -47,6 +49,55 @@ export function saveLocalBackup(data: BackupData): void {
   } catch (e) {
     console.warn("[backup] saveLocalBackup failed:", e);
   }
+}
+
+/** リロード対策: beforeunload で同期的に sessionStorage へ保存 */
+export function saveDataPendingSync(data: Omit<BackupData, "schedule">): void {
+  try {
+    sessionStorage.setItem(DATA_PENDING_KEY, JSON.stringify({
+      projects: data.projects,
+      costs: data.costs,
+      quantities: data.quantities,
+      vehicles: data.vehicles ?? [],
+      processMasters: data.processMasters ?? [],
+      bidSchedules: data.bidSchedules ?? [],
+      ts: Date.now(),
+    }));
+  } catch {}
+}
+
+/** 直近で保存された未確定データがあれば返す（リロード直後の復元用） */
+export function loadDataPending(): (Omit<BackupData, "schedule"> & { vehicles: { id: string; registration: string }[] }) | null {
+  try {
+    const raw = sessionStorage.getItem(DATA_PENDING_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { projects?: unknown[]; costs?: unknown[]; quantities?: unknown[]; vehicles?: unknown[]; processMasters?: unknown[]; bidSchedules?: unknown[]; ts?: number };
+    if (!parsed?.ts || Date.now() - parsed.ts > PENDING_TTL_MS) {
+      try { sessionStorage.removeItem(DATA_PENDING_KEY); } catch {}
+      return null;
+    }
+    if (!Array.isArray(parsed.projects) || !Array.isArray(parsed.costs) || !Array.isArray(parsed.quantities)) {
+      try { sessionStorage.removeItem(DATA_PENDING_KEY); } catch {}
+      return null;
+    }
+    return {
+      projects: parsed.projects as BackupData["projects"],
+      costs: parsed.costs as BackupData["costs"],
+      quantities: parsed.quantities as BackupData["quantities"],
+      vehicles: (parsed.vehicles ?? []) as { id: string; registration: string }[],
+      processMasters: (parsed.processMasters ?? []) as BackupData["processMasters"],
+      bidSchedules: (parsed.bidSchedules ?? []) as BackupData["bidSchedules"],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** pending データをクリア（保存成功後に呼ぶ） */
+export function clearDataPending(): void {
+  try {
+    sessionStorage.removeItem(DATA_PENDING_KEY);
+  } catch {}
 }
 
 /** localStorage からバックアップを読み込み */

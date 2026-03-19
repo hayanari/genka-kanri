@@ -3,7 +3,7 @@
 // ビジネスロジック・ユーティリティ
 // ================================================================
 import type { ScheduleEntry, DayMemos } from '@/types/schedule'
-import { DEFAULT_WORKERS } from './sampleData'
+import { DEFAULT_WORKERS, NGSC_WORKERS } from './sampleData'
 
 // ─── カラー ─────────────────────────────────────────────────────
 const W_COLORS = [
@@ -104,6 +104,75 @@ export function getAvailableWorkers(
 /** 前日の夜勤エントリ（翌日に「夜勤明け」として表示） */
 export function getMorningEntries(date: string, schedules: ScheduleEntry[]): ScheduleEntry[] {
   return schedules.filter(s => s.date === addDays(date, -1) && s.shift === 'night')
+}
+
+/** 平日かどうか（土日以外） */
+function isWeekday(dateStr: string): boolean {
+  const d = new Date(dateStr + 'T12:00:00')
+  const dow = d.getDay()
+  return dow >= 1 && dow <= 5
+}
+
+/** 指定月の平日NGSCエントリを生成（既存と重複しない分のみ） */
+export function getNGSCEntriesForMonth(
+  year: number,
+  month: number,
+  existingSchedules: ScheduleEntry[],
+  workersList: string[]
+): ScheduleEntry[] {
+  const existingDates = new Set(
+    existingSchedules.filter(s => getBaseKoujimei(s.koujimei) === 'NGSC').map(s => s.date)
+  )
+  const entries: ScheduleEntry[] = []
+  const days = daysInMonth(year, month)
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    if (isWeekday(dateStr) && !existingDates.has(dateStr)) {
+      entries.push({
+        id: genId(),
+        date: dateStr,
+        koujimei: 'NGSC',
+        shift: 'day',
+        workers: NGSC_WORKERS.filter(w => workersList.includes(w)),
+        memo: '',
+      })
+    }
+  }
+  return entries
+}
+
+/** NGSCメンバーが作業員マスターにいなければ追加 */
+function ensureNGSCWorkers(workers: string[]): string[] {
+  const set = new Set(workers)
+  for (const w of NGSC_WORKERS) {
+    if (!set.has(w)) {
+      set.add(w)
+      workers = [...workers, w]
+    }
+  }
+  return workers
+}
+
+/** 指定月の平日にNGSCがなければ追加して返す */
+export function ensureNGSCInData(
+  workers: string[],
+  schedules: ScheduleEntry[],
+  dayMemos: DayMemos,
+  year: number,
+  month: number
+): { workers: string[]; schedules: ScheduleEntry[]; dayMemos: DayMemos; added: boolean } {
+  const w = ensureNGSCWorkers(workers)
+  const toAdd = getNGSCEntriesForMonth(year, month, schedules, w)
+  if (toAdd.length === 0 && w.length === workers.length) {
+    return { workers, schedules, dayMemos, added: false }
+  }
+  const workersAdded = w.length > workers.length
+  return {
+    workers: w,
+    schedules: toAdd.length > 0 ? [...schedules, ...toAdd].sort((a, b) => a.date.localeCompare(b.date)) : schedules,
+    dayMemos,
+    added: toAdd.length > 0 || workersAdded,
+  }
 }
 
 /** 月のスケジュールだけ抽出 */
