@@ -668,7 +668,7 @@ export default function Home() {
           >
             ⚙️ 設定・バックアップ
           </Link>
-          {isAdminEmail(userEmail) && (
+          {isAdminEmail(userEmail ?? undefined) && (
             <Link
               href="/admin"
               style={{
