@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const ADMIN_EMAIL = "tokito@tokito-co.jp";
 
-export function isAdminEmail(email: string | undefined): boolean {
+export function isAdminEmail(email: string | null | undefined): boolean {
   return email?.toLowerCase() === ADMIN_EMAIL;
 }
 
