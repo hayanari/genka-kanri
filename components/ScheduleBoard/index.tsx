@@ -67,7 +67,7 @@ export default function ScheduleBoard() {
           saveScheduleData(payload)
         }
       } else {
-        // テーブルが空のとき: 2026年3月のみサンプル表示、4月以降は空のまま
+        // テーブルが空のとき: 2026年3月はサンプル、それ以外は当月の平日にNGSCのみ表示
         const now = new Date()
         const isMarch2026 = now.getFullYear() === 2026 && now.getMonth() === 2
         if (isMarch2026) {
@@ -78,10 +78,21 @@ export default function ScheduleBoard() {
           setYear(2026)
           setMonth(2)
         } else {
-          // 4月以降: 空のまま
-          setWorkers([])
-          setSchedules([])
-          setDayMemos({})
+          const ensured = ensureNGSCInData(
+            SAMPLE_DATA.workers,
+            [],
+            {},
+            now.getFullYear(),
+            now.getMonth()
+          )
+          setWorkers(ensured.workers)
+          setSchedules(ensured.schedules)
+          setDayMemos(ensured.dayMemos)
+          if (ensured.added) {
+            const payload = { workers: ensured.workers, schedules: ensured.schedules, dayMemos: ensured.dayMemos }
+            saveSchedulePendingSync(payload)
+            saveScheduleData(payload)
+          }
         }
       }
     })
@@ -337,7 +348,7 @@ export default function ScheduleBoard() {
           {[
             { n: stats.total,     l: '今月の予定数',  c: '#e65c00' },
             { n: stats.nights,    l: '夜勤件数',      c: '#1a237e' },
-            { n: stats.offDays,   l: '有休人日数',    c: '#546e7a' },
+            ...(stats.offDays > 0 ? [{ n: stats.offDays, l: '有休人日数', c: '#546e7a' }] : []),
             { n: stats.conflicts, l: '重複日数',      c: stats.conflicts > 0 ? '#c62828' : '#e65c00', alert: stats.conflicts > 0 },
             { n: stats.memos,     l: 'メモあり日数',  c: '#795548' },
           ].map((s, i) => (
