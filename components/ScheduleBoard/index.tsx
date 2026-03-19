@@ -214,11 +214,18 @@ export default function ScheduleBoard() {
     if (!el) return
     setPdfLoading(true)
     try {
+      const FIXED_WIDTH = 900
       const canvas = await html2canvas(el, {
         scale: 2,
         useCORS: true,
         logging: false,
         backgroundColor: '#f5f7fa',
+        onclone: (_, clonedEl) => {
+          if (clonedEl instanceof HTMLElement) {
+            clonedEl.style.width = `${FIXED_WIDTH}px`
+            clonedEl.style.minWidth = `${FIXED_WIDTH}px`
+          }
+        },
       })
       const imgData = canvas.toDataURL('image/png', 1.0)
       const pdf = new jsPDF({
@@ -362,7 +369,7 @@ export default function ScheduleBoard() {
         </div>
       )}
 
-      {/* ── Main（印刷・PDF対象） ── */}
+      {/* ── Main（PDF対象） ── */}
       <div ref={pdfAreaRef} style={{ flex: 1, padding: '12px 16px', overflow: 'auto', background: '#f5f7fa' }}>
 
         {view === 'cal' && (
