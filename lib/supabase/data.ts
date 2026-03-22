@@ -1,5 +1,13 @@
 import { createClient } from "./client";
-import type { Project, Cost, Quantity, Vehicle, BidSchedule, ProcessMaster } from "../utils";
+import type {
+  Project,
+  Cost,
+  Quantity,
+  Vehicle,
+  BidSchedule,
+  ProcessMaster,
+  EquipmentRequest,
+} from "../utils";
 import { createEmptyData, DEFAULT_VEHICLES, DEFAULT_PROCESS_MASTERS, ensureManagementNumbers, toStoredPersonName } from "../utils";
 import {
   saveLocalBackup,
@@ -19,6 +27,7 @@ function sanitizeBeforeSave(data: {
   vehicles?: { id: string; registration: string }[];
   processMasters?: ProcessMaster[];
   bidSchedules?: BidSchedule[];
+  equipmentRequests?: EquipmentRequest[];
 }) {
   const empty = createEmptyData();
   const projects =
@@ -28,6 +37,7 @@ function sanitizeBeforeSave(data: {
   const processMasters =
     Array.isArray(data.processMasters) && data.processMasters.length > 0 ? data.processMasters : empty.processMasters;
   const bidSchedules = Array.isArray(data.bidSchedules) ? data.bidSchedules : [];
+  const equipmentRequests = Array.isArray(data.equipmentRequests) ? data.equipmentRequests : [];
   return {
     projects,
     costs: data.costs ?? [],
@@ -35,6 +45,7 @@ function sanitizeBeforeSave(data: {
     vehicles,
     processMasters,
     bidSchedules,
+    equipmentRequests,
   };
 }
 
@@ -63,6 +74,7 @@ export async function loadData(): Promise<{
   vehicles: Vehicle[];
   processMasters: ProcessMaster[];
   bidSchedules: BidSchedule[];
+  equipmentRequests: EquipmentRequest[];
 } | null> {
   try {
     const pending = loadDataPending();
@@ -74,6 +86,7 @@ export async function loadData(): Promise<{
         vehicles: pending.vehicles,
         processMasters: pending.processMasters,
         bidSchedules: pending.bidSchedules,
+        equipmentRequests: pending.equipmentRequests,
       }, { force: true });
       if (result.ok) {
         clearDataPending();
@@ -84,6 +97,7 @@ export async function loadData(): Promise<{
           vehicles: pending.vehicles as Vehicle[],
           processMasters: (pending.processMasters ?? []) as ProcessMaster[],
           bidSchedules: pending.bidSchedules ?? [],
+          equipmentRequests: (pending.equipmentRequests ?? []) as EquipmentRequest[],
         };
       }
     }
@@ -103,9 +117,16 @@ export async function loadData(): Promise<{
       vehicles?: Vehicle[];
       processMasters?: ProcessMaster[];
       bidSchedules?: BidSchedule[];
+      equipmentRequests?: EquipmentRequest[];
     } | null;
 
-    if (!stored?.projects?.length && !stored?.costs?.length && !stored?.quantities?.length && !stored?.bidSchedules?.length) {
+    if (
+      !stored?.projects?.length &&
+      !stored?.costs?.length &&
+      !stored?.quantities?.length &&
+      !stored?.bidSchedules?.length &&
+      !(stored?.equipmentRequests && stored.equipmentRequests.length > 0)
+    ) {
       return createEmptyData();
     }
 
@@ -124,6 +145,7 @@ export async function loadData(): Promise<{
     });
     projects = ensureManagementNumbers(projects);
     const bidSchedules = (stored.bidSchedules ?? []) as BidSchedule[];
+    const equipmentRequests = (stored.equipmentRequests ?? []) as EquipmentRequest[];
     const result = {
       projects,
       costs: (stored.costs ?? []) as Cost[],
@@ -131,6 +153,7 @@ export async function loadData(): Promise<{
       vehicles: Array.isArray(vehicles) && vehicles.length > 0 ? vehicles : DEFAULT_VEHICLES,
       processMasters: Array.isArray(processMasters) && processMasters.length > 0 ? processMasters : DEFAULT_PROCESS_MASTERS,
       bidSchedules,
+      equipmentRequests,
     };
     setLastRemoteCount(result.projects.length, result.costs.length, result.quantities.length);
     return result;
@@ -155,6 +178,7 @@ export async function saveData(
     vehicles?: { id: string; registration: string }[];
     processMasters?: ProcessMaster[];
     bidSchedules?: BidSchedule[];
+    equipmentRequests?: EquipmentRequest[];
   },
   options?: { force?: boolean }
 ): Promise<SaveResult> {
@@ -167,6 +191,7 @@ export async function saveData(
       vehicles: sanitized.vehicles,
       processMasters: sanitized.processMasters,
       bidSchedules: sanitized.bidSchedules,
+      equipmentRequests: sanitized.equipmentRequests,
     };
 
     if (!options?.force && isDangerousOverwrite(backupPayload)) {
@@ -182,6 +207,7 @@ export async function saveData(
       vehicles: backupPayload.vehicles,
       processMasters: backupPayload.processMasters,
       bidSchedules: backupPayload.bidSchedules,
+      equipmentRequests: backupPayload.equipmentRequests,
     };
 
     const maxRetries = 3;
@@ -222,6 +248,7 @@ export async function saveData(
       vehicles: data.vehicles,
       processMasters: data.processMasters,
       bidSchedules: data.bidSchedules,
+      equipmentRequests: data.equipmentRequests,
     });
     return { ok: false, reason: "error" };
   }

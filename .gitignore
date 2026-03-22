@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# 備品ZIP展開作業用（コミット不要）
+/_equipment_zip_extract/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

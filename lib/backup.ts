@@ -1,7 +1,15 @@
 /**
  * データ保護: localStorage バックアップ・復元・ガード
  */
-import type { Project, Cost, Quantity, Vehicle, BidSchedule, ProcessMaster } from "./utils";
+import type {
+  Project,
+  Cost,
+  Quantity,
+  Vehicle,
+  BidSchedule,
+  ProcessMaster,
+  EquipmentRequest,
+} from "./utils";
 import type { ScheduleData } from "@/types/schedule";
 
 const BACKUP_KEY = "genka_kanri_backup";
@@ -20,6 +28,7 @@ export type BackupData = {
   bidSchedules?: BidSchedule[];
   /** 工事スケジュール（予定・作業員・日次メモ） */
   schedule?: ScheduleData;
+  equipmentRequests?: EquipmentRequest[];
 };
 
 function isValidBackup(raw: unknown): raw is BackupData {
@@ -61,6 +70,7 @@ export function saveDataPendingSync(data: Omit<BackupData, "schedule">): void {
       vehicles: data.vehicles ?? [],
       processMasters: data.processMasters ?? [],
       bidSchedules: data.bidSchedules ?? [],
+      equipmentRequests: data.equipmentRequests ?? [],
       ts: Date.now(),
     }));
   } catch {}
@@ -71,7 +81,16 @@ export function loadDataPending(): (Omit<BackupData, "schedule"> & { vehicles: {
   try {
     const raw = sessionStorage.getItem(DATA_PENDING_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { projects?: unknown[]; costs?: unknown[]; quantities?: unknown[]; vehicles?: unknown[]; processMasters?: unknown[]; bidSchedules?: unknown[]; ts?: number };
+    const parsed = JSON.parse(raw) as {
+      projects?: unknown[];
+      costs?: unknown[];
+      quantities?: unknown[];
+      vehicles?: unknown[];
+      processMasters?: unknown[];
+      bidSchedules?: unknown[];
+      equipmentRequests?: unknown[];
+      ts?: number;
+    };
     if (!parsed?.ts || Date.now() - parsed.ts > PENDING_TTL_MS) {
       try { sessionStorage.removeItem(DATA_PENDING_KEY); } catch {}
       return null;
@@ -87,6 +106,7 @@ export function loadDataPending(): (Omit<BackupData, "schedule"> & { vehicles: {
       vehicles: (parsed.vehicles ?? []) as { id: string; registration: string }[],
       processMasters: (parsed.processMasters ?? []) as BackupData["processMasters"],
       bidSchedules: (parsed.bidSchedules ?? []) as BackupData["bidSchedules"],
+      equipmentRequests: (parsed.equipmentRequests ?? []) as EquipmentRequest[],
     };
   } catch {
     return null;
