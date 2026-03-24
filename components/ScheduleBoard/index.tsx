@@ -12,7 +12,7 @@ import type { Project, Vehicle } from '@/lib/utils'
 import { SAMPLE_DATA, getSampleDataForMarch2026 } from '@/lib/sampleData'
 import { loadScheduleData, saveScheduleData, saveSchedulePendingSync, fetchScheduleRevision } from '@/lib/scheduleStorage'
 import { loadData } from '@/lib/supabase/data'
-import { loadWorkerContacts, saveWorkerContact } from '@/lib/workerContacts'
+import { loadWorkerContacts, saveWorkerContact, deleteWorkerContact } from '@/lib/workerContacts'
 import { computeScheduleChanges } from '@/lib/scheduleNotify'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -266,6 +266,47 @@ export default function ScheduleBoard() {
     const ok = await persist(next, schedules, dayMemos)
     if (ok) setWorkers(next)
   }
+  const handleRenameWorker = useCallback(async (oldName: string, newName: string): Promise<boolean> => {
+    const trimmed = newName.trim()
+    if (!trimmed) {
+      alert('表示名を入力してください')
+      return false
+    }
+    if (trimmed === oldName) return true
+    if (workers.includes(trimmed)) {
+      alert(`「${trimmed}」は既に登録されています`)
+      return false
+    }
+    const idx = workers.indexOf(oldName)
+    if (idx < 0) return false
+    const nextWorkers = [...workers]
+    nextWorkers[idx] = trimmed
+    const nextSchedules = schedules.map(s => ({
+      ...s,
+      workers: s.workers.map(n => (n === oldName ? trimmed : n)),
+    }))
+    const ok = await persist(nextWorkers, nextSchedules, dayMemos)
+    if (!ok) return false
+    setWorkers(nextWorkers)
+    setSchedules(nextSchedules)
+    const email = workerContacts[oldName] ?? ''
+    try {
+      await deleteWorkerContact(oldName)
+      if (email.trim()) await saveWorkerContact(trimmed, email)
+      setWorkerContacts(prev => {
+        const next = { ...prev }
+        delete next[oldName]
+        if (email.trim()) next[trimmed] = email.trim()
+        return next
+      })
+    } catch (e) {
+      console.error('[handleRenameWorker] contacts', e)
+      alert('表示名は保存しましたが、連絡先の移行に失敗しました。マスターでメールを再登録してください。')
+    }
+    if (filterWorker === oldName) setFilterWorker(trimmed)
+    if (selectedWorker === oldName) setSelectedWorker(trimmed)
+    return true
+  }, [workers, schedules, dayMemos, persist, workerContacts, filterWorker, selectedWorker])
   const handleSaveContact = useCallback(async (workerName: string, email: string) => {
     await saveWorkerContact(workerName, email)
     setWorkerContacts(prev => ({ ...prev, [workerName]: email }))
@@ -538,6 +579,7 @@ export default function ScheduleBoard() {
             workerContacts={workerContacts}
             onAdd={handleAddWorker}
             onRemove={handleRemoveWorker}
+            onRename={handleRenameWorker}
             onSaveContact={handleSaveContact}
             onTestTeams={handleTestTeams}
           />

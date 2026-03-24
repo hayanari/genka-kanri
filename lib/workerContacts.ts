@@ -33,3 +33,13 @@ export async function saveWorkerContact(workerName: string, email: string): Prom
     throw e
   }
 }
+
+export async function deleteWorkerContact(workerName: string): Promise<void> {
+  try {
+    const supabase = createClient()
+    await supabase.from('worker_contacts').delete().eq('worker_name', workerName)
+  } catch (e) {
+    console.error('[workerContacts] delete error:', e)
+    throw e
+  }
+}
