@@ -19,7 +19,7 @@ import {
 } from "../backup";
 import type { BackupData } from "../backup";
 
-/** データ消失を防ぐ: 空の projects/vehicles を保存しない */
+/** データ消失を防ぐ: 空の projects は保存しない。車両・工程マスタは空配列も意図した状態として保存する */
 function sanitizeBeforeSave(data: {
   projects: Project[];
   costs: Cost[];
@@ -32,10 +32,8 @@ function sanitizeBeforeSave(data: {
   const empty = createEmptyData();
   const projects =
     Array.isArray(data.projects) && data.projects.length > 0 ? data.projects : empty.projects;
-  const vehicles =
-    Array.isArray(data.vehicles) && data.vehicles.length > 0 ? data.vehicles : empty.vehicles;
-  const processMasters =
-    Array.isArray(data.processMasters) && data.processMasters.length > 0 ? data.processMasters : empty.processMasters;
+  const vehicles = Array.isArray(data.vehicles) ? data.vehicles : empty.vehicles;
+  const processMasters = Array.isArray(data.processMasters) ? data.processMasters : empty.processMasters;
   const bidSchedules = Array.isArray(data.bidSchedules) ? data.bidSchedules : [];
   const equipmentRequests = Array.isArray(data.equipmentRequests) ? data.equipmentRequests : [];
   return {
@@ -130,11 +128,23 @@ export async function loadData(): Promise<{
       return createEmptyData();
     }
 
-    const vehicles = (stored.vehicles ?? DEFAULT_VEHICLES) as Vehicle[];
-    let processMasters = (stored.processMasters ?? DEFAULT_PROCESS_MASTERS) as ProcessMaster[];
-    const storedIds = new Set(processMasters.map((m) => m.id));
-    const toAdd = DEFAULT_PROCESS_MASTERS.filter((m) => !storedIds.has(m.id));
-    if (toAdd.length > 0) processMasters = [...processMasters, ...toAdd];
+    const vehicles: Vehicle[] =
+      stored.vehicles === undefined || stored.vehicles === null
+        ? [...DEFAULT_VEHICLES]
+        : (stored.vehicles as Vehicle[]);
+
+    let processMasters: ProcessMaster[];
+    const rawPm = stored.processMasters;
+    if (rawPm === undefined || rawPm === null) {
+      processMasters = [...DEFAULT_PROCESS_MASTERS];
+    } else if (Array.isArray(rawPm) && rawPm.length === 0) {
+      processMasters = [];
+    } else {
+      processMasters = rawPm as ProcessMaster[];
+      const storedIds = new Set(processMasters.map((m) => m.id));
+      const toAdd = DEFAULT_PROCESS_MASTERS.filter((m) => !storedIds.has(m.id));
+      if (toAdd.length > 0) processMasters = [...processMasters, ...toAdd];
+    }
     let projects = (stored.projects ?? []) as Project[];
     projects = projects.map((p) => {
       const base = p.category === "清掃業務" ? { ...p, category: "業務" } : p;

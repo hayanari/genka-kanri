@@ -44,6 +44,8 @@ export default function ScheduleBoard() {
   const [pdfLoading, setPdfLoading] = useState(false)
   const [syncNotice, setSyncNotice] = useState<string | null>(null)
   const pdfAreaRef = useRef<HTMLDivElement>(null)
+  /** 初回の loadScheduleData 完了まで true にしない（未ロード状態の空データを pending に書かない） */
+  const scheduleHydratedRef = useRef(false)
   const lastSyncedRevisionRef = useRef<string | null>(null)
   const modalRef = useRef(modal)
   modalRef.current = modal
@@ -120,10 +122,11 @@ export default function ScheduleBoard() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
+      try {
       const data = await loadScheduleData()
       if (cancelled) return
       if (data) {
-        const w = data.workers?.length ? data.workers : SAMPLE_DATA.workers
+        const w = Array.isArray(data.workers) ? data.workers : SAMPLE_DATA.workers
         const s = data.schedules ?? []
         const m = data.dayMemos ?? {}
         setWorkers(w)
@@ -146,6 +149,11 @@ export default function ScheduleBoard() {
         }
       }
       if (!cancelled) lastSyncedRevisionRef.current = await fetchScheduleRevision()
+      } catch (e) {
+        console.error('[ScheduleBoard] スケジュール初期ロード失敗', e)
+      } finally {
+        if (!cancelled) scheduleHydratedRef.current = true
+      }
     })()
     return () => { cancelled = true }
   }, [])
@@ -160,7 +168,7 @@ export default function ScheduleBoard() {
       if (modalRef.current) return
       const fresh = await loadScheduleData()
       if (!fresh) return
-      const w = fresh.workers?.length ? fresh.workers : SAMPLE_DATA.workers
+      const w = Array.isArray(fresh.workers) ? fresh.workers : SAMPLE_DATA.workers
       const s = fresh.schedules ?? []
       const mem = fresh.dayMemos ?? {}
       const { year: y, month: mo } = yearMonthRef.current
@@ -175,9 +183,10 @@ export default function ScheduleBoard() {
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [])
 
-  // beforeunload: リロード・タブ閉じ前に必ずバックアップ
+  // beforeunload: リロード・タブ閉じ前にバックアップ（ロード前の空 state で上書きしない）
   useEffect(() => {
     const handler = () => {
+      if (!scheduleHydratedRef.current) return
       saveSchedulePendingSync({ workers, schedules, dayMemos })
     }
     window.addEventListener('beforeunload', handler)

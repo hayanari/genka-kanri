@@ -80,8 +80,16 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
     const pending = loadSchedulePending()
     if (pending) {
       sessionStorage.removeItem(PENDING_KEY)
-      await saveScheduleData(pending)
-      return pending
+      // ロード完了前のリロード等で「予定0件」の pending が残ると、DB の予定を全削除してしまうため破棄する
+      const serverScheduleCount = schedules?.length ?? 0
+      if (pending.schedules.length === 0 && serverScheduleCount > 0) {
+        console.warn(
+          '[ScheduleStorage] 空の pending を破棄しました（サーバーに予定が残っているため上書きしません）'
+        )
+      } else {
+        await saveScheduleData(pending)
+        return pending
+      }
     }
 
     // 初回（テーブル未作成や空）は null を返してサンプルデータ投入を促す
@@ -117,6 +125,7 @@ export async function saveScheduleData(data: ScheduleData): Promise<void> {
     const supabase = createClient()
 
     // 1. 予定エントリ
+    const keepIds = new Set(data.schedules.map((s) => s.id))
     if (data.schedules.length > 0) {
       await supabase.from('schedule_entries').upsert(
         data.schedules.map((s) => ({
@@ -130,13 +139,23 @@ export async function saveScheduleData(data: ScheduleData): Promise<void> {
         })),
         { onConflict: 'id' }
       )
+    }
 
-      // 削除されたエントリを除去
-      const ids = data.schedules.map((s) => s.id)
-      const idsStr = ids.map((id) => `"${String(id).replace(/"/g, '""')}"`).join(',')
-      await supabase.from('schedule_entries').delete().not('id', 'in', `(${idsStr})`)
-    } else {
-      await supabase.from('schedule_entries').delete().like('id', '%')
+    // クライアントに無い ID を削除（.not('id','in',...) の文字列形式は PostgREST で誤動作しうるため in で明示）
+    const { data: existingRows, error: selErr } = await supabase.from('schedule_entries').select('id')
+    if (selErr) {
+      console.error('[ScheduleStorage] schedule_entries select id:', selErr)
+      throw selErr
+    }
+    const toDelete = (existingRows ?? [])
+      .map((r: { id: string }) => r.id)
+      .filter((id) => !keepIds.has(id))
+    if (toDelete.length > 0) {
+      const { error: delErr } = await supabase.from('schedule_entries').delete().in('id', toDelete)
+      if (delErr) {
+        console.error('[ScheduleStorage] schedule_entries delete:', delErr)
+        throw delErr
+      }
     }
 
     // 2. 作業員マスター（全置換）
