@@ -3,7 +3,7 @@
 // components/ScheduleBoard/index.tsx
 // 工事スケジュール管理ボード — メインコンポーネント
 // ================================================================
-import React, { useState, useEffect, useCallback, useMemo, usheRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
