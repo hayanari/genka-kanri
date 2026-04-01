@@ -150,7 +150,7 @@ export async function loadData(): Promise<{
       projects,
       costs: (stored.costs ?? []) as Cost[],
       quantities: (stored.quantities ?? []) as Quantity[],
-      vehicles: Array.isArray(vehicles) && vehicles,
+      vehicles: Array.isArray(vehicles) && vehicles.length > 0 ? vehicles : [],
       processMasters: Array.isArray(processMasters) && processMasters.length > 0 ? processMasters : DEFAULT_PROCESS_MASTERS,
       bidSchedules,
       equipmentRequests,
