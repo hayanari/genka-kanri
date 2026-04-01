@@ -3,7 +3,7 @@
 // components/ScheduleBoard/index.tsx
 // 工事スケジュール管理ボード — メインコンポーネント
 // ================================================================
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, usheRef } from 'react'
 import Link from 'next/link'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
@@ -18,7 +18,6 @@ import { createClient } from '@/lib/supabase/client'
 import {
   TODAY_STR, daysInMonth, genId, workerColor, hexRgba,
   getConflicts, getMonthSchedules, applySameDayKoujimeiSuffix,
-  ensureNGSCInData,
 } from '@/lib/scheduleUtils'
 import { CalendarView }            from './CalendarView'
 import { ListView, WorkerView, MasterView } from './OtherViews'
@@ -127,16 +126,9 @@ export default function ScheduleBoard() {
         const w = data.workers?.length ? data.workers : SAMPLE_DATA.workers
         const s = data.schedules ?? []
         const m = data.dayMemos ?? {}
-        const now = new Date()
-        const ensured = ensureNGSCInData(w, s, m, now.getFullYear(), now.getMonth())
-        setWorkers(ensured.workers)
-        setSchedules(ensured.schedules)
-        setDayMemos(ensured.dayMemos)
-        if (ensured.added) {
-          const payload = { workers: ensured.workers, schedules: ensured.schedules, dayMemos: ensured.dayMemos }
-          saveSchedulePendingSync(payload)
-          await saveScheduleData(payload)
-        }
+        setWorkers(w)
+        setSchedules(s)
+        setDayMemos(m)
       } else {
         const now = new Date()
         const isMarch2026 = now.getFullYear() === 2026 && now.getMonth() === 2
@@ -148,39 +140,15 @@ export default function ScheduleBoard() {
           setYear(2026)
           setMonth(2)
         } else {
-          const ensured = ensureNGSCInData(SAMPLE_DATA.workers, [], {}, now.getFullYear(), now.getMonth())
-          setWorkers(ensured.workers)
-          setSchedules(ensured.schedules)
-          setDayMemos(ensured.dayMemos)
-          if (ensured.added) {
-            const payload = { workers: ensured.workers, schedules: ensured.schedules, dayMemos: ensured.dayMemos }
-            saveSchedulePendingSync(payload)
-            await saveScheduleData(payload)
-          }
+          setWorkers(SAMPLE_DATA.workers)
+          setSchedules([])
+          setDayMemos({})
         }
       }
       if (!cancelled) lastSyncedRevisionRef.current = await fetchScheduleRevision()
     })()
     return () => { cancelled = true }
   }, [])
-
-  // 月切り替え時: 表示月の平日にNGSCがなければ追加
-  const prevYM = useRef({ year, month })
-  useEffect(() => {
-    if (workers.length === 0) return
-    if (prevYM.current.year === year && prevYM.current.month === month) return
-    prevYM.current = { year, month }
-    const result = ensureNGSCInData(workers, schedules, dayMemos, year, month)
-    if (!result.added) return
-    void (async () => {
-      const ok = await persist(result.workers, result.schedules, result.dayMemos)
-      if (ok) {
-        setWorkers(result.workers)
-        setSchedules(result.schedules)
-        setDayMemos(result.dayMemos)
-      }
-    })()
-  }, [year, month, workers, schedules, dayMemos, persist])
 
   // タブが前面に戻ったとき: サーバーが更新されていれば自動で再読み込み（モーダル編集中は除く）
   useEffect(() => {
@@ -196,15 +164,9 @@ export default function ScheduleBoard() {
       const s = fresh.schedules ?? []
       const mem = fresh.dayMemos ?? {}
       const { year: y, month: mo } = yearMonthRef.current
-      const ensured = ensureNGSCInData(w, s, mem, y, mo)
-      setWorkers(ensured.workers)
-      setSchedules(ensured.schedules)
-      setDayMemos(ensured.dayMemos)
-      if (ensured.added) {
-        const payload = { workers: ensured.workers, schedules: ensured.schedules, dayMemos: ensured.dayMemos }
-        saveSchedulePendingSync(payload)
-        await saveScheduleData(payload)
-      }
+      setWorkers(w)
+      setSchedules(s)
+      setDayMemos(mem)
       lastSyncedRevisionRef.current = await fetchScheduleRevision()
       setSyncNotice('他の端末での更新を取り込みました')
       window.setTimeout(() => setSyncNotice(null), 5000)
