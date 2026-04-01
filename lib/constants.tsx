@@ -1,3 +1,7 @@
+/** サイドバー上部の組織名。Vercel でプロジェクトごとに `NEXT_PUBLIC_SIDEBAR_ORG_LABEL` を設定 */
+export const SIDEBAR_ORG_LABEL =
+  process.env.NEXT_PUBLIC_SIDEBAR_ORG_LABEL ?? "TOKITO CORP";
+
 export const genId = () => Math.random().toString(36).slice(2, 10);
 export const fmt = (n: number | undefined) =>
   new Intl.NumberFormat("ja-JP").format(Math.round(n || 0));

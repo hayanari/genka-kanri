@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Icons, T } from "@/lib/constants";
+import { Icons, T, SIDEBAR_ORG_LABEL } from "@/lib/constants";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { createEmptyData, exportCSV } from "@/lib/utils";
 import { loadData, saveData, fetchGenkaDataRevision } from "@/lib/supabase/data";
@@ -621,7 +621,7 @@ export default function Home() {
               marginBottom: "4px",
             }}
           >
-            TOKITO CORP
+            {SIDEBAR_ORG_LABEL}
           </div>
           <div
             style={{
