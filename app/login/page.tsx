@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { signIn, signUp } from "@/lib/supabase/auth";
-import { T } from "@/lib/constants";
+import { T, SIDEBAR_ORG_LABEL } from "@/lib/constants";
 import { Btn } from "@/components/ui/primitives";
 
 export default function LoginPage() {
@@ -167,6 +167,17 @@ export default function LoginPage() {
         }}
       >
         <div style={{ marginBottom: "24px", textAlign: "center" }}>
+          <div
+            style={{
+              fontSize: "11px",
+              fontWeight: 600,
+              color: T.ts,
+              letterSpacing: "0.05em",
+              marginBottom: "8px",
+            }}
+          >
+            {SIDEBAR_ORG_LABEL}
+          </div>
           <h1
             style={{
               margin: 0,
