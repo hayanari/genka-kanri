@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { STATUS_MAP, Icons } from "@/lib/constants";
 import { parseExcelImportJson } from "@/lib/importExcel";
 import { fmtDate } from "@/lib/constants";
@@ -58,7 +58,16 @@ export default function ProjectList({
   isMobile?: boolean;
 }) {
   const [sortBy, setSortBy] = useState("updated_desc");
+  const [archiveYearFilter, setArchiveYearFilter] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const archiveYearOptions = useMemo(() => {
+    const years = new Set<string>();
+    for (const p of projects) {
+      if (p.archiveYear) years.add(p.archiveYear);
+    }
+    return Array.from(years).sort((a, b) => parseInt(b, 10) - parseInt(a, 10));
+  }, [projects]);
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -98,6 +107,11 @@ export default function ProjectList({
       })
     : monthFiltered;
 
+  const yearFiltered =
+    showArchiveYear && archiveYearFilter
+      ? personFiltered.filter((p) => p.archiveYear === archiveYearFilter)
+      : personFiltered;
+
   const isCatOnlySort =
     sortBy === "cat_koji" || sortBy === "cat_gyomu";
   const categoryFilter = isCatOnlySort
@@ -106,7 +120,7 @@ export default function ProjectList({
       : "業務"
     : "";
 
-  const filtered = personFiltered.filter((p) => {
+  const filtered = yearFiltered.filter((p) => {
     const ms =
       !sq ||
       p.name.includes(sq) ||
@@ -321,6 +335,30 @@ export default function ProjectList({
           <option value="cat_gyomu">業務のみ</option>
           <option value="status_flow">ステータス（進捗順）</option>
         </select>
+        {showArchiveYear && (
+          <select
+            value={archiveYearFilter}
+            onChange={(e) => setArchiveYearFilter(e.target.value)}
+            style={{
+              padding: "9px 14px",
+              background: T.s,
+              border: `1px solid ${T.bd}`,
+              borderRadius: "8px",
+              color: T.tx,
+              fontSize: "13px",
+              fontFamily: "inherit",
+              minWidth: isMobile ? undefined : "120px",
+            }}
+            aria-label="アーカイブ年度で絞り込み"
+          >
+            <option value="">全年度</option>
+            {archiveYearOptions.map((y) => (
+              <option key={y} value={y}>
+                {y}年度
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
         {sorted.map((p) => {
