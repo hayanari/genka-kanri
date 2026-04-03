@@ -5,10 +5,11 @@
 // ================================================================
 import React from 'react'
 import type { ScheduleEntry, DayMemos } from '@/types/schedule'
-import type { Vehicle } from '@/lib/utils'
+import type { Vehicle, Project } from '@/lib/utils'
 import {
   daysInMonth, DOW_LABELS, TODAY_STR, addDays,
   getConflicts, getVehicleConflicts, getAvailableWorkers, getOffWorkers, getMorningEntries,
+  getBaseKoujimei,
   workerColor, hexRgba,
 } from '@/lib/scheduleUtils'
 import { ShiftBadge, WorkerRow, OffWorkerRow, VehicleRow, Pip } from './Chips'
@@ -20,6 +21,8 @@ interface Props {
   schedules: ScheduleEntry[]
   workers: string[]
   vehicles: Vehicle[]
+  /** 案件管理から連携する案件（未アーカイブ）。その日に予定が無い案件を「未配置」に出す */
+  projects: Project[]
   dayMemos: DayMemos
   filterWorker: string | null
   onFilterWorker: (w: string) => void
@@ -33,7 +36,7 @@ interface DayRowProps extends Omit<Props, 'year'|'month'> {
   dateStr: string
 }
 const DayRow: React.FC<DayRowProps> = ({
-  dateStr, schedules, workers, vehicles, dayMemos,
+  dateStr, schedules, workers, vehicles, projects, dayMemos,
   filterWorker, onFilterWorker, onClickEntry, onAddEntry, onDayMemoChange,
 }) => {
   const vehicleMap = React.useMemo(() => new Map(vehicles.map(v => [v.id, v.registration])), [vehicles])
@@ -53,6 +56,30 @@ const DayRow: React.FC<DayRowProps> = ({
   const dayE   = schedules.filter(s => s.date === dateStr && s.shift === 'day').filter(filter)
   const nightE = schedules.filter(s => s.date === dateStr && s.shift === 'night').filter(filter)
   const offE   = schedules.filter(s => s.date === dateStr && s.shift === 'off').filter(filter)
+
+  // 作業員フィルタとは別：その日に工事名が一度でも載っているか（未配置リスト用・全員分）
+  const scheduledProjectBases = React.useMemo(() => {
+    const bases = new Set<string>()
+    const dayAll = schedules.filter(s => s.date === dateStr && s.shift === 'day')
+    const nightAll = schedules.filter(s => s.date === dateStr && s.shift === 'night')
+    const morningAll = getMorningEntries(dateStr, schedules)
+    for (const e of [...dayAll, ...nightAll, ...morningAll]) {
+      const b = getBaseKoujimei(e.koujimei)
+      if (b && b !== '有休') bases.add(b)
+    }
+    return bases
+  }, [dateStr, schedules])
+
+  const unscheduledProjects = React.useMemo(() => {
+    const candidates = projects.filter(p => !p.archived && !p.deleted)
+    const missing = candidates.filter(p => !scheduledProjectBases.has(p.name))
+    return missing.sort((a, b) => {
+      const ma = a.managementNumber ?? ''
+      const mb = b.managementNumber ?? ''
+      if (ma !== mb) return ma.localeCompare(mb, 'ja')
+      return a.name.localeCompare(b.name, 'ja')
+    })
+  }, [projects, scheduledProjectBases])
 
   const hasContent      = dayE.length || nightE.length || morningEs.length || offE.length
   const hasOffConflict  = offWs.some(w => cf.has(w))
@@ -184,6 +211,45 @@ const DayRow: React.FC<DayRowProps> = ({
                   </span>
                 )
               })}
+            </div>
+          </div>
+        )}
+
+        {/* その日まだスケジュールに載っていない案件（案件管理の案件名と工事名の一致で判定） */}
+        {unscheduledProjects.length > 0 && (
+          <div style={{
+            borderTop: '1px dashed #ffcc80',
+            background: 'linear-gradient(180deg, #fffbf5 0%, #fff8f0 100%)',
+            padding: '4px 5px 2px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
+              <span style={{ fontSize: 8, fontWeight: 700, color: '#e65100', letterSpacing: 0.02 }}>未配置案件</span>
+              <span style={{ fontSize: 8, color: '#94a3b8', fontFamily: 'IBM Plex Mono,monospace' }}>{unscheduledProjects.length}件</span>
+            </div>
+            <div style={{
+              display: 'flex', flexWrap: 'wrap', gap: 3,
+              maxHeight: 88, overflowY: 'auto', paddingBottom: 2,
+              scrollbarWidth: 'thin',
+            }}>
+              {unscheduledProjects.map(p => (
+                <span
+                  key={p.id}
+                  title={`${p.managementNumber ? `${p.managementNumber} ` : ''}${p.name}`}
+                  style={{
+                    display: 'inline-block', maxWidth: 148,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    padding: '2px 6px', borderRadius: 3, fontSize: 9, fontWeight: 600,
+                    color: '#bf360c', background: '#fff3e0', border: '1px solid #ffcc80',
+                  }}
+                >
+                  {p.managementNumber && (
+                    <span style={{ fontFamily: 'IBM Plex Mono,monospace', fontSize: 8, color: '#94a3b8', marginRight: 4 }}>
+                      {p.managementNumber}
+                    </span>
+                  )}
+                  {p.name}
+                </span>
+              ))}
             </div>
           </div>
         )}

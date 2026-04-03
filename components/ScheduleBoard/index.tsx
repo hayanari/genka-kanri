@@ -516,7 +516,7 @@ export default function ScheduleBoard() {
         {view === 'cal' && (
           <CalendarView
             year={year} month={month}
-            schedules={schedules} workers={workers} vehicles={vehicles} dayMemos={dayMemos}
+            schedules={schedules} workers={workers} vehicles={vehicles} projects={projects} dayMemos={dayMemos}
             filterWorker={filterWorker}
             onFilterWorker={handleFilterWorker}
             onClickEntry={e => setModal({ entry: e, isEdit: true })}
