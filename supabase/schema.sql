@@ -109,3 +109,42 @@ CREATE POLICY "auth_users_schedule_workers" ON schedule_workers
 DROP POLICY IF EXISTS "auth_users_schedule_day_memos" ON schedule_day_memos;
 CREATE POLICY "auth_users_schedule_day_memos" ON schedule_day_memos
   FOR ALL USING (auth.role() = 'authenticated');
+
+-- ================================================================
+-- 工程会議ボード（予定／実績の簡易バーチャート）
+-- ================================================================
+
+CREATE TABLE IF NOT EXISTS process_meeting_rows (
+  id            text PRIMARY KEY,
+  project_id    text NOT NULL,
+  process_name  text NOT NULL DEFAULT '',
+  planned_start date,
+  planned_end   date,
+  actual_start  date,
+  actual_end    date,
+  sort_order    int NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS process_meeting_rows_project_idx ON process_meeting_rows(project_id);
+
+CREATE TABLE IF NOT EXISTS process_meeting_meta (
+  id text PRIMARY KEY DEFAULT 'default',
+  hidden_project_ids text[] NOT NULL DEFAULT '{}',
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE process_meeting_rows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE process_meeting_meta ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "auth_users_process_meeting_rows" ON process_meeting_rows;
+CREATE POLICY "auth_users_process_meeting_rows" ON process_meeting_rows
+  FOR ALL USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "auth_users_process_meeting_meta" ON process_meeting_meta;
+CREATE POLICY "auth_users_process_meeting_meta" ON process_meeting_meta
+  FOR ALL USING (auth.role() = 'authenticated');
+
+DROP TRIGGER IF EXISTS process_meeting_rows_updated_at ON process_meeting_rows;
+CREATE TRIGGER process_meeting_rows_updated_at
+  BEFORE UPDATE ON process_meeting_rows
+  FOR EACH ROW EXECUTE PROCEDURE schedule_update_updated_at();

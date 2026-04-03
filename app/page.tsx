@@ -535,6 +535,7 @@ export default function Home() {
     { id: "new", label: "新規案件", icon: Icons.plus },
     { id: "equipment", label: "備品申請", icon: Icons.list },
     { id: "schedule", label: "スケジュール管理", icon: Icons.calendar, href: "/schedule" },
+    { id: "processmeeting", label: "工程会議ボード", icon: Icons.process, href: "/process-meeting" },
     { id: "bidschedule", label: "入札スケジュール", icon: Icons.calendar },
     { id: "archive", label: "アーカイブ", icon: Icons.archive },
     { id: "deleted", label: "削除済み", icon: Icons.trash },
