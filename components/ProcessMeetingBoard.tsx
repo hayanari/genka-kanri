@@ -2,15 +2,19 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 import type { Project } from "@/lib/utils";
 import { loadData } from "@/lib/supabase/data";
 import { genId, T } from "@/lib/constants";
 import {
   fillRatesForRange,
+  getProcessRowVariance,
   isConstructionProject,
   monthSequence,
   periodsForMonthRange,
   type MonthPeriod,
+  type ProcessVarianceKind,
 } from "@/lib/processMeetingUtils";
 import type { ProcessMeetingRow } from "@/types/processMeeting";
 import {
@@ -29,23 +33,40 @@ function PeriodBar({
   periods,
   rangeStart,
   rangeEnd,
+  actualVariance,
+  barHeight = 14,
 }: {
   kind: "planned" | "actual";
   periods: MonthPeriod[];
   rangeStart: string | null;
   rangeEnd: string | null;
+  /** 実施行のみ：遅れ・前倒し等で帯の色を変える */
+  actualVariance?: ProcessVarianceKind | null;
+  barHeight?: number;
 }) {
   const rates = fillRatesForRange(periods, rangeStart, rangeEnd);
   const label = kind === "planned" ? "予定" : "実施";
-  const color = kind === "planned" ? "#1565c0" : "#e65100";
+  const labelFont = Math.max(10, Math.round(barHeight * 0.58));
+  const color =
+    kind === "planned"
+      ? "#1565c0"
+      : actualVariance === "delay" || actualVariance === "overdue"
+        ? "#c62828"
+        : actualVariance === "early"
+          ? "#2e7d32"
+          : actualVariance === "ok"
+            ? "#00897b"
+            : "#e65100";
+  const labelColor =
+    kind === "planned" ? "#1565c0" : actualVariance === "unknown" || !actualVariance ? "#e65100" : color;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
       <span
         style={{
-          width: 32,
-          fontSize: 10,
+          width: 40,
+          fontSize: labelFont,
           fontWeight: 700,
-          color: kind === "planned" ? "#1565c0" : "#e65100",
+          color: labelColor,
         }}
       >
         {label}
@@ -66,10 +87,15 @@ function PeriodBar({
             style={{
               background: "#eceff1",
               borderRadius: 4,
-              height: 14,
+              height: barHeight,
               overflow: "hidden",
               position: "relative",
-              border: "1px solid #cfd8dc",
+              border:
+                kind === "actual" && (actualVariance === "delay" || actualVariance === "overdue")
+                  ? "1px solid #ef9a9a"
+                  : kind === "actual" && actualVariance === "early"
+                    ? "1px solid #a5d6a7"
+                    : "1px solid #cfd8dc",
             }}
           >
             <div
@@ -80,7 +106,7 @@ function PeriodBar({
                 bottom: 0,
                 width: `${Math.min(100, Math.round(r * 100))}%`,
                 background: color,
-                opacity: r > 0 ? 0.85 : 0,
+                opacity: r > 0 ? 0.88 : 0,
                 transition: "width .2s",
               }}
             />
@@ -88,6 +114,48 @@ function PeriodBar({
         ))}
       </div>
     </div>
+  );
+}
+
+function VarianceBadge({ row, large }: { row: ProcessMeetingRow; large?: boolean }) {
+  const v = getProcessRowVariance(row);
+  if (!v.label) return null;
+  const bg =
+    v.kind === "delay" || v.kind === "overdue"
+      ? "#ffebee"
+      : v.kind === "early"
+        ? "#e8f5e9"
+        : v.kind === "ok"
+          ? "#e0f2f1"
+          : "#eceff1";
+  const fg =
+    v.kind === "delay" || v.kind === "overdue"
+      ? "#c62828"
+      : v.kind === "early"
+        ? "#2e7d32"
+        : v.kind === "ok"
+          ? "#00695c"
+          : "#546e7a";
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        fontSize: large ? 12 : 10,
+        fontWeight: 700,
+        padding: "2px 8px",
+        borderRadius: 4,
+        background: bg,
+        color: fg,
+        border: `1px solid ${fg}33`,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {v.kind === "delay" && "⚠ "}
+      {v.kind === "early" && "↑ "}
+      {v.kind === "ok" && "✓ "}
+      {v.kind === "overdue" && "⏱ "}
+      {v.label}
+    </span>
   );
 }
 
@@ -120,6 +188,9 @@ export default function ProcessMeetingBoard() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rowsRef = useRef<ProcessMeetingRow[]>([]);
   rowsRef.current = rows;
+  const pdfAreaRef = useRef<HTMLDivElement>(null);
+  const [presentationMode, setPresentationMode] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const periods = useMemo(
     () => periodsForMonthRange(year, month, rangeMonths),
@@ -313,6 +384,50 @@ export default function ProcessMeetingBoard() {
     }
   };
 
+  const handlePrint = useCallback(() => window.print(), []);
+
+  const handleExportPdf = useCallback(async () => {
+    const el = pdfAreaRef.current;
+    if (!el) return;
+    setPdfLoading(true);
+    try {
+      const FIXED_WIDTH = 900;
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#f5f7fa",
+        ignoreElements: (node) =>
+          node instanceof HTMLElement && node.classList.contains("process-meeting-no-print"),
+        onclone: (_, clonedEl) => {
+          if (clonedEl instanceof HTMLElement) {
+            clonedEl.style.width = `${FIXED_WIDTH}px`;
+            clonedEl.style.minWidth = `${FIXED_WIDTH}px`;
+          }
+        },
+      });
+      const imgData = canvas.toDataURL("image/png", 1.0);
+      const pdf = new jsPDF({
+        orientation: "landscape",
+        unit: "mm",
+        format: "a4",
+      });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const aspect = canvas.height / canvas.width;
+      const imgW = pageW * aspect <= pageH ? pageW : pageH / aspect;
+      const imgH = imgW * aspect;
+      pdf.addImage(imgData, "PNG", 0, 0, imgW, imgH);
+      const fname = `process-meeting-${year}-${String(month + 1).padStart(2, "0")}-${rangeMonths}m.pdf`;
+      pdf.save(fname);
+    } catch (e) {
+      console.error("[PDF export]", e);
+      alert("PDFの作成に失敗しました");
+    } finally {
+      setPdfLoading(false);
+    }
+  }, [year, month, rangeMonths]);
+
   const unhideProject = async (projectId: string) => {
     const nextHidden = hiddenProjectIds.filter((id) => id !== projectId);
     setHiddenProjectIds(nextHidden);
@@ -348,7 +463,7 @@ export default function ProcessMeetingBoard() {
       onChange={(e) => onChange(e.target.value ? e.target.value : null)}
       style={{
         padding: "4px 6px",
-        fontSize: 11,
+        fontSize: presentationMode ? 13 : 11,
         border: `1px solid ${T.bd}`,
         borderRadius: 4,
         fontFamily: "inherit",
@@ -359,13 +474,90 @@ export default function ProcessMeetingBoard() {
     />
   );
 
-  return (
-    <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: "#f5f7fa", minHeight: "100vh", color: "#1a2535" }}>
-      <div
+  const pmBaseFs = presentationMode ? 15 : 13;
+  const pmBarH = presentationMode ? 18 : 14;
+  const rangeTitle =
+    monthHeaders.length > 0
+      ? `${monthHeaders[0].year}年${monthHeaders[0].month + 1}月〜${monthHeaders[monthHeaders.length - 1].year}年${
+          monthHeaders[monthHeaders.length - 1].month + 1
+        }月（${rangeMonths}か月）`
+      : "";
+
+  const meetingActionButtons = (
+    <>
+      <button
+        type="button"
+        onClick={() => setPresentationMode((v) => !v)}
+        className="process-meeting-no-print"
         style={{
+          padding: "5px 12px",
+          borderRadius: 4,
+          border: `1px solid ${presentationMode ? "#1565c0" : "#d0d8e4"}`,
+          background: presentationMode ? "#e3f2fd" : "#fff",
+          color: presentationMode ? "#1565c0" : "#4a6280",
+          cursor: "pointer",
+          fontFamily: "inherit",
+          fontSize: 11,
+          fontWeight: presentationMode ? 700 : 400,
+        }}
+      >
+        {presentationMode ? "全画面モード中" : "全画面（投影）"}
+      </button>
+      <button
+        type="button"
+        onClick={handleExportPdf}
+        disabled={pdfLoading}
+        className="process-meeting-no-print"
+        style={{
+          padding: "5px 12px",
+          borderRadius: 4,
+          border: "1px solid #8b5cf6",
+          background: "#f5f3ff",
+          color: "#8b5cf6",
+          cursor: pdfLoading ? "wait" : "pointer",
+          fontFamily: "inherit",
+          fontSize: 11,
+        }}
+      >
+        {pdfLoading ? "作成中…" : "📄 PDF"}
+      </button>
+      <button
+        type="button"
+        onClick={handlePrint}
+        className="process-meeting-no-print"
+        style={{
+          padding: "5px 12px",
+          borderRadius: 4,
+          border: "1px solid #d0d8e4",
           background: "#fff",
-          borderBottom: "2px solid #1565c0",
-          padding: "10px 16px",
+          color: "#4a6280",
+          cursor: "pointer",
+          fontFamily: "inherit",
+          fontSize: 11,
+        }}
+      >
+        印刷
+      </button>
+    </>
+  );
+
+  return (
+    <div
+      className="process-meeting-print-root"
+      style={{
+        fontFamily: "'Noto Sans JP', sans-serif",
+        background: "#f5f7fa",
+        minHeight: "100vh",
+        color: "#1a2535",
+        fontSize: pmBaseFs,
+      }}
+    >
+      <div
+        className="process-meeting-no-print"
+        style={{
+          background: presentationMode ? "rgba(255,255,255,.92)" : "#fff",
+          borderBottom: presentationMode ? "1px solid #e2e8f0" : "2px solid #1565c0",
+          padding: presentationMode ? "6px 14px" : "10px 16px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -374,14 +566,14 @@ export default function ProcessMeetingBoard() {
           position: "sticky",
           top: 0,
           zIndex: 20,
-          boxShadow: "0 2px 6px rgba(0,0,0,.06)",
+          boxShadow: presentationMode ? "0 1px 4px rgba(0,0,0,.04)" : "0 2px 6px rgba(0,0,0,.06)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Link
             href="/"
             style={{
-              fontSize: 12,
+              fontSize: presentationMode ? 11 : 12,
               color: "#4a6280",
               textDecoration: "none",
               padding: "4px 8px",
@@ -393,26 +585,29 @@ export default function ProcessMeetingBoard() {
           </Link>
           <div
             style={{
-              width: 34,
-              height: 34,
+              width: presentationMode ? 30 : 34,
+              height: presentationMode ? 30 : 34,
               background: "#1565c0",
               borderRadius: 6,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               fontWeight: 700,
-              fontSize: 14,
+              fontSize: presentationMode ? 13 : 14,
               color: "#fff",
             }}
           >
             程
           </div>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700 }}>工程会議ボード</div>
-            <div style={{ fontSize: 10, color: "#4a6280" }}>工事案件 × 手入力工程 · 10日区切り（表示幅を選択）</div>
+            <div style={{ fontSize: presentationMode ? 16 : 15, fontWeight: 700 }}>工程会議ボード</div>
+            <div style={{ fontSize: presentationMode ? 11 : 10, color: "#4a6280" }}>
+              工事案件 × 手入力工程 · 10日区切り（表示幅を選択）
+            </div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {meetingActionButtons}
           {saveState === "saving" && (
             <span style={{ fontSize: 11, color: "#4a6280" }}>保存中…</span>
           )}
@@ -425,13 +620,12 @@ export default function ProcessMeetingBoard() {
         </div>
       </div>
 
-      <div style={{ padding: "12px 16px", maxWidth: 1800, margin: "0 auto" }}>
+      <div className="process-meeting-no-print" style={{ padding: "12px 16px", maxWidth: 1800, margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: 8,
-            flexWrap: "wrap",
+            flexDirection: "column",
+            gap: 10,
             marginBottom: 14,
             background: "#fff",
             padding: 10,
@@ -439,62 +633,81 @@ export default function ProcessMeetingBoard() {
             border: "1px solid #d0d8e4",
           }}
         >
-          <button
-            type="button"
-            onClick={() => setYear((y) => y - 1)}
-            style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #d0d8e4", cursor: "pointer" }}
-          >
-            ◀ {year - 1}
-          </button>
-          <span style={{ fontWeight: 700, color: "#1565c0", fontFamily: "IBM Plex Mono, monospace" }}>{year}年</span>
-          <button
-            type="button"
-            onClick={() => setYear((y) => y + 1)}
-            style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #d0d8e4", cursor: "pointer" }}
-          >
-            {year + 1} ▶
-          </button>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {MONTH_NAMES.map((mn, i) => (
-              <button
-                key={mn}
-                type="button"
-                onClick={() => setMonth(i)}
-                style={{
-                  padding: "4px 8px",
-                  borderRadius: 4,
-                  border: `1px solid ${i === month ? "#1565c0" : "#d0d8e4"}`,
-                  background: i === month ? "#e3f2fd" : "#fff",
-                  color: i === month ? "#1565c0" : "#4a6280",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                {mn}
-              </button>
-            ))}
-          </div>
-          <span style={{ fontSize: 12, color: "#4a6280", marginLeft: 4 }}>表示幅</span>
-          <select
-            value={rangeMonths}
-            onChange={(e) => setRangeMonths(Number(e.target.value) as 1 | 3 | 6 | 12)}
+          <div
             style={{
-              padding: "6px 10px",
-              borderRadius: 4,
-              border: "1px solid #d0d8e4",
-              fontSize: 12,
-              fontFamily: "inherit",
-              background: "#fff",
-              color: T.tx,
-              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              paddingBottom: 10,
+              borderBottom: "1px solid #e8ecf2",
             }}
-            aria-label="表示する月の幅"
+            aria-label="会議向け表示・PDF・印刷"
           >
-            <option value={1}>1か月</option>
-            <option value={3}>3か月</option>
-            <option value={6}>半年（6か月）</option>
-            <option value={12}>1年（12か月）</option>
-          </select>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#1565c0", whiteSpace: "nowrap" }}>
+              会議・出力
+            </span>
+            <span style={{ fontSize: 11, color: "#4a6280" }}>（投影・PDF・印刷）</span>
+            {meetingActionButtons}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setYear((y) => y - 1)}
+              style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #d0d8e4", cursor: "pointer" }}
+            >
+              ◀ {year - 1}
+            </button>
+            <span style={{ fontWeight: 700, color: "#1565c0", fontFamily: "IBM Plex Mono, monospace" }}>{year}年</span>
+            <button
+              type="button"
+              onClick={() => setYear((y) => y + 1)}
+              style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #d0d8e4", cursor: "pointer" }}
+            >
+              {year + 1} ▶
+            </button>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {MONTH_NAMES.map((mn, i) => (
+                <button
+                  key={mn}
+                  type="button"
+                  onClick={() => setMonth(i)}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 4,
+                    border: `1px solid ${i === month ? "#1565c0" : "#d0d8e4"}`,
+                    background: i === month ? "#e3f2fd" : "#fff",
+                    color: i === month ? "#1565c0" : "#4a6280",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  {mn}
+                </button>
+              ))}
+            </div>
+            <span style={{ fontSize: 12, color: "#4a6280", marginLeft: 4 }}>表示幅</span>
+            <select
+              value={rangeMonths}
+              onChange={(e) => setRangeMonths(Number(e.target.value) as 1 | 3 | 6 | 12)}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "1px solid #d0d8e4",
+                fontSize: 12,
+                fontFamily: "inherit",
+                background: "#fff",
+                color: T.tx,
+                cursor: "pointer",
+              }}
+              aria-label="表示する月の幅"
+            >
+              <option value={1}>1か月</option>
+              <option value={3}>3か月</option>
+              <option value={6}>半年（6か月）</option>
+              <option value={12}>1年（12か月）</option>
+            </select>
+          </div>
         </div>
 
         <p style={{ fontSize: 12, color: "#4a6280", marginBottom: 12, lineHeight: 1.5 }}>
@@ -641,6 +854,58 @@ export default function ProcessMeetingBoard() {
             表示する案件が0件です。上の「表示する工事案件」で1件以上チェックしてください。
           </p>
         )}
+      </div>
+
+      <div
+        ref={pdfAreaRef}
+        style={{
+          padding: "12px 16px",
+          maxWidth: 1800,
+          margin: "0 auto",
+          background: "#f5f7fa",
+        }}
+      >
+        {!loading && !loadError && (
+          <div
+            style={{
+              marginBottom: 14,
+              paddingBottom: 10,
+              borderBottom: "1px solid #d0d8e4",
+            }}
+          >
+            <div style={{ fontSize: presentationMode ? 18 : 16, fontWeight: 700 }}>工程会議ボード</div>
+            <div style={{ fontSize: presentationMode ? 13 : 12, color: "#4a6280", marginTop: 4 }}>
+              {rangeTitle} · 10日区切り
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                flexWrap: "wrap",
+                marginTop: 8,
+                fontSize: presentationMode ? 11 : 10,
+                color: "#546e7a",
+              }}
+            >
+              <span>
+                <span style={{ color: "#1565c0" }}>■</span> 予定
+              </span>
+              <span>
+                <span style={{ color: "#c62828" }}>■</span> 実施・遅れ
+              </span>
+              <span>
+                <span style={{ color: "#2e7d32" }}>■</span> 実施・前倒し
+              </span>
+              <span>
+                <span style={{ color: "#00897b" }}>■</span> 実施・順調
+              </span>
+              <span>
+                <span style={{ color: "#e65100" }}>■</span> 実施・未確定／予定超過
+              </span>
+            </div>
+          </div>
+        )}
 
         {!loading &&
           !loadError &&
@@ -682,7 +947,7 @@ export default function ProcessMeetingBoard() {
                     </span>
                     <span style={{ fontSize: 14, fontWeight: 700 }}>{proj.name}</span>
                   </div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <div className="process-meeting-no-print" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     <button
                       type="button"
                       onClick={() => addRow(proj.id)}
@@ -722,7 +987,7 @@ export default function ProcessMeetingBoard() {
                       display: "grid",
                       gridTemplateColumns: `minmax(160px,220px) minmax(280px,1fr)`,
                       gap: 8,
-                      fontSize: 10,
+                      fontSize: presentationMode ? 12 : 10,
                       color: "#4a6280",
                       marginBottom: 6,
                       paddingLeft: 4,
@@ -775,7 +1040,17 @@ export default function ProcessMeetingBoard() {
                     </div>
                   </div>
 
-                  {prRows.map((row) => (
+                  {prRows.map((row) => {
+                    const variance = getProcessRowVariance(row);
+                    const leftBorder =
+                      variance.kind === "delay" || variance.kind === "overdue"
+                        ? "3px solid #e57373"
+                        : variance.kind === "early"
+                          ? "3px solid #81c784"
+                          : variance.kind === "ok"
+                            ? "3px solid #4db6ac"
+                            : "3px solid transparent";
+                    return (
                     <div
                       key={row.id}
                       style={{
@@ -786,10 +1061,13 @@ export default function ProcessMeetingBoard() {
                         gap: 10,
                         alignItems: "start",
                         minWidth: Math.max(480, 200 + periods.length * 22),
+                        borderLeft: leftBorder,
+                        marginLeft: 0,
+                        paddingLeft: variance.kind === "unknown" ? 10 : 7,
                       }}
                     >
                       <div>
-                        <div style={{ display: "flex", gap: 6, alignItems: "flex-start", marginBottom: 6 }}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "flex-start", marginBottom: 6, flexWrap: "wrap" }}>
                           <input
                             type="text"
                             value={row.processName}
@@ -799,15 +1077,17 @@ export default function ProcessMeetingBoard() {
                               flex: 1,
                               minWidth: 0,
                               padding: "6px 8px",
-                              fontSize: 12,
+                              fontSize: presentationMode ? 14 : 12,
                               border: `1px solid ${T.bd}`,
                               borderRadius: 4,
                               fontFamily: "inherit",
                             }}
                           />
+                          <VarianceBadge row={row} large={presentationMode} />
                           <button
                             type="button"
                             onClick={() => removeRow(row.id, proj.id)}
+                            className="process-meeting-no-print"
                             style={{
                               padding: "4px 8px",
                               fontSize: 10,
@@ -828,7 +1108,7 @@ export default function ProcessMeetingBoard() {
                             gridTemplateColumns: "auto 1fr",
                             gap: 4,
                             alignItems: "center",
-                            fontSize: 10,
+                            fontSize: presentationMode ? 12 : 10,
                             color: "#546e7a",
                           }}
                         >
@@ -847,16 +1127,32 @@ export default function ProcessMeetingBoard() {
                         </div>
                       </div>
                       <div>
-                        <PeriodBar kind="planned" periods={periods} rangeStart={row.plannedStart} rangeEnd={row.plannedEnd} />
-                        <PeriodBar kind="actual" periods={periods} rangeStart={row.actualStart} rangeEnd={row.actualEnd} />
+                        <PeriodBar
+                          kind="planned"
+                          periods={periods}
+                          rangeStart={row.plannedStart}
+                          rangeEnd={row.plannedEnd}
+                          barHeight={pmBarH}
+                        />
+                        <PeriodBar
+                          kind="actual"
+                          periods={periods}
+                          rangeStart={row.actualStart}
+                          rangeEnd={row.actualEnd}
+                          barHeight={pmBarH}
+                          actualVariance={variance.kind}
+                        />
                       </div>
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               </section>
             );
           })}
+      </div>
 
+      <div className="process-meeting-no-print" style={{ padding: "12px 16px", maxWidth: 1800, margin: "0 auto" }}>
         {!loading && !loadError && hiddenProjects.length > 0 && (
           <div
             style={{

@@ -96,3 +96,36 @@ export function fillRatesForRange(
 export function isConstructionProject(p: { category: string; archived?: boolean; deleted?: boolean }): boolean {
   return p.category === "工事" && !p.archived && !p.deleted
 }
+
+/** 予定終了と実施終了の比較（会議向けハイライト用） */
+export type ProcessVarianceKind = "delay" | "early" | "ok" | "overdue" | "unknown"
+
+export function getProcessRowVariance(row: {
+  plannedEnd: string | null
+  actualEnd: string | null
+}): { kind: ProcessVarianceKind; label: string } {
+  const { plannedEnd, actualEnd } = row
+  if (!plannedEnd && !actualEnd) return { kind: "unknown", label: "" }
+
+  const parse = (s: string) => {
+    const [y, m, d] = s.split("-").map(Number)
+    return new Date(y, m - 1, d)
+  }
+  const dayDiff = (a: Date, b: Date) =>
+    Math.round((b.getTime() - a.getTime()) / 86400000)
+
+  if (plannedEnd && actualEnd) {
+    const p = parse(plannedEnd)
+    const a = parse(actualEnd)
+    if (a > p) return { kind: "delay", label: `遅れ ${dayDiff(p, a)}日` }
+    if (a < p) return { kind: "early", label: `前倒し ${dayDiff(a, p)}日` }
+    return { kind: "ok", label: "順調" }
+  }
+  if (plannedEnd && !actualEnd) {
+    const p = parse(plannedEnd)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (today > p) return { kind: "overdue", label: "実施終了未入力（予定超過）" }
+  }
+  return { kind: "unknown", label: "" }
+}

@@ -22,7 +22,7 @@ export default function LoginPage() {
     let cancelled = false;
     if (!hasSupabaseConfig()) {
       setConfigError(
-        "Supabase の環境変数が設定されていません。Vercel の Environment Variables で NEXT_PUBLIC_SUPABASE_URL と NEXT_PUBLIC_SUPABASE_ANON_KEY を追加してください。"
+        "Supabase の環境変数が設定されていません。Supabase ダッシュボード（Project Settings → API）の Project URL と anon public キーを、ローカルならプロジェクト直下の .env.local に、Vercel なら Environment Variables に、NEXT_PUBLIC_SUPABASE_URL と NEXT_PUBLIC_SUPABASE_ANON_KEY として設定し、開発サーバーを再起動してください。"
       );
       setChecking(false);
       return;

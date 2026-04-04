@@ -63,4 +63,15 @@ body {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+
+  .process-meeting-no-print {
+    display: none !important;
+  }
+  .process-meeting-print-root {
+    background: #fff !important;
+  }
+  .process-meeting-print-root * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }
