@@ -8,7 +8,8 @@ import { genId, T } from "@/lib/constants";
 import {
   fillRatesForRange,
   isConstructionProject,
-  monthPeriods,
+  monthSequence,
+  periodsForMonthRange,
   type MonthPeriod,
 } from "@/lib/processMeetingUtils";
 import type { ProcessMeetingRow } from "@/types/processMeeting";
@@ -53,14 +54,14 @@ function PeriodBar({
         style={{
           flex: 1,
           display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr",
+          gridTemplateColumns: `repeat(${periods.length}, minmax(8px, 1fr))`,
           gap: 4,
-          minWidth: 120,
+          minWidth: Math.max(120, periods.length * 14),
         }}
       >
         {rates.map((r, i) => (
           <div
-            key={i}
+            key={periods[i].start}
             title={`${periods[i].label} ${Math.round(r * 100)}%`}
             style={{
               background: "#eceff1",
@@ -111,12 +112,21 @@ export default function ProcessMeetingBoard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth());
+  const [rangeMonths, setRangeMonths] = useState<1 | 3 | 6 | 12>(1);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rowsRef = useRef<ProcessMeetingRow[]>([]);
   rowsRef.current = rows;
 
-  const periods = useMemo(() => monthPeriods(year, month), [year, month]);
+  const periods = useMemo(
+    () => periodsForMonthRange(year, month, rangeMonths),
+    [year, month, rangeMonths]
+  );
+
+  const monthHeaders = useMemo(
+    () => monthSequence(year, month, rangeMonths),
+    [year, month, rangeMonths]
+  );
 
   const constructionProjects = useMemo(() => {
     return projects.filter(isConstructionProject).sort((a, b) => {
@@ -371,7 +381,7 @@ export default function ProcessMeetingBoard() {
           </div>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700 }}>工程会議ボード</div>
-            <div style={{ fontSize: 10, color: "#4a6280" }}>工事案件 × 手入力工程 · 10日区切り</div>
+            <div style={{ fontSize: 10, color: "#4a6280" }}>工事案件 × 手入力工程 · 10日区切り（表示幅を選択）</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -387,7 +397,7 @@ export default function ProcessMeetingBoard() {
         </div>
       </div>
 
-      <div style={{ padding: "12px 16px", maxWidth: 1200, margin: "0 auto" }}>
+      <div style={{ padding: "12px 16px", maxWidth: 1800, margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -436,11 +446,32 @@ export default function ProcessMeetingBoard() {
               </button>
             ))}
           </div>
+          <span style={{ fontSize: 12, color: "#4a6280", marginLeft: 4 }}>表示幅</span>
+          <select
+            value={rangeMonths}
+            onChange={(e) => setRangeMonths(Number(e.target.value) as 1 | 3 | 6 | 12)}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 4,
+              border: "1px solid #d0d8e4",
+              fontSize: 12,
+              fontFamily: "inherit",
+              background: "#fff",
+              color: T.tx,
+              cursor: "pointer",
+            }}
+            aria-label="表示する月の幅"
+          >
+            <option value={1}>1か月</option>
+            <option value={3}>3か月</option>
+            <option value={6}>半年（6か月）</option>
+            <option value={12}>1年（12か月）</option>
+          </select>
         </div>
 
         <p style={{ fontSize: 12, color: "#4a6280", marginBottom: 12, lineHeight: 1.5 }}>
           カテゴリが「工事」の案件のみ表示します。新しい工事案件は、初回アクセス時に1行自動で追加されます。
-          工程名は自由に入力してください。横軸は当月を3区間（各約10日）に分けたものです。
+          工程名は自由に入力してください。横軸は<strong>選択した開始月から</strong>1か月・3か月・半年・1年分を、各月3区間（各約10日）で並べます。列が多いときは横スクロールしてください。
         </p>
 
         {loading && <p style={{ fontSize: 13 }}>読み込み中…</p>}
@@ -532,20 +563,58 @@ export default function ProcessMeetingBoard() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "minmax(160px,1fr) minmax(280px,2.2fr)",
+                      gridTemplateColumns: `minmax(160px,220px) minmax(280px,1fr)`,
                       gap: 8,
                       fontSize: 10,
                       color: "#4a6280",
                       marginBottom: 6,
                       paddingLeft: 4,
-                      minWidth: 480,
+                      minWidth: Math.max(480, 200 + periods.length * 22),
                     }}
                   >
                     <span>工程名 / 日付</span>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, textAlign: "center" }}>
-                      {periods.map((p) => (
-                        <span key={p.start}>{p.label}</span>
-                      ))}
+                    <div style={{ minWidth: periods.length * 18 }}>
+                      {rangeMonths > 1 && (
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: `repeat(${periods.length}, minmax(10px, 1fr))`,
+                            gap: 4,
+                            marginBottom: 4,
+                          }}
+                        >
+                          {monthHeaders.map(({ year: y, month: mo }) => (
+                            <div
+                              key={`${y}-${mo}-hdr`}
+                              style={{
+                                gridColumn: `span 3`,
+                                textAlign: "center",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                color: "#1565c0",
+                                padding: "2px 0",
+                                borderBottom: "1px solid #d0d8e4",
+                              }}
+                            >
+                              {y}年{mo + 1}月
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: `repeat(${periods.length}, minmax(10px, 1fr))`,
+                          gap: 4,
+                          textAlign: "center",
+                        }}
+                      >
+                        {periods.map((p) => (
+                          <span key={p.start} style={{ fontSize: rangeMonths > 1 ? 8 : 10, lineHeight: 1.2 }}>
+                            {p.label}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
@@ -556,10 +625,10 @@ export default function ProcessMeetingBoard() {
                         borderTop: "1px solid #eceff1",
                         padding: "10px 6px",
                         display: "grid",
-                        gridTemplateColumns: "minmax(160px,1fr) minmax(280px,2.2fr)",
+                        gridTemplateColumns: `minmax(160px,220px) minmax(280px,1fr)`,
                         gap: 10,
                         alignItems: "start",
-                        minWidth: 480,
+                        minWidth: Math.max(480, 200 + periods.length * 22),
                       }}
                     >
                       <div>

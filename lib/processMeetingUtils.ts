@@ -20,6 +20,48 @@ export function monthPeriods(year: number, monthIndex: number): MonthPeriod[] {
   ]
 }
 
+/** 開始月から連続する年月（年またぎ可） */
+export function monthSequence(
+  startYear: number,
+  startMonthIndex: number,
+  monthCount: number
+): { year: number; month: number }[] {
+  const out: { year: number; month: number }[] = []
+  let y = startYear
+  let m = startMonthIndex
+  for (let i = 0; i < monthCount; i++) {
+    out.push({ year: y, month: m })
+    m += 1
+    if (m > 11) {
+      m = 0
+      y += 1
+    }
+  }
+  return out
+}
+
+/**
+ * 複数月分の10日区間を横軸用に結合（1か月なら従来と同じ3列）
+ * 複数月時はラベルに「n月」を付与して識別しやすくする
+ */
+export function periodsForMonthRange(
+  startYear: number,
+  startMonthIndex: number,
+  monthCount: number
+): MonthPeriod[] {
+  const seq = monthSequence(startYear, startMonthIndex, monthCount)
+  const multi = monthCount > 1
+  return seq.flatMap(({ year, month }) => {
+    const base = monthPeriods(year, month)
+    if (!multi) return base
+    const mn = month + 1
+    return base.map((p) => ({
+      ...p,
+      label: `${mn}月 ${p.label}`,
+    }))
+  })
+}
+
 function parseYmd(s: string): Date {
   const [y, m, d] = s.split("-").map(Number)
   return new Date(y, m - 1, d)
