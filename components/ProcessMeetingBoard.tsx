@@ -113,6 +113,9 @@ export default function ProcessMeetingBoard() {
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth());
   const [rangeMonths, setRangeMonths] = useState<1 | 3 | 6 | 12>(1);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
+  const [projectFilterOpen, setProjectFilterOpen] = useState(true);
+  const prevVisibleProjectIdsRef = useRef<string[]>([]);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rowsRef = useRef<ProcessMeetingRow[]>([]);
@@ -141,6 +144,31 @@ export default function ProcessMeetingBoard() {
     () => constructionProjects.filter((p) => !hiddenProjectIds.includes(p.id)),
     [constructionProjects, hiddenProjectIds]
   );
+
+  /** ボードに出る工事案件のうち、チェックで選んだものだけ */
+  const displayedProjects = useMemo(
+    () => visibleProjects.filter((p) => selectedProjectIds.has(p.id)),
+    [visibleProjects, selectedProjectIds]
+  );
+
+  useEffect(() => {
+    const visibleIds = visibleProjects.map((p) => p.id);
+    const prev = prevVisibleProjectIdsRef.current;
+    setSelectedProjectIds((sel) => {
+      if (sel.size === 0 && visibleIds.length > 0 && prev.length === 0) {
+        return new Set(visibleIds);
+      }
+      const next = new Set(sel);
+      for (const id of visibleIds) {
+        if (!prev.includes(id)) next.add(id);
+      }
+      for (const id of [...next]) {
+        if (!visibleIds.includes(id)) next.delete(id);
+      }
+      return next;
+    });
+    prevVisibleProjectIdsRef.current = visibleIds;
+  }, [visibleProjects]);
 
   const hiddenProjects = useMemo(
     () => constructionProjects.filter((p) => hiddenProjectIds.includes(p.id)),
@@ -474,6 +502,129 @@ export default function ProcessMeetingBoard() {
           工程名は自由に入力してください。横軸は<strong>選択した開始月から</strong>1か月・3か月・半年・1年分を、各月3区間（各約10日）で並べます。列が多いときは横スクロールしてください。
         </p>
 
+        {!loading && !loadError && visibleProjects.length > 0 && (
+          <div
+            style={{
+              marginBottom: 14,
+              background: "#fff",
+              border: "1px solid #d0d8e4",
+              borderRadius: 8,
+              overflow: "hidden",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setProjectFilterOpen((o) => !o)}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 12px",
+                border: "none",
+                background: "#f8fafc",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: 13,
+                fontWeight: 700,
+                color: "#1565c0",
+                textAlign: "left",
+              }}
+            >
+              <span>
+                表示する工事案件（{selectedProjectIds.size} / {visibleProjects.length} 件選択）
+              </span>
+              <span style={{ fontSize: 12, color: "#4a6280" }}>{projectFilterOpen ? "▼ 閉じる" : "▶ 開く"}</span>
+            </button>
+            {projectFilterOpen && (
+              <div style={{ padding: "10px 12px 12px", borderTop: "1px solid #e2e8f0" }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProjectIds(new Set(visibleProjects.map((p) => p.id)))}
+                    style={{
+                      padding: "4px 10px",
+                      fontSize: 11,
+                      borderRadius: 4,
+                      border: "1px solid #1565c0",
+                      background: "#fff",
+                      color: "#1565c0",
+                      cursor: "pointer",
+                    }}
+                  >
+                    すべて選択
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProjectIds(new Set())}
+                    style={{
+                      padding: "4px 10px",
+                      fontSize: 11,
+                      borderRadius: 4,
+                      border: "1px solid #90a4ae",
+                      background: "#fff",
+                      color: "#546e7a",
+                      cursor: "pointer",
+                    }}
+                  >
+                    すべて解除
+                  </button>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                    gap: 6,
+                    maxHeight: 220,
+                    overflowY: "auto",
+                  }}
+                >
+                  {visibleProjects.map((p) => {
+                    const checked = selectedProjectIds.has(p.id);
+                    return (
+                      <label
+                        key={p.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: 8,
+                          padding: "6px 8px",
+                          borderRadius: 4,
+                          cursor: "pointer",
+                          fontSize: 12,
+                          background: checked ? "#e3f2fd" : "transparent",
+                          border: `1px solid ${checked ? "#90caf9" : "#eceff1"}`,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setSelectedProjectIds((prev) => {
+                              const n = new Set(prev);
+                              if (on) n.add(p.id);
+                              else n.delete(p.id);
+                              return n;
+                            });
+                          }}
+                          style={{ marginTop: 2 }}
+                        />
+                        <span>
+                          <span style={{ fontFamily: "monospace", fontSize: 10, color: "#4a6280" }}>
+                            {p.managementNumber ?? "—"}
+                          </span>{" "}
+                          {p.name}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {loading && <p style={{ fontSize: 13 }}>読み込み中…</p>}
         {loadError && (
           <p style={{ fontSize: 13, color: "#c62828", whiteSpace: "pre-wrap" }}>{loadError}</p>
@@ -485,9 +636,15 @@ export default function ProcessMeetingBoard() {
           </p>
         )}
 
+        {!loading && !loadError && visibleProjects.length > 0 && selectedProjectIds.size === 0 && (
+          <p style={{ fontSize: 13, color: "#c62828" }}>
+            表示する案件が0件です。上の「表示する工事案件」で1件以上チェックしてください。
+          </p>
+        )}
+
         {!loading &&
           !loadError &&
-          visibleProjects.map((proj) => {
+          displayedProjects.map((proj) => {
             const prRows = rowsByProject.get(proj.id) ?? [];
             return (
               <section
