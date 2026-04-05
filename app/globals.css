@@ -80,6 +80,11 @@ body {
   display: none !important;
 }
 
+/* 工程会議：コンパクト時は帯色の編集行も非表示 */
+.process-meeting-compact .process-meeting-bar-color-strip {
+  display: none !important;
+}
+
 /* モバイル用テーブル横スクロール */
 .table-scroll {
   overflow-x: auto;

@@ -918,6 +918,7 @@ export default function ProcessMeetingBoard() {
 
       <div
         ref={pdfAreaRef}
+        className={compactBoard ? "process-meeting-compact" : undefined}
         style={{
           padding: "12px 16px",
           maxWidth: 1800,
@@ -1229,88 +1230,90 @@ export default function ProcessMeetingBoard() {
                               </div>
                             </div>
                         </div>
-                        <div
-                          className="process-meeting-no-print"
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: compactBoard ? 6 : 8,
-                            flexWrap: "wrap",
-                            marginTop: compactBoard ? 4 : 8,
-                            fontSize: compactBoard ? 10 : 11,
-                            color: "#607d8b",
-                          }}
-                          title="各行の帯グラフの塗り色を変更できます"
-                        >
-                          <span style={{ fontWeight: 700 }}>帯色</span>
-                          <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                            予定
-                            <input
-                              type="color"
-                              value={row.plannedBarColor?.trim() || DEFAULT_PLANNED_BAR}
-                              onChange={(e) => updateRow(row.id, { plannedBarColor: e.target.value })}
-                              style={{
-                                width: compactBoard ? 26 : 30,
-                                height: compactBoard ? 20 : 24,
-                                padding: 0,
-                                border: "1px solid #cfd8dc",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                                verticalAlign: "middle",
-                              }}
-                              aria-label="予定帯の色"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => updateRow(row.id, { plannedBarColor: null })}
+                        {!compactBoard && (
+                          <div
+                            className="process-meeting-no-print process-meeting-bar-color-strip"
                             style={{
-                              padding: "2px 6px",
-                              fontSize: compactBoard ? 9 : 10,
-                              borderRadius: 4,
-                              border: "1px solid #cfd8dc",
-                              background: "#fff",
-                              color: "#546e7a",
-                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              flexWrap: "wrap",
+                              marginTop: 8,
+                              fontSize: 11,
+                              color: "#607d8b",
                             }}
+                            title="各行の帯グラフの塗り色を変更できます"
                           >
-                            既定
-                          </button>
-                          <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                            実施
-                            <input
-                              type="color"
-                              value={row.actualBarColor?.trim() || defaultActualBarColor(variance.kind)}
-                              onChange={(e) => updateRow(row.id, { actualBarColor: e.target.value })}
+                            <span style={{ fontWeight: 700 }}>帯色</span>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                              予定
+                              <input
+                                type="color"
+                                value={row.plannedBarColor?.trim() || DEFAULT_PLANNED_BAR}
+                                onChange={(e) => updateRow(row.id, { plannedBarColor: e.target.value })}
+                                style={{
+                                  width: 30,
+                                  height: 24,
+                                  padding: 0,
+                                  border: "1px solid #cfd8dc",
+                                  borderRadius: 4,
+                                  cursor: "pointer",
+                                  verticalAlign: "middle",
+                                }}
+                                aria-label="予定帯の色"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => updateRow(row.id, { plannedBarColor: null })}
                               style={{
-                                width: compactBoard ? 26 : 30,
-                                height: compactBoard ? 20 : 24,
-                                padding: 0,
-                                border: "1px solid #cfd8dc",
+                                padding: "2px 6px",
+                                fontSize: 10,
                                 borderRadius: 4,
+                                border: "1px solid #cfd8dc",
+                                background: "#fff",
+                                color: "#546e7a",
                                 cursor: "pointer",
-                                verticalAlign: "middle",
                               }}
-                              aria-label="実施帯の色"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => updateRow(row.id, { actualBarColor: null })}
-                            style={{
-                              padding: "2px 6px",
-                              fontSize: compactBoard ? 9 : 10,
-                              borderRadius: 4,
-                              border: "1px solid #cfd8dc",
-                              background: "#fff",
-                              color: "#546e7a",
-                              cursor: "pointer",
-                            }}
-                            title="遅れ・前倒しに応じた自動色に戻します"
-                          >
-                            自動
-                          </button>
-                        </div>
+                            >
+                              既定
+                            </button>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                              実施
+                              <input
+                                type="color"
+                                value={row.actualBarColor?.trim() || defaultActualBarColor(variance.kind)}
+                                onChange={(e) => updateRow(row.id, { actualBarColor: e.target.value })}
+                                style={{
+                                  width: 30,
+                                  height: 24,
+                                  padding: 0,
+                                  border: "1px solid #cfd8dc",
+                                  borderRadius: 4,
+                                  cursor: "pointer",
+                                  verticalAlign: "middle",
+                                }}
+                                aria-label="実施帯の色"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => updateRow(row.id, { actualBarColor: null })}
+                              style={{
+                                padding: "2px 6px",
+                                fontSize: 10,
+                                borderRadius: 4,
+                                border: "1px solid #cfd8dc",
+                                background: "#fff",
+                                color: "#546e7a",
+                                cursor: "pointer",
+                              }}
+                              title="遅れ・前倒しに応じた自動色に戻します"
+                            >
+                              自動
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <PeriodBar
