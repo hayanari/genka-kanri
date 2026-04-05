@@ -75,13 +75,8 @@ body {
   border-radius: 4px;
 }
 
-/* 工程会議：コンパクト時は日付ブロックを確実に非表示 */
-.process-meeting-compact .process-meeting-date-strip {
-  display: none !important;
-}
-
-/* 工程会議：コンパクト時は帯色の編集行も非表示 */
-.process-meeting-compact .process-meeting-bar-color-strip {
+/* 工程会議：コンパクト時は「日付＋帯色」まとめブロックを非表示（インラインと二重で確実に） */
+.process-meeting-compact .process-meeting-expanded-only {
   display: none !important;
 }
 

@@ -140,8 +140,30 @@ CREATE TABLE IF NOT EXISTS process_meeting_meta (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- 案件×週ごとの朝会メモ（履歴は週の行として保持）
+CREATE TABLE IF NOT EXISTS process_meeting_project_notes (
+  project_id  text NOT NULL,
+  week_start  date NOT NULL,
+  note_text   text NOT NULL DEFAULT '',
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (project_id, week_start)
+);
+CREATE INDEX IF NOT EXISTS process_meeting_project_notes_updated_idx ON process_meeting_project_notes(updated_at DESC);
+CREATE INDEX IF NOT EXISTS process_meeting_project_notes_project_idx ON process_meeting_project_notes(project_id);
+
+-- 旧スキーマ（project_id のみ PK）からの移行（既に週付きならほぼ no-op）
+ALTER TABLE process_meeting_project_notes ADD COLUMN IF NOT EXISTS week_start date;
+UPDATE process_meeting_project_notes SET week_start = COALESCE(
+  week_start,
+  (date_trunc('week', (timezone('Asia/Tokyo', now()))::timestamp))::date
+) WHERE week_start IS NULL;
+ALTER TABLE process_meeting_project_notes ALTER COLUMN week_start SET NOT NULL;
+ALTER TABLE process_meeting_project_notes DROP CONSTRAINT IF EXISTS process_meeting_project_notes_pkey;
+ALTER TABLE process_meeting_project_notes ADD PRIMARY KEY (project_id, week_start);
+
 ALTER TABLE process_meeting_rows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE process_meeting_meta ENABLE ROW LEVEL SECURITY;
+ALTER TABLE process_meeting_project_notes ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "auth_users_process_meeting_rows" ON process_meeting_rows;
 CREATE POLICY "auth_users_process_meeting_rows" ON process_meeting_rows
@@ -149,8 +171,16 @@ CREATE POLICY "auth_users_process_meeting_rows" ON process_meeting_rows
 DROP POLICY IF EXISTS "auth_users_process_meeting_meta" ON process_meeting_meta;
 CREATE POLICY "auth_users_process_meeting_meta" ON process_meeting_meta
   FOR ALL USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "auth_users_process_meeting_project_notes" ON process_meeting_project_notes;
+CREATE POLICY "auth_users_process_meeting_project_notes" ON process_meeting_project_notes
+  FOR ALL USING (auth.role() = 'authenticated');
 
 DROP TRIGGER IF EXISTS process_meeting_rows_updated_at ON process_meeting_rows;
 CREATE TRIGGER process_meeting_rows_updated_at
   BEFORE UPDATE ON process_meeting_rows
+  FOR EACH ROW EXECUTE PROCEDURE schedule_update_updated_at();
+
+DROP TRIGGER IF EXISTS process_meeting_project_notes_updated_at ON process_meeting_project_notes;
+CREATE TRIGGER process_meeting_project_notes_updated_at
+  BEFORE UPDATE ON process_meeting_project_notes
   FOR EACH ROW EXECUTE PROCEDURE schedule_update_updated_at();
