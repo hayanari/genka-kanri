@@ -4,7 +4,11 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/client";
-import { createAdminClient, isAdminEmail } from "@/lib/supabase/admin";
+import {
+  createAdminClient,
+  isAdminEmail,
+  isServiceRoleConfigured,
+} from "@/lib/supabase/admin";
 
 export async function DELETE(
   request: NextRequest,
@@ -34,6 +38,16 @@ export async function DELETE(
     // 自分自身は削除不可
     if (userId === user.id) {
       return NextResponse.json({ error: "自分自身のアカウントは削除できません" }, { status: 400 });
+    }
+
+    if (!isServiceRoleConfigured()) {
+      return NextResponse.json(
+        {
+          error:
+            "サーバーに SUPABASE_SERVICE_ROLE_KEY（Supabase の service_role）が設定されていません。Vercel の Environment Variables に追加し、再デプロイしてください。",
+        },
+        { status: 503 }
+      );
     }
 
     const admin = createAdminClient();

@@ -212,14 +212,46 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
 interface MasterViewProps {
   workers: string[]
   schedules: ScheduleEntry[]
+  workerContacts: Record<string, string>
   onAdd: (name: string) => void
   onRemove: (name: string) => void
+  onRename: (oldName: string, newName: string) => Promise<boolean>
+  onSaveContact: (name: string, email: string) => void
+  onTestTeams?: () => void
 }
-export const MasterView: React.FC<MasterViewProps> = ({ workers, schedules, onAdd, onRemove }) => {
+export const MasterView: React.FC<MasterViewProps> = ({ workers, schedules, workerContacts, onAdd, onRemove, onRename, onSaveContact, onTestTeams }) => {
   const [name, setName] = useState('')
+  const [editingEmail, setEditingEmail] = useState<Record<string, string>>({})
+  const [editingDisplayName, setEditingDisplayName] = useState<Record<string, string>>({})
+  const [testLoading, setTestLoading] = useState(false)
   const add = () => { onAdd(name.trim()); setName('') }
+  const handleTest = () => {
+    if (!onTestTeams) return
+    setTestLoading(true)
+    onTestTeams()
+    setTimeout(() => setTestLoading(false), 2000)
+  }
   return (
     <div>
+      <p style={{ fontSize: 11, color: '#4a6280', marginBottom: 12 }}>
+        表示名・メールアドレスを編集できます。メールを登録すると、スケジュール変更時にTeamsチャネルへ通知されます。
+      </p>
+      {onTestTeams && (
+        <div style={{ marginBottom: 12 }}>
+          <button
+            onClick={handleTest}
+            disabled={testLoading}
+            style={{
+              padding: '6px 14px', borderRadius: 4, border: '1px solid #4a90d9',
+              background: testLoading ? '#eef1f6' : '#fff', color: '#4a90d9',
+              cursor: testLoading ? 'wait' : 'pointer', fontSize: 11, fontWeight: 600,
+            }}
+          >
+            {testLoading ? '送信中...' : '🔔 Teams テスト送信'}
+          </button>
+          <span style={{ marginLeft: 8, fontSize: 10, color: '#8aa0b8' }}>チャネルに届くか確認</span>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <input
           type="text" value={name} onChange={e => setName(e.target.value)}
@@ -235,12 +267,53 @@ export const MasterView: React.FC<MasterViewProps> = ({ workers, schedules, onAd
         {workers.map(w => {
           const c   = workerColor(w)
           const cnt = schedules.filter(e => e.workers.includes(w) && e.shift !== 'off').length
+          const email = editingEmail[w] ?? workerContacts[w] ?? ''
+          const displayName = editingDisplayName[w] ?? w
+          const commitDisplayName = async () => {
+            const next = displayName.trim()
+            if (!next) {
+              setEditingDisplayName(prev => { const p = { ...prev }; delete p[w]; return p })
+              return
+            }
+            if (next === w) {
+              setEditingDisplayName(prev => { const p = { ...prev }; delete p[w]; return p })
+              return
+            }
+            const ok = await onRename(w, next)
+            if (ok) {
+              setEditingDisplayName(prev => { const p = { ...prev }; delete p[w]; return p })
+              setEditingEmail(prev => { const p = { ...prev }; delete p[w]; return p })
+            }
+          }
           return (
-            <div key={w} style={{ background: '#fff', border: '1px solid #d0d8e4', borderRadius: 6, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 14, height: 14, borderRadius: '50%', background: c }} />
-              <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: c }}>{w}</span>
-              <span style={{ fontSize: 11, color: '#4a6280' }}>稼働 {cnt}件</span>
-              <IconBtn danger onClick={() => onRemove(w)}>✕</IconBtn>
+            <div key={w} style={{ background: '#fff', border: '1px solid #d0d8e4', borderRadius: 6, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 14, height: 14, borderRadius: '50%', background: c, flexShrink: 0 }} />
+                <input
+                  type="text"
+                  aria-label={`${w} の表示名`}
+                  value={displayName}
+                  onChange={e => setEditingDisplayName(prev => ({ ...prev, [w]: e.target.value }))}
+                  onBlur={() => void commitDisplayName()}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur() } }}
+                  style={{
+                    flex: 1, minWidth: 0, maxWidth: 200, padding: '6px 8px', border: '1px solid #d0d8e4', borderRadius: 4,
+                    fontSize: 14, fontWeight: 700, color: c, fontFamily: 'inherit',
+                  }}
+                />
+                <span style={{ fontSize: 11, color: '#4a6280', flexShrink: 0 }}>稼働 {cnt}件</span>
+                <IconBtn danger onClick={() => onRemove(w)}>✕</IconBtn>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="email"
+                  placeholder="通知用メールアドレス"
+                  value={email}
+                  onChange={e => setEditingEmail(prev => ({ ...prev, [w]: e.target.value }))}
+                  onBlur={() => email !== (workerContacts[w] ?? '') && onSaveContact(w, email)}
+                  style={{ padding: '5px 8px', border: '1px solid #d0d8e4', borderRadius: 4, fontSize: 11, flex: 1, maxWidth: 260 }}
+                />
+              </div>
             </div>
           )
         })}

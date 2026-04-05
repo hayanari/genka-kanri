@@ -12,7 +12,7 @@ export default function NewBidSchedule({
   onSave,
   onCancel,
 }: {
-  onSave: (b: BidSchedule) => void;
+  onSave: (b: BidSchedule) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const [f, setF] = useState({

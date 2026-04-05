@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { signIn, signUp } from "@/lib/supabase/auth";
-import { T } from "@/lib/constants";
+import { T, SIDEBAR_ORG_LABEL } from "@/lib/constants";
 import { Btn } from "@/components/ui/primitives";
 
 export default function LoginPage() {
@@ -22,7 +22,7 @@ export default function LoginPage() {
     let cancelled = false;
     if (!hasSupabaseConfig()) {
       setConfigError(
-        "Supabase の環境変数が設定されていません。Vercel の Environment Variables で NEXT_PUBLIC_SUPABASE_URL と NEXT_PUBLIC_SUPABASE_ANON_KEY を追加してください。"
+        "Supabase の環境変数が設定されていません。Supabase ダッシュボード（Project Settings → API）の Project URL と anon public キーを、ローカルならプロジェクト直下の .env.local に、Vercel なら Environment Variables に、NEXT_PUBLIC_SUPABASE_URL と NEXT_PUBLIC_SUPABASE_ANON_KEY として設定し、開発サーバーを再起動してください。"
       );
       setChecking(false);
       return;
@@ -167,6 +167,17 @@ export default function LoginPage() {
         }}
       >
         <div style={{ marginBottom: "24px", textAlign: "center" }}>
+          <div
+            style={{
+              fontSize: "11px",
+              fontWeight: 600,
+              color: T.ts,
+              letterSpacing: "0.05em",
+              marginBottom: "8px",
+            }}
+          >
+            {SIDEBAR_ORG_LABEL}
+          </div>
           <h1
             style={{
               margin: 0,

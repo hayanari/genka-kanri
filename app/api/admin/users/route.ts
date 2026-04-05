@@ -4,7 +4,11 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/client";
-import { createAdminClient, isAdminEmail } from "@/lib/supabase/admin";
+import {
+  createAdminClient,
+  isAdminEmail,
+  isServiceRoleConfigured,
+} from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,6 +25,16 @@ export async function GET(request: NextRequest) {
     }
     if (!isAdminEmail(user.email)) {
       return NextResponse.json({ error: "この操作を行う権限がありません" }, { status: 403 });
+    }
+
+    if (!isServiceRoleConfigured()) {
+      return NextResponse.json(
+        {
+          error:
+            "サーバーに SUPABASE_SERVICE_ROLE_KEY（Supabase の service_role）が設定されていません。Vercel の Environment Variables に追加し、再デプロイしてください。",
+        },
+        { status: 503 }
+      );
     }
 
     const admin = createAdminClient();

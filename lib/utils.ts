@@ -148,40 +148,7 @@ export interface Quantity {
   vehicleId?: string; // 車両区分時はマスタIDを格納
 }
 
-export const DEFAULT_VEHICLES: Vehicle[] = [
-  { id: "v1", registration: "堺 800 さ 1299" },
-  { id: "v2", registration: "堺 800 さ 3119" },
-  { id: "v3", registration: "堺 800 さ 4840" },
-  { id: "v4", registration: "堺 800 は 61" },
-  { id: "v5", registration: "堺 800 さ 3118" },
-  { id: "v6", registration: "堺 800 さ 4750" },
-  { id: "v7", registration: "堺 800 さ 4674" },
-  { id: "v8", registration: "堺 800 は 279" },
-  { id: "v9", registration: "堺 800 は 366" },
-  { id: "v10", registration: "堺 130 さ 3526" },
-  { id: "v11", registration: "堺 800 さ 2723" },
-  { id: "v12", registration: "和泉 800 さ 1894" },
-  { id: "v13", registration: "堺 800 さ 958" },
-  { id: "v14", registration: "堺 830 せ 1717" },
-  { id: "v15", registration: "堺 830 さ 2626" },
-  { id: "v16", registration: "堺 800 さ 2016" },
-  { id: "v17", registration: "堺 430 せ 3517" },
-  { id: "v18", registration: "堺 800 さ 5035" },
-  { id: "v19", registration: "堺 330 ね 2617" },
-  { id: "v20", registration: "堺 330 ま 1726" },
-  { id: "v21", registration: "堺 530 て 1735" },
-  { id: "v22", registration: "堺 332 や 316" },
-  { id: "v23", registration: "堺 334 ま 116" },
-  { id: "v24", registration: "堺 342 ろ 13" },
-  { id: "v25", registration: "大阪 800 そ 6712" },
-  { id: "v26", registration: "大阪 800 そ 6711" },
-  { id: "v27", registration: "大阪 800 そ 6719" },
-  { id: "v28", registration: "和泉 830 な 1188" },
-  { id: "v29", registration: "大阪 400 む 9052" },
-  { id: "v30", registration: "大阪 800 そ 7329" },
-  { id: "v31", registration: "大阪 800 は 2214" },
-];
-
+export const DEFAULT_VEHICLES: Vehicle[] = [];
 export const DEFAULT_PROCESS_MASTERS: ProcessMaster[] = [
   { id: "pm01", name: "管きょ洗浄工", icon: "🚿", defaultSubs: ["高圧洗浄", "汚泥回収", "完了確認"], sortOrder: 1 },
   { id: "pm02", name: "管路施設調査工（TVカメラ）", icon: "📹", defaultSubs: ["機器設置", "カメラ挿入・撮影", "側視", "記録整理"], sortOrder: 2 },
@@ -436,6 +403,75 @@ export function ensureManagementNumbers(projects: Project[]): Project[] {
   });
 }
 
+/** 備品申請の明細行（最大4行） */
+export interface EquipmentItem {
+  id: string;
+  /** 区分: 備品 or 消耗品 */
+  category: "備品" | "消耗品";
+  /** 品種: 文具・トナー・印刷用紙・その他 */
+  itemType: string;
+  /** メーカー */
+  maker: string;
+  /** 商品名 */
+  productName: string;
+  /** 品番 */
+  productCode: string;
+  /** 購入単価 */
+  unitPrice: number;
+  /** 数量 */
+  quantity: number;
+  /** 単位: 本・個・冊・枚・台・箱・その他 */
+  unit: string;
+}
+
+/** 承認ステップ */
+export interface ApprovalStep {
+  id: string;
+  /** 役割: リーダー / 課長 / 部長（決裁） / 経理担当 / 申請者本人 */
+  role: string;
+  /** 承認者名 */
+  approverName: string;
+  /** 結果 */
+  result: "pending" | "approved" | "rejected" | "confirmed" | "";
+  /** コメント */
+  comment: string;
+  /** 承認日時 (YYYY-MM-DD または ISO 日付部分) */
+  actedAt: string;
+}
+
+/** 備品申請 */
+export interface EquipmentRequest {
+  id: string;
+  /** 標題 */
+  title: string;
+  /** 部署 */
+  department: string;
+  /** 申請者名 */
+  applicant: string;
+  /** 申請日 (YYYY-MM-DD) */
+  appliedAt: string;
+  /** 購入予定日 (YYYY-MM-DD) */
+  purchasePlannedDate: string;
+  /** 明細（最大4行） */
+  items: EquipmentItem[];
+  /** 利用目的 */
+  purpose: string;
+  /** 備考 */
+  notes: string;
+  /** 小計（自動計算: 各行の 単価×数量 合計） */
+  subtotal: number;
+  /** 消費税（自動計算: subtotal × 10%） */
+  tax: number;
+  /** 支払金額合計（自動計算: subtotal + tax） */
+  total: number;
+  /** ステータス */
+  status: "draft" | "pending" | "approved" | "rejected" | "confirmed";
+  /** 承認履歴（5ステップ: リーダー→課長→部長→経理→申請者） */
+  approvalHistory: ApprovalStep[];
+  /** 紐づく案件ID（Phase 3。Phase 1 は空文字） */
+  projectId: string;
+}
+
 /** 入札スケジュールから案件を作成（落札・当社受注見込み時のみ） */
 export const bidScheduleToProject = (b: BidSchedule, id: string): Project => {
   const amount = b.orderAmount ?? 0;
@@ -474,6 +510,7 @@ export const createEmptyData = () => ({
   costs: [] as Cost[],
   quantities: [] as Quantity[],
   bidSchedules: [] as BidSchedule[],
+  equipmentRequests: [] as EquipmentRequest[],
 });
 
 export const exportCSV = (

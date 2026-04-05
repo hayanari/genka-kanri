@@ -12,7 +12,7 @@ export default function NewProject({
   onSave,
   onCancel,
 }: {
-  onSave: (proj: Project) => void;
+  onSave: (proj: Project) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const [f, setF] = useState({

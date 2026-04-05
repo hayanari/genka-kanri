@@ -7,15 +7,17 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
-import type { ScheduleEntry, DayMemos, ScheduleData, ViewType } from '@/types/schedule'
+import type { ScheduleEntry, DayMemos, ViewType } from '@/types/schedule'
 import type { Project, Vehicle } from '@/lib/utils'
 import { SAMPLE_DATA, getSampleDataForMarch2026 } from '@/lib/sampleData'
-import { loadScheduleData, saveScheduleData, saveSchedulePendingSync } from '@/lib/scheduleStorage'
+import { loadScheduleData, saveScheduleData, saveSchedulePendingSync, fetchScheduleRevision } from '@/lib/scheduleStorage'
 import { loadData } from '@/lib/supabase/data'
+import { loadWorkerContacts, saveWorkerContact, deleteWorkerContact } from '@/lib/workerContacts'
+import { computeScheduleChanges } from '@/lib/scheduleNotify'
+import { createClient } from '@/lib/supabase/client'
 import {
   TODAY_STR, daysInMonth, genId, workerColor, hexRgba,
   getConflicts, getMonthSchedules, applySameDayKoujimeiSuffix,
-  ensureNGSCInData,
 } from '@/lib/scheduleUtils'
 import { CalendarView }            from './CalendarView'
 import { ListView, WorkerView, MasterView } from './OtherViews'
@@ -38,10 +40,19 @@ export default function ScheduleBoard() {
   const [modal, setModal] = useState<{ entry: Partial<ScheduleEntry> & { date: string }; isEdit: boolean } | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [workerContacts, setWorkerContacts] = useState<Record<string, string>>({})
   const [pdfLoading, setPdfLoading] = useState(false)
+  const [syncNotice, setSyncNotice] = useState<string | null>(null)
   const pdfAreaRef = useRef<HTMLDivElement>(null)
+  /** 初回の loadScheduleData 完了まで true にしない（未ロード状態の空データを pending に書かない） */
+  const scheduleHydratedRef = useRef(false)
+  const lastSyncedRevisionRef = useRef<string | null>(null)
+  const modalRef = useRef(modal)
+  modalRef.current = modal
+  const yearMonthRef = useRef({ year, month })
+  yearMonthRef.current = { year, month }
 
-  // ── 初期ロード ──────────────────────────────────────────────────
+  // ── 初期ロード（プロジェクト等）─────────────────────────────────
   useEffect(() => {
     loadData().then(d => {
       if (d) {
@@ -49,25 +60,79 @@ export default function ScheduleBoard() {
         if (d.vehicles?.length) setVehicles(d.vehicles)
       }
     })
+    loadWorkerContacts().then(setWorkerContacts)
   }, [])
+
+  // ── 保存（保存前にサーバー版を照合）──────────────────────────────
+  const persist = useCallback(async (
+    w: string[],
+    s: ScheduleEntry[],
+    m: DayMemos,
+    prevSchedules?: ScheduleEntry[]
+  ): Promise<boolean> => {
+    const payload = { workers: w, schedules: s, dayMemos: m }
+    const remote = await fetchScheduleRevision()
+    if (
+      lastSyncedRevisionRef.current !== null &&
+      remote !== '' &&
+      remote !== lastSyncedRevisionRef.current
+    ) {
+      alert(
+        'サーバー上のデータが別の端末で更新されています。\n\n' +
+          'いったんページを再読み込み（F5）してから、もう一度操作してください。'
+      )
+      return false
+    }
+    try {
+      saveSchedulePendingSync(payload)
+      await saveScheduleData(payload)
+      lastSyncedRevisionRef.current = await fetchScheduleRevision()
+    } catch (e) {
+      console.error('[persist]', e)
+      alert('保存に失敗しました。ネットワークをご確認ください。')
+      return false
+    }
+    if (prevSchedules !== undefined && prevSchedules !== s) {
+      const changes = computeScheduleChanges(prevSchedules, s)
+      if (changes.length > 0) {
+        console.log('[Notify] 変更検知', changes.length, '件', changes.map(c => `${c.workerName}: ${c.message}`))
+        createClient().auth.getSession().then(({ data: { session } }) => {
+          if (session?.access_token) {
+            fetch('/api/schedule/notify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({ changes }),
+            })
+              .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+              .then(({ ok, data }) => {
+                if (ok) console.log('[Notify] 通知送信完了', data)
+                else console.warn('[Notify] エラー', data)
+              })
+              .catch((e) => console.error('[Notify] 送信失敗', e))
+          } else {
+            console.warn('[Notify] 未ログインのためスキップ')
+          }
+        })
+      }
+    }
+    return true
+  }, [])
+
+  // ── スケジュール初期ロード ────────────────────────────────────────
   useEffect(() => {
-    loadScheduleData().then(data => {
+    let cancelled = false
+    ;(async () => {
+      try {
+      const data = await loadScheduleData()
+      if (cancelled) return
       if (data) {
-        let w = data.workers?.length ? data.workers : SAMPLE_DATA.workers
-        let s = data.schedules ?? []
+        const w = Array.isArray(data.workers) ? data.workers : SAMPLE_DATA.workers
+        const s = data.schedules ?? []
         const m = data.dayMemos ?? {}
-        const now = new Date()
-        const ensured = ensureNGSCInData(w, s, m, now.getFullYear(), now.getMonth())
-        setWorkers(ensured.workers)
-        setSchedules(ensured.schedules)
-        setDayMemos(ensured.dayMemos)
-        if (ensured.added) {
-          const payload = { workers: ensured.workers, schedules: ensured.schedules, dayMemos: ensured.dayMemos }
-          saveSchedulePendingSync(payload)
-          saveScheduleData(payload)
-        }
+        setWorkers(w)
+        setSchedules(s)
+        setDayMemos(m)
       } else {
-        // テーブルが空のとき: 2026年3月はサンプル、それ以外は当月の平日にNGSCのみ表示
         const now = new Date()
         const isMarch2026 = now.getFullYear() === 2026 && now.getMonth() === 2
         if (isMarch2026) {
@@ -78,99 +143,166 @@ export default function ScheduleBoard() {
           setYear(2026)
           setMonth(2)
         } else {
-          const ensured = ensureNGSCInData(
-            SAMPLE_DATA.workers,
-            [],
-            {},
-            now.getFullYear(),
-            now.getMonth()
-          )
-          setWorkers(ensured.workers)
-          setSchedules(ensured.schedules)
-          setDayMemos(ensured.dayMemos)
-          if (ensured.added) {
-            const payload = { workers: ensured.workers, schedules: ensured.schedules, dayMemos: ensured.dayMemos }
-            saveSchedulePendingSync(payload)
-            saveScheduleData(payload)
-          }
+          setWorkers(SAMPLE_DATA.workers)
+          setSchedules([])
+          setDayMemos({})
         }
       }
-    })
+      if (!cancelled) lastSyncedRevisionRef.current = await fetchScheduleRevision()
+      } catch (e) {
+        console.error('[ScheduleBoard] スケジュール初期ロード失敗', e)
+      } finally {
+        if (!cancelled) scheduleHydratedRef.current = true
+      }
+    })()
+    return () => { cancelled = true }
   }, [])
 
-  // 月切り替え時: 表示月の平日にNGSCがなければ追加
-  const prevYM = useRef({ year, month })
+  // タブが前面に戻ったとき: サーバーが更新されていれば自動で再読み込み（モーダル編集中は除く）
   useEffect(() => {
-    if (workers.length === 0) return
-    if (prevYM.current.year === year && prevYM.current.month === month) return
-    prevYM.current = { year, month }
-    const result = ensureNGSCInData(workers, schedules, dayMemos, year, month)
-    if (result.added) {
-      setSchedules(result.schedules)
-      persist(result.workers, result.schedules, result.dayMemos)
+    const onVis = async () => {
+      if (document.visibilityState !== 'visible') return
+      const remote = await fetchScheduleRevision()
+      if (remote === '' || lastSyncedRevisionRef.current === null) return
+      if (remote === lastSyncedRevisionRef.current) return
+      if (modalRef.current) return
+      const fresh = await loadScheduleData()
+      if (!fresh) return
+      const w = Array.isArray(fresh.workers) ? fresh.workers : SAMPLE_DATA.workers
+      const s = fresh.schedules ?? []
+      const mem = fresh.dayMemos ?? {}
+      const { year: y, month: mo } = yearMonthRef.current
+      setWorkers(w)
+      setSchedules(s)
+      setDayMemos(mem)
+      lastSyncedRevisionRef.current = await fetchScheduleRevision()
+      setSyncNotice('他の端末での更新を取り込みました')
+      window.setTimeout(() => setSyncNotice(null), 5000)
     }
-  }, [year, month, workers, schedules, dayMemos])
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
 
-  // beforeunload: リロード・タブ閉じ前に必ずバックアップ
+  // beforeunload: リロード・タブ閉じ前にバックアップ（ロード前の空 state で上書きしない）
   useEffect(() => {
     const handler = () => {
+      if (!scheduleHydratedRef.current) return
       saveSchedulePendingSync({ workers, schedules, dayMemos })
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
   }, [workers, schedules, dayMemos])
 
-  // ── 保存 ────────────────────────────────────────────────────────
-  const persist = useCallback((w: string[], s: ScheduleEntry[], m: DayMemos) => {
-    const payload = { workers: w, schedules: s, dayMemos: m }
-    saveSchedulePendingSync(payload)  // 即時バックアップ（リロード対策）
-    saveScheduleData(payload)
-  }, [])
-
   // ── 予定 CRUD ──────────────────────────────────────────────────
-  const handleSaveEntry = (entry: ScheduleEntry) => {
-    setSchedules(prev => {
-      const withEntry = prev.find(x => x.id === entry.id)
-        ? prev.map(x => (x.id === entry.id ? entry : x))
-        : [...prev, entry]
-      const next = entry.shift !== 'off' && entry.koujimei
-        ? applySameDayKoujimeiSuffix(entry, withEntry)
-        : withEntry
-      persist(workers, next, dayMemos)
-      return next
-    })
-    setModal(null)
+  const handleSaveEntry = async (entry: ScheduleEntry) => {
+    const withEntry = schedules.find(x => x.id === entry.id)
+      ? schedules.map(x => (x.id === entry.id ? entry : x))
+      : [...schedules, entry]
+    const next = entry.shift !== 'off' && entry.koujimei
+      ? applySameDayKoujimeiSuffix(entry, withEntry)
+      : withEntry
+    const ok = await persist(workers, next, dayMemos, schedules)
+    if (ok) {
+      setSchedules(next)
+      setModal(null)
+    }
   }
-  const handleDeleteEntry = (id: string) => {
-    setSchedules(prev => {
-      const next = prev.filter(x => x.id !== id)
-      persist(workers, next, dayMemos)
-      return next
-    })
-    setModal(null)
+  const handleDeleteEntry = async (id: string) => {
+    const next = schedules.filter(x => x.id !== id)
+    const ok = await persist(workers, next, dayMemos, schedules)
+    if (ok) {
+      setSchedules(next)
+      setModal(null)
+    }
   }
 
   // ── 日次メモ ─────────────────────────────────────────────────
-  const handleDayMemo = (date: string, value: string) => {
-    setDayMemos(prev => {
-      const next = { ...prev }
-      if (value) next[date] = value; else delete next[date]
-      persist(workers, schedules, next)
-      return next
-    })
+  const handleDayMemo = async (date: string, value: string) => {
+    const next = { ...dayMemos }
+    if (value) next[date] = value; else delete next[date]
+    const ok = await persist(workers, schedules, next)
+    if (ok) setDayMemos(next)
   }
 
   // ── 作業員 CRUD ──────────────────────────────────────────────────
-  const handleAddWorker = (name: string) => {
+  const handleAddWorker = async (name: string) => {
     if (!name || workers.includes(name)) return
     const next = [...workers, name]
-    setWorkers(next); persist(next, schedules, dayMemos)
+    const ok = await persist(next, schedules, dayMemos)
+    if (ok) setWorkers(next)
   }
-  const handleRemoveWorker = (name: string) => {
+  const handleRemoveWorker = async (name: string) => {
     if (!confirm(`「${name}」を削除しますか？`)) return
     const next = workers.filter(w => w !== name)
-    setWorkers(next); persist(next, schedules, dayMemos)
+    const ok = await persist(next, schedules, dayMemos)
+    if (ok) setWorkers(next)
   }
+  const handleRenameWorker = useCallback(async (oldName: string, newName: string): Promise<boolean> => {
+    const trimmed = newName.trim()
+    if (!trimmed) {
+      alert('表示名を入力してください')
+      return false
+    }
+    if (trimmed === oldName) return true
+    if (workers.includes(trimmed)) {
+      alert(`「${trimmed}」は既に登録されています`)
+      return false
+    }
+    const idx = workers.indexOf(oldName)
+    if (idx < 0) return false
+    const nextWorkers = [...workers]
+    nextWorkers[idx] = trimmed
+    const nextSchedules = schedules.map(s => ({
+      ...s,
+      workers: s.workers.map(n => (n === oldName ? trimmed : n)),
+    }))
+    const ok = await persist(nextWorkers, nextSchedules, dayMemos)
+    if (!ok) return false
+    setWorkers(nextWorkers)
+    setSchedules(nextSchedules)
+    const email = workerContacts[oldName] ?? ''
+    try {
+      await deleteWorkerContact(oldName)
+      if (email.trim()) await saveWorkerContact(trimmed, email)
+      setWorkerContacts(prev => {
+        const next = { ...prev }
+        delete next[oldName]
+        if (email.trim()) next[trimmed] = email.trim()
+        return next
+      })
+    } catch (e) {
+      console.error('[handleRenameWorker] contacts', e)
+      alert('表示名は保存しましたが、連絡先の移行に失敗しました。マスターでメールを再登録してください。')
+    }
+    if (filterWorker === oldName) setFilterWorker(trimmed)
+    if (selectedWorker === oldName) setSelectedWorker(trimmed)
+    return true
+  }, [workers, schedules, dayMemos, persist, workerContacts, filterWorker, selectedWorker])
+  const handleSaveContact = useCallback(async (workerName: string, email: string) => {
+    await saveWorkerContact(workerName, email)
+    setWorkerContacts(prev => ({ ...prev, [workerName]: email }))
+  }, [])
+
+  const handleTestTeams = useCallback(() => {
+    createClient().auth.getSession().then(({ data: { session } }) => {
+      if (!session?.access_token) {
+        alert('ログインしてください')
+        return
+      }
+      const testChanges = [{ workerName: 'テスト', date: new Date().toISOString().slice(0, 10), message: '接続テスト' }]
+      fetch('/api/schedule/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ changes: testChanges }),
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok) alert('送信しました。Teamsチャネルを確認してください')
+          else alert('エラー: ' + (d.error || JSON.stringify(d)))
+        })
+        .catch(e => alert('送信失敗: ' + e.message))
+    })
+  }, [])
 
   // ── filterWorker のトグル ────────────────────────────────────────
   const handleFilterWorker = (w: string) =>
@@ -306,6 +438,15 @@ export default function ScheduleBoard() {
         </div>
       </div>
 
+      {syncNotice && (
+        <div className="schedule-no-print" style={{
+          background: '#e3f2fd', borderBottom: '1px solid #90caf9', color: '#1565c0',
+          padding: '8px 16px', fontSize: 12, textAlign: 'center',
+        }}>
+          {syncNotice}
+        </div>
+      )}
+
       {/* ── Toolbar ── */}
       <div className="schedule-no-print" style={{ background: '#fff', borderBottom: '1px solid #d0d8e4', padding: '8px 16px',
         display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minHeight: 48 }}>
@@ -375,7 +516,7 @@ export default function ScheduleBoard() {
         {view === 'cal' && (
           <CalendarView
             year={year} month={month}
-            schedules={schedules} workers={workers} vehicles={vehicles} dayMemos={dayMemos}
+            schedules={schedules} workers={workers} vehicles={vehicles} projects={projects} dayMemos={dayMemos}
             filterWorker={filterWorker}
             onFilterWorker={handleFilterWorker}
             onClickEntry={e => setModal({ entry: e, isEdit: true })}
@@ -404,9 +545,14 @@ export default function ScheduleBoard() {
 
         {view === 'master' && (
           <MasterView
-            workers={workers} schedules={schedules}
+            workers={workers}
+            schedules={schedules}
+            workerContacts={workerContacts}
             onAdd={handleAddWorker}
             onRemove={handleRemoveWorker}
+            onRename={handleRenameWorker}
+            onSaveContact={handleSaveContact}
+            onTestTeams={handleTestTeams}
           />
         )}
       </div>

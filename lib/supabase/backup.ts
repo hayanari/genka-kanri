@@ -31,6 +31,7 @@ export async function createRemoteBackup(data: BackupData): Promise<{ ok: true; 
         vehicles: data.vehicles ?? [],
         processMasters: data.processMasters ?? [],
         bidSchedules: data.bidSchedules ?? [],
+        equipmentRequests: data.equipmentRequests ?? [],
         schedule: schedule ?? { workers: [], schedules: [], dayMemos: {} },
       },
       created_by: user?.email ?? null,
@@ -102,6 +103,7 @@ export async function restoreRemoteBackup(
       vehicles: backupData.vehicles,
       processMasters: backupData.processMasters,
       bidSchedules: backupData.bidSchedules,
+      equipmentRequests: backupData.equipmentRequests,
     },
     { force: true }
   );

@@ -1,5 +1,13 @@
 import { createClient } from "./client";
-import type { Project, Cost, Quantity, Vehicle, BidSchedule, ProcessMaster } from "../utils";
+import type {
+  Project,
+  Cost,
+  Quantity,
+  Vehicle,
+  BidSchedule,
+  ProcessMaster,
+  EquipmentRequest,
+} from "../utils";
 import { createEmptyData, DEFAULT_VEHICLES, DEFAULT_PROCESS_MASTERS, ensureManagementNumbers, toStoredPersonName } from "../utils";
 import {
   saveLocalBackup,
@@ -11,7 +19,7 @@ import {
 } from "../backup";
 import type { BackupData } from "../backup";
 
-/** データ消失を防ぐ: 空の projects/vehicles を保存しない */
+/** データ消失を防ぐ: 空の projects は保存しない。車両・工程マスタは空配列も意図した状態として保存する */
 function sanitizeBeforeSave(data: {
   projects: Project[];
   costs: Cost[];
@@ -19,15 +27,15 @@ function sanitizeBeforeSave(data: {
   vehicles?: { id: string; registration: string }[];
   processMasters?: ProcessMaster[];
   bidSchedules?: BidSchedule[];
+  equipmentRequests?: EquipmentRequest[];
 }) {
   const empty = createEmptyData();
   const projects =
     Array.isArray(data.projects) && data.projects.length > 0 ? data.projects : empty.projects;
-  const vehicles =
-    Array.isArray(data.vehicles) && data.vehicles.length > 0 ? data.vehicles : empty.vehicles;
-  const processMasters =
-    Array.isArray(data.processMasters) && data.processMasters.length > 0 ? data.processMasters : empty.processMasters;
+  const vehicles = Array.isArray(data.vehicles) ? data.vehicles : empty.vehicles;
+  const processMasters = Array.isArray(data.processMasters) ? data.processMasters : empty.processMasters;
   const bidSchedules = Array.isArray(data.bidSchedules) ? data.bidSchedules : [];
+  const equipmentRequests = Array.isArray(data.equipmentRequests) ? data.equipmentRequests : [];
   return {
     projects,
     costs: data.costs ?? [],
@@ -35,7 +43,26 @@ function sanitizeBeforeSave(data: {
     vehicles,
     processMasters,
     bidSchedules,
+    equipmentRequests,
   };
+}
+
+/** 案件管理データのサーバー上の更新時刻（同時編集の検知用） */
+export async function fetchGenkaDataRevision(): Promise<string | null> {
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("genka_kanri_data")
+      .select("updated_at")
+      .eq("id", "default")
+      .maybeSingle();
+    if (error) throw error;
+    const ts = data?.updated_at;
+    return typeof ts === "string" ? ts : null;
+  } catch (e) {
+    console.error("[fetchGenkaDataRevision]", e);
+    return null;
+  }
 }
 
 export async function loadData(): Promise<{
@@ -45,6 +72,7 @@ export async function loadData(): Promise<{
   vehicles: Vehicle[];
   processMasters: ProcessMaster[];
   bidSchedules: BidSchedule[];
+  equipmentRequests: EquipmentRequest[];
 } | null> {
   try {
     const pending = loadDataPending();
@@ -56,6 +84,7 @@ export async function loadData(): Promise<{
         vehicles: pending.vehicles,
         processMasters: pending.processMasters,
         bidSchedules: pending.bidSchedules,
+        equipmentRequests: pending.equipmentRequests,
       }, { force: true });
       if (result.ok) {
         clearDataPending();
@@ -66,6 +95,7 @@ export async function loadData(): Promise<{
           vehicles: pending.vehicles as Vehicle[],
           processMasters: (pending.processMasters ?? []) as ProcessMaster[],
           bidSchedules: pending.bidSchedules ?? [],
+          equipmentRequests: (pending.equipmentRequests ?? []) as EquipmentRequest[],
         };
       }
     }
@@ -85,17 +115,36 @@ export async function loadData(): Promise<{
       vehicles?: Vehicle[];
       processMasters?: ProcessMaster[];
       bidSchedules?: BidSchedule[];
+      equipmentRequests?: EquipmentRequest[];
     } | null;
 
-    if (!stored?.projects?.length && !stored?.costs?.length && !stored?.quantities?.length && !stored?.bidSchedules?.length) {
+    if (
+      !stored?.projects?.length &&
+      !stored?.costs?.length &&
+      !stored?.quantities?.length &&
+      !stored?.bidSchedules?.length &&
+      !(stored?.equipmentRequests && stored.equipmentRequests.length > 0)
+    ) {
       return createEmptyData();
     }
 
-    const vehicles = (stored.vehicles ?? DEFAULT_VEHICLES) as Vehicle[];
-    let processMasters = (stored.processMasters ?? DEFAULT_PROCESS_MASTERS) as ProcessMaster[];
-    const storedIds = new Set(processMasters.map((m) => m.id));
-    const toAdd = DEFAULT_PROCESS_MASTERS.filter((m) => !storedIds.has(m.id));
-    if (toAdd.length > 0) processMasters = [...processMasters, ...toAdd];
+    const vehicles: Vehicle[] =
+      stored.vehicles === undefined || stored.vehicles === null
+        ? [...DEFAULT_VEHICLES]
+        : (stored.vehicles as Vehicle[]);
+
+    let processMasters: ProcessMaster[];
+    const rawPm = stored.processMasters;
+    if (rawPm === undefined || rawPm === null) {
+      processMasters = [...DEFAULT_PROCESS_MASTERS];
+    } else if (Array.isArray(rawPm) && rawPm.length === 0) {
+      processMasters = [];
+    } else {
+      processMasters = rawPm as ProcessMaster[];
+      const storedIds = new Set(processMasters.map((m) => m.id));
+      const toAdd = DEFAULT_PROCESS_MASTERS.filter((m) => !storedIds.has(m.id));
+      if (toAdd.length > 0) processMasters = [...processMasters, ...toAdd];
+    }
     let projects = (stored.projects ?? []) as Project[];
     projects = projects.map((p) => {
       const base = p.category === "清掃業務" ? { ...p, category: "業務" } : p;
@@ -106,13 +155,15 @@ export async function loadData(): Promise<{
     });
     projects = ensureManagementNumbers(projects);
     const bidSchedules = (stored.bidSchedules ?? []) as BidSchedule[];
+    const equipmentRequests = (stored.equipmentRequests ?? []) as EquipmentRequest[];
     const result = {
       projects,
       costs: (stored.costs ?? []) as Cost[],
       quantities: (stored.quantities ?? []) as Quantity[],
-      vehicles: Array.isArray(vehicles) && vehicles.length > 0 ? vehicles : DEFAULT_VEHICLES,
+      vehicles: Array.isArray(vehicles) && vehicles.length > 0 ? vehicles : [],
       processMasters: Array.isArray(processMasters) && processMasters.length > 0 ? processMasters : DEFAULT_PROCESS_MASTERS,
       bidSchedules,
+      equipmentRequests,
     };
     setLastRemoteCount(result.projects.length, result.costs.length, result.quantities.length);
     return result;
@@ -137,6 +188,7 @@ export async function saveData(
     vehicles?: { id: string; registration: string }[];
     processMasters?: ProcessMaster[];
     bidSchedules?: BidSchedule[];
+    equipmentRequests?: EquipmentRequest[];
   },
   options?: { force?: boolean }
 ): Promise<SaveResult> {
@@ -149,6 +201,7 @@ export async function saveData(
       vehicles: sanitized.vehicles,
       processMasters: sanitized.processMasters,
       bidSchedules: sanitized.bidSchedules,
+      equipmentRequests: sanitized.equipmentRequests,
     };
 
     if (!options?.force && isDangerousOverwrite(backupPayload)) {
@@ -164,6 +217,7 @@ export async function saveData(
       vehicles: backupPayload.vehicles,
       processMasters: backupPayload.processMasters,
       bidSchedules: backupPayload.bidSchedules,
+      equipmentRequests: backupPayload.equipmentRequests,
     };
 
     const maxRetries = 3;
@@ -204,6 +258,7 @@ export async function saveData(
       vehicles: data.vehicles,
       processMasters: data.processMasters,
       bidSchedules: data.bidSchedules,
+      equipmentRequests: data.equipmentRequests,
     });
     return { ok: false, reason: "error" };
   }
