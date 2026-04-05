@@ -1027,6 +1027,9 @@ export default function ProcessMeetingBoard() {
                             {p.managementNumber ?? "—"}
                           </span>{" "}
                           {p.name}
+                          {p.personInCharge && (
+                            <span style={{ color: "#5a6b7d", fontWeight: 500 }}> ｜ 担当: {p.personInCharge}</span>
+                          )}
                         </span>
                       </label>
                     );
@@ -1148,6 +1151,18 @@ export default function ProcessMeetingBoard() {
                       {proj.managementNumber ?? "—"}
                     </span>
                     <span style={{ fontSize: compactBoard ? 13 : 14, fontWeight: 700 }}>{proj.name}</span>
+                    {proj.personInCharge && (
+                      <span
+                        style={{
+                          fontSize: compactBoard ? 12 : 13,
+                          fontWeight: 500,
+                          color: "#5a6b7d",
+                          marginLeft: 6,
+                        }}
+                      >
+                        ｜ 担当: {proj.personInCharge}
+                      </span>
+                    )}
                   </div>
                   <div className="process-meeting-no-print" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     <button
@@ -1594,7 +1609,10 @@ export default function ProcessMeetingBoard() {
             <ul style={{ margin: 0, paddingLeft: 18, color: "#4a6280" }}>
               {hiddenProjects.map((p) => (
                 <li key={p.id} style={{ marginBottom: 6 }}>
-                  <span style={{ marginRight: 8 }}>{p.managementNumber ?? ""} {p.name}</span>
+                  <span style={{ marginRight: 8 }}>
+                    {p.managementNumber ?? ""} {p.name}
+                    {p.personInCharge && <> ｜ 担当: {p.personInCharge}</>}
+                  </span>
                   <button
                     type="button"
                     onClick={() => unhideProject(p.id)}
