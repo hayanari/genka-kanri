@@ -699,18 +699,10 @@ export default function ProcessMeetingBoard() {
               alignItems: "center",
               gap: 8,
               flexWrap: "wrap",
-              paddingBottom: 10,
+              paddingBottom: 8,
               borderBottom: "1px solid #e8ecf2",
             }}
-            aria-label="会議向け表示・PDF・印刷"
           >
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#1565c0", whiteSpace: "nowrap" }}>
-              会議・出力
-            </span>
-            <span style={{ fontSize: 11, color: "#4a6280" }}>（投影・PDF・印刷）</span>
-            {meetingActionButtons}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <button
               type="button"
               onClick={() => setYear((y) => y - 1)}
