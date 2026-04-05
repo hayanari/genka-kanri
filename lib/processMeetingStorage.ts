@@ -99,3 +99,50 @@ export async function insertProcessMeetingRows(rows: ProcessMeetingRow[]): Promi
   const { error } = await supabase.from("process_meeting_rows").insert(payload)
   if (error) throw error
 }
+
+export type ProcessMeetingWeeklyNoteRow = {
+  projectId: string
+  /** その週の月曜日 YYYY-MM-DD */
+  weekStart: string
+  noteText: string
+}
+
+/** 案件×週の朝会メモをすべて読み込み（週ごとの履歴） */
+export async function loadProcessMeetingWeeklyNotes(): Promise<ProcessMeetingWeeklyNoteRow[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from("process_meeting_project_notes")
+    .select("project_id, week_start, note_text")
+    .order("week_start", { ascending: false })
+  if (error) {
+    console.error("[processMeeting] load weekly notes", error)
+    throw error
+  }
+  return (data ?? []).map((r) => {
+    const row = r as { project_id: string; week_start: string; note_text: string | null }
+    const ws = String(row.week_start).slice(0, 10)
+    return {
+      projectId: String(row.project_id),
+      weekStart: ws,
+      noteText: row.note_text != null ? String(row.note_text) : "",
+    }
+  })
+}
+
+export async function upsertProcessMeetingProjectNote(
+  projectId: string,
+  weekStart: string,
+  noteText: string
+): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from("process_meeting_project_notes").upsert(
+    {
+      project_id: projectId,
+      week_start: weekStart,
+      note_text: noteText,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "project_id,week_start" }
+  )
+  if (error) throw error
+}

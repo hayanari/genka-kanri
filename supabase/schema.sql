@@ -140,8 +140,17 @@ CREATE TABLE IF NOT EXISTS process_meeting_meta (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- 案件ごとの朝会メモ（次週反映・ToDo・指摘など）
+CREATE TABLE IF NOT EXISTS process_meeting_project_notes (
+  project_id  text PRIMARY KEY,
+  note_text   text NOT NULL DEFAULT '',
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS process_meeting_project_notes_updated_idx ON process_meeting_project_notes(updated_at DESC);
+
 ALTER TABLE process_meeting_rows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE process_meeting_meta ENABLE ROW LEVEL SECURITY;
+ALTER TABLE process_meeting_project_notes ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "auth_users_process_meeting_rows" ON process_meeting_rows;
 CREATE POLICY "auth_users_process_meeting_rows" ON process_meeting_rows
@@ -149,8 +158,16 @@ CREATE POLICY "auth_users_process_meeting_rows" ON process_meeting_rows
 DROP POLICY IF EXISTS "auth_users_process_meeting_meta" ON process_meeting_meta;
 CREATE POLICY "auth_users_process_meeting_meta" ON process_meeting_meta
   FOR ALL USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "auth_users_process_meeting_project_notes" ON process_meeting_project_notes;
+CREATE POLICY "auth_users_process_meeting_project_notes" ON process_meeting_project_notes
+  FOR ALL USING (auth.role() = 'authenticated');
 
 DROP TRIGGER IF EXISTS process_meeting_rows_updated_at ON process_meeting_rows;
 CREATE TRIGGER process_meeting_rows_updated_at
   BEFORE UPDATE ON process_meeting_rows
+  FOR EACH ROW EXECUTE PROCEDURE schedule_update_updated_at();
+
+DROP TRIGGER IF EXISTS process_meeting_project_notes_updated_at ON process_meeting_project_notes;
+CREATE TRIGGER process_meeting_project_notes_updated_at
+  BEFORE UPDATE ON process_meeting_project_notes
   FOR EACH ROW EXECUTE PROCEDURE schedule_update_updated_at();

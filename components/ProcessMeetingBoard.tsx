@@ -8,10 +8,13 @@ import type { Project } from "@/lib/utils";
 import { loadData } from "@/lib/supabase/data";
 import { genId, T } from "@/lib/constants";
 import {
+  addWeeksToMondayYmd,
   defaultActualBarColor,
   fillRatesForRange,
+  formatWeekLabelJp,
   getProcessRowVariance,
   isConstructionProject,
+  mondayOfWeekLocal,
   monthSequence,
   periodsForMonthRange,
   type MonthPeriod,
@@ -21,8 +24,10 @@ import type { ProcessMeetingRow } from "@/types/processMeeting";
 import {
   loadProcessMeetingRows,
   loadProcessMeetingMeta,
+  loadProcessMeetingWeeklyNotes,
   saveProcessMeetingMeta,
   upsertProcessMeetingRows,
+  upsertProcessMeetingProjectNote,
   deleteProcessMeetingRow,
   insertProcessMeetingRows,
 } from "@/lib/processMeetingStorage";
@@ -206,6 +211,12 @@ export default function ProcessMeetingBoard() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rowsRef = useRef<ProcessMeetingRow[]>([]);
   rowsRef.current = rows;
+  /** projectId → weekStart(YYYY-MM-DD月曜) → 本文 */
+  const [weeklyNotes, setWeeklyNotes] = useState<Record<string, Record<string, string>>>({});
+  const weeklyNotesRef = useRef<Record<string, Record<string, string>>>({});
+  const notesSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 朝会メモの編集・表示対象週（月曜日） */
+  const [meetingNoteWeek, setMeetingNoteWeek] = useState(() => mondayOfWeekLocal(new Date()));
   const pdfAreaRef = useRef<HTMLDivElement>(null);
   const [presentationMode, setPresentationMode] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -302,6 +313,27 @@ export default function ProcessMeetingBoard() {
     }
   }, []);
 
+  const flushSaveNote = useCallback(async (projectId: string, weekStart: string, text: string) => {
+    setSaveState("saving");
+    try {
+      await upsertProcessMeetingProjectNote(projectId, weekStart, text);
+      setSaveState("saved");
+      window.setTimeout(() => setSaveState("idle"), 2000);
+    } catch (e) {
+      console.error(e);
+      setSaveState("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const s = typeof window !== "undefined" ? localStorage.getItem("process-meeting-note-week") : null;
+      if (s && /^\d{4}-\d{2}-\d{2}$/.test(s)) setMeetingNoteWeek(s);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -314,8 +346,20 @@ export default function ProcessMeetingBoard() {
 
         let list = await loadProcessMeetingRows();
         const meta = await loadProcessMeetingMeta();
+        let notesNested: Record<string, Record<string, string>> = {};
+        try {
+          const rows = await loadProcessMeetingWeeklyNotes();
+          for (const r of rows) {
+            if (!notesNested[r.projectId]) notesNested[r.projectId] = {};
+            notesNested[r.projectId][r.weekStart] = r.noteText;
+          }
+        } catch (e) {
+          console.warn("[processMeeting] 朝会メモの読み込みに失敗（テーブル未作成・未移行の可能性）", e);
+        }
         if (cancelled) return;
         setHiddenProjectIds(meta.hiddenProjectIds);
+        setWeeklyNotes(notesNested);
+        weeklyNotesRef.current = notesNested;
 
         const cons = (d?.projects ?? []).filter(isConstructionProject);
         const byPid = groupByProject(list);
@@ -363,6 +407,38 @@ export default function ProcessMeetingBoard() {
       saveTimer.current = setTimeout(() => flushSave(rowsRef.current), 700);
       return next;
     });
+  };
+
+  const persistMeetingNoteWeek = useCallback((w: string) => {
+    setMeetingNoteWeek(w);
+    try {
+      localStorage.setItem("process-meeting-note-week", w);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const updateProjectNote = (projectId: string, weekStart: string, text: string) => {
+    setWeeklyNotes((prev) => {
+      const next = { ...prev, [projectId]: { ...prev[projectId], [weekStart]: text } };
+      weeklyNotesRef.current = next;
+      if (notesSaveTimer.current) clearTimeout(notesSaveTimer.current);
+      notesSaveTimer.current = setTimeout(() => {
+        const t = weeklyNotesRef.current[projectId]?.[weekStart] ?? "";
+        flushSaveNote(projectId, weekStart, t);
+      }, 800);
+      return next;
+    });
+  };
+
+  /** 表示中の週以外で、本文がある週（新しい順） */
+  const pastWeeksForProject = (projId: string) => {
+    const m = weeklyNotes[projId];
+    if (!m) return [];
+    return Object.keys(m)
+      .filter((w) => w !== meetingNoteWeek && (m[w]?.trim() ?? ""))
+      .sort()
+      .reverse();
   };
 
   const addRow = (projectId: string) => {
@@ -531,7 +607,7 @@ export default function ProcessMeetingBoard() {
       type="button"
       onClick={toggleCompactBoard}
       className="process-meeting-no-print"
-      title="一覧を縦に詰めます。コンパクト時は日付入力は隠れます（編集は「一覧：ゆとり」で表示）"
+      title="一覧を縦に詰めます。コンパクト時は日付・帯色・朝会メモが隠れます。緑の「一覧：コンパクト」＝いまコンパクト表示中。「一覧：ゆとり」を押すと編集用が出ます。"
       style={{
         padding: "5px 12px",
         borderRadius: 4,
@@ -609,7 +685,7 @@ export default function ProcessMeetingBoard() {
 
   return (
     <div
-      className="process-meeting-print-root"
+      className={`process-meeting-print-root${compactBoard ? " process-meeting-compact" : ""}`}
       style={{
         fontFamily: "'Noto Sans JP', sans-serif",
         background: "#f5f7fa",
@@ -767,6 +843,69 @@ export default function ProcessMeetingBoard() {
             </select>
             <span style={{ fontSize: 11, color: "#90a4ae", marginLeft: 4, marginRight: 2 }}>|</span>
             {compactListButton}
+            {!compactBoard && (
+              <div
+                className="process-meeting-no-print process-meeting-expanded-only"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span style={{ fontSize: 11, color: "#90a4ae", marginRight: 2 }}>|</span>
+                <span style={{ fontSize: 11, color: "#607d8b", fontWeight: 600, whiteSpace: "nowrap" }}>朝会メモの週</span>
+                <button
+                  type="button"
+                  onClick={() => persistMeetingNoteWeek(addWeeksToMondayYmd(meetingNoteWeek, -1))}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: 11,
+                    borderRadius: 4,
+                    border: "1px solid #d0d8e4",
+                    background: "#fff",
+                    color: "#4a6280",
+                    cursor: "pointer",
+                  }}
+                >
+                  ◀ 前週
+                </button>
+                <span style={{ fontSize: 11, color: "#1565c0", fontWeight: 700, whiteSpace: "nowrap" }}>
+                  {formatWeekLabelJp(meetingNoteWeek)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => persistMeetingNoteWeek(addWeeksToMondayYmd(meetingNoteWeek, 1))}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: 11,
+                    borderRadius: 4,
+                    border: "1px solid #d0d8e4",
+                    background: "#fff",
+                    color: "#4a6280",
+                    cursor: "pointer",
+                  }}
+                >
+                  次週 ▶
+                </button>
+                <button
+                  type="button"
+                  title="今週の月曜始まりの週に切り替え"
+                  onClick={() => persistMeetingNoteWeek(mondayOfWeekLocal(new Date()))}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: 11,
+                    borderRadius: 4,
+                    border: "1px solid #1565c0",
+                    background: "#fff",
+                    color: "#1565c0",
+                    cursor: "pointer",
+                  }}
+                >
+                  今週
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -918,6 +1057,7 @@ export default function ProcessMeetingBoard() {
 
       <div
         ref={pdfAreaRef}
+        className={compactBoard ? "process-meeting-compact" : undefined}
         style={{
           padding: "12px 16px",
           maxWidth: 1800,
@@ -971,6 +1111,7 @@ export default function ProcessMeetingBoard() {
           !loadError &&
           displayedProjects.map((proj) => {
             const prRows = rowsByProject.get(proj.id) ?? [];
+            const notePastWeeks = pastWeeksForProject(proj.id);
             return (
               <section
                 key={proj.id}
@@ -1041,6 +1182,99 @@ export default function ProcessMeetingBoard() {
                     </button>
                   </div>
                 </div>
+
+                {!compactBoard && (
+                  <div
+                    className="process-meeting-expanded-only"
+                    style={{
+                      padding: "10px 12px 12px",
+                      borderBottom: "1px solid #eceff1",
+                      background: "#f8fafc",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "#1565c0",
+                        marginBottom: 4,
+                      }}
+                    >
+                      朝会メモ（次週までの反映・ToDo・指摘など）
+                      <span style={{ fontWeight: 400, color: "#607d8b", marginLeft: 6 }}>
+                        対象週: {formatWeekLabelJp(meetingNoteWeek)}
+                      </span>
+                    </div>
+                    <textarea
+                      value={weeklyNotes[proj.id]?.[meetingNoteWeek] ?? ""}
+                      onChange={(e) => updateProjectNote(proj.id, meetingNoteWeek, e.target.value)}
+                      placeholder="例：次週までに◯◯を図面反映／△△の指摘を是正／現場確認の予定…"
+                      rows={presentationMode ? 5 : 4}
+                      aria-label={`${proj.name}の朝会メモ（${formatWeekLabelJp(meetingNoteWeek)}）`}
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        resize: "vertical",
+                        minHeight: presentationMode ? 120 : 88,
+                        padding: "6px 8px",
+                        fontSize: presentationMode ? 14 : 12,
+                        lineHeight: 1.45,
+                        fontFamily: "inherit",
+                        border: `1px solid ${T.bd}`,
+                        borderRadius: 4,
+                        background: T.s,
+                        color: T.tx,
+                      }}
+                    />
+                    <details style={{ marginTop: 6 }}>
+                      <summary
+                        style={{
+                          fontSize: 11,
+                          color: "#607d8b",
+                          cursor: "pointer",
+                          userSelect: "none",
+                        }}
+                      >
+                        過去のメモ（週ごとの履歴）
+                        {notePastWeeks.length > 0 ? ` · ${notePastWeeks.length}週分` : ""}
+                      </summary>
+                      {notePastWeeks.length === 0 ? (
+                        <p style={{ fontSize: 11, color: "#90a4ae", margin: "6px 0 0" }}>
+                          上の「朝会メモの週」で前週に切り替えると、過去に保存した内容が表示されます。
+                        </p>
+                      ) : (
+                        <div style={{ marginTop: 8 }}>
+                          {notePastWeeks.map((w) => (
+                            <div
+                              key={w}
+                              style={{
+                                marginBottom: 8,
+                                padding: 8,
+                                background: "#fff",
+                                border: "1px solid #eceff1",
+                                borderRadius: 4,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: "#1565c0",
+                                  marginBottom: 4,
+                                }}
+                              >
+                                {formatWeekLabelJp(w)}
+                              </div>
+                              <div style={{ fontSize: 11, whiteSpace: "pre-wrap", color: T.tx }}>
+                                {weeklyNotes[proj.id]?.[w] ?? ""}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </details>
+                  </div>
+                )}
 
                 <div style={{ padding: compactBoard ? 4 : 8, overflowX: "auto" }}>
                   <div
@@ -1172,10 +1406,11 @@ export default function ProcessMeetingBoard() {
                           </button>
                         </div>
                         <div
-                          className="process-meeting-date-strip"
+                          className="process-meeting-no-print process-meeting-expanded-only"
                           style={{ display: compactBoard ? "none" : "block" }}
                           aria-hidden={compactBoard}
                         >
+                          <div className="process-meeting-date-strip">
                             <div className="pm-date-line">
                               <span
                                 style={{
@@ -1228,88 +1463,89 @@ export default function ProcessMeetingBoard() {
                                 {dateInput(row.actualEnd, (v) => updateRow(row.id, { actualEnd: v }))}
                               </div>
                             </div>
-                        </div>
-                        <div
-                          className="process-meeting-no-print"
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: compactBoard ? 6 : 8,
-                            flexWrap: "wrap",
-                            marginTop: compactBoard ? 4 : 8,
-                            fontSize: compactBoard ? 10 : 11,
-                            color: "#607d8b",
-                          }}
-                          title="各行の帯グラフの塗り色を変更できます"
-                        >
-                          <span style={{ fontWeight: 700 }}>帯色</span>
-                          <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                            予定
-                            <input
-                              type="color"
-                              value={row.plannedBarColor?.trim() || DEFAULT_PLANNED_BAR}
-                              onChange={(e) => updateRow(row.id, { plannedBarColor: e.target.value })}
-                              style={{
-                                width: compactBoard ? 26 : 30,
-                                height: compactBoard ? 20 : 24,
-                                padding: 0,
-                                border: "1px solid #cfd8dc",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                                verticalAlign: "middle",
-                              }}
-                              aria-label="予定帯の色"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => updateRow(row.id, { plannedBarColor: null })}
+                          </div>
+                          <div
+                            className="process-meeting-bar-color-strip"
                             style={{
-                              padding: "2px 6px",
-                              fontSize: compactBoard ? 9 : 10,
-                              borderRadius: 4,
-                              border: "1px solid #cfd8dc",
-                              background: "#fff",
-                              color: "#546e7a",
-                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              flexWrap: "wrap",
+                              marginTop: 8,
+                              fontSize: 11,
+                              color: "#607d8b",
                             }}
+                            title="各行の帯グラフの塗り色を変更できます"
                           >
-                            既定
-                          </button>
-                          <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                            実施
-                            <input
-                              type="color"
-                              value={row.actualBarColor?.trim() || defaultActualBarColor(variance.kind)}
-                              onChange={(e) => updateRow(row.id, { actualBarColor: e.target.value })}
+                            <span style={{ fontWeight: 700 }}>帯色</span>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                              予定
+                              <input
+                                type="color"
+                                value={row.plannedBarColor?.trim() || DEFAULT_PLANNED_BAR}
+                                onChange={(e) => updateRow(row.id, { plannedBarColor: e.target.value })}
+                                style={{
+                                  width: 30,
+                                  height: 24,
+                                  padding: 0,
+                                  border: "1px solid #cfd8dc",
+                                  borderRadius: 4,
+                                  cursor: "pointer",
+                                  verticalAlign: "middle",
+                                }}
+                                aria-label="予定帯の色"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => updateRow(row.id, { plannedBarColor: null })}
                               style={{
-                                width: compactBoard ? 26 : 30,
-                                height: compactBoard ? 20 : 24,
-                                padding: 0,
-                                border: "1px solid #cfd8dc",
+                                padding: "2px 6px",
+                                fontSize: 10,
                                 borderRadius: 4,
+                                border: "1px solid #cfd8dc",
+                                background: "#fff",
+                                color: "#546e7a",
                                 cursor: "pointer",
-                                verticalAlign: "middle",
                               }}
-                              aria-label="実施帯の色"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => updateRow(row.id, { actualBarColor: null })}
-                            style={{
-                              padding: "2px 6px",
-                              fontSize: compactBoard ? 9 : 10,
-                              borderRadius: 4,
-                              border: "1px solid #cfd8dc",
-                              background: "#fff",
-                              color: "#546e7a",
-                              cursor: "pointer",
-                            }}
-                            title="遅れ・前倒しに応じた自動色に戻します"
-                          >
-                            自動
-                          </button>
+                            >
+                              既定
+                            </button>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                              実施
+                              <input
+                                type="color"
+                                value={row.actualBarColor?.trim() || defaultActualBarColor(variance.kind)}
+                                onChange={(e) => updateRow(row.id, { actualBarColor: e.target.value })}
+                                style={{
+                                  width: 30,
+                                  height: 24,
+                                  padding: 0,
+                                  border: "1px solid #cfd8dc",
+                                  borderRadius: 4,
+                                  cursor: "pointer",
+                                  verticalAlign: "middle",
+                                }}
+                                aria-label="実施帯の色"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => updateRow(row.id, { actualBarColor: null })}
+                              style={{
+                                padding: "2px 6px",
+                                fontSize: 10,
+                                borderRadius: 4,
+                                border: "1px solid #cfd8dc",
+                                background: "#fff",
+                                color: "#546e7a",
+                                cursor: "pointer",
+                              }}
+                              title="遅れ・前倒しに応じた自動色に戻します"
+                            >
+                              自動
+                            </button>
+                          </div>
                         </div>
                       </div>
                       <div>

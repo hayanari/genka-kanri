@@ -144,3 +144,32 @@ export function getProcessRowVariance(row: {
   }
   return { kind: "unknown", label: "" }
 }
+
+/** ローカル日付の「その週の月曜日」を YYYY-MM-DD */
+export function mondayOfWeekLocal(d: Date): string {
+  const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const day = copy.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  copy.setDate(copy.getDate() + diff)
+  const y = copy.getFullYear()
+  const m = String(copy.getMonth() + 1).padStart(2, "0")
+  const dd = String(copy.getDate()).padStart(2, "0")
+  return `${y}-${m}-${dd}`
+}
+
+/** 月曜日キーから N 週シフトした月曜日 */
+export function addWeeksToMondayYmd(weekMondayYmd: string, deltaWeeks: number): string {
+  const [y, m, d] = weekMondayYmd.split("-").map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setDate(dt.getDate() + deltaWeeks * 7)
+  return mondayOfWeekLocal(dt)
+}
+
+/** 週の表示（月曜〜日曜） */
+export function formatWeekLabelJp(weekMondayYmd: string): string {
+  const [y, m, d] = weekMondayYmd.split("-").map(Number)
+  const start = new Date(y, m - 1, d)
+  const end = new Date(y, m - 1, d)
+  end.setDate(end.getDate() + 6)
+  return `${start.getMonth() + 1}/${start.getDate()}〜${end.getMonth() + 1}/${end.getDate()}（週）`
+}
