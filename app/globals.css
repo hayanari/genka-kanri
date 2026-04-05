@@ -40,6 +40,44 @@ body {
     padding: 20px !important;
     border-radius: 12px;
   }
+  /* 工程会議ボード：日付は横1行のままコンパクトに（一覧で縦を食わない） */
+  .process-meeting-date-strip input[type="date"].pm-date-input {
+    min-height: 32px !important;
+    font-size: 14px !important;
+    padding: 2px 4px !important;
+  }
+}
+
+/* 工程会議ボード：日付レンジ（デスクトップ） */
+.process-meeting-date-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+.process-meeting-date-strip .pm-date-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.process-meeting-date-strip input[type="date"].pm-date-input {
+  box-sizing: border-box;
+  width: 118px;
+  min-width: 96px;
+  max-width: 130px;
+  flex-shrink: 0;
+  padding: 2px 5px;
+  min-height: 28px;
+  font-size: 12px;
+  line-height: 1.2;
+  border-radius: 4px;
+}
+
+/* 工程会議：コンパクト一覧（案件カードの縦を詰める） */
+.process-meeting-compact .process-meeting-date-strip {
+  gap: 2px;
 }
 
 /* モバイル用テーブル横スクロール */

@@ -35,6 +35,8 @@ function PeriodBar({
   rangeEnd,
   actualVariance,
   barHeight = 14,
+  compact = false,
+  rowMarginTop,
 }: {
   kind: "planned" | "actual";
   periods: MonthPeriod[];
@@ -43,10 +45,14 @@ function PeriodBar({
   /** 実施行のみ：遅れ・前倒し等で帯の色を変える */
   actualVariance?: ProcessVarianceKind | null;
   barHeight?: number;
+  /** 一覧を詰める：左の「予定/実施」ラベルを隠し帯だけに（日付列と重複しない） */
+  compact?: boolean;
+  rowMarginTop?: number;
 }) {
   const rates = fillRatesForRange(periods, rangeStart, rangeEnd);
   const label = kind === "planned" ? "予定" : "実施";
-  const labelFont = Math.max(10, Math.round(barHeight * 0.58));
+  const labelFont = Math.max(9, Math.round(barHeight * 0.58));
+  const mt = rowMarginTop ?? (compact ? (kind === "planned" ? 0 : 2) : 4);
   const color =
     kind === "planned"
       ? "#1565c0"
@@ -60,24 +66,30 @@ function PeriodBar({
   const labelColor =
     kind === "planned" ? "#1565c0" : actualVariance === "unknown" || !actualVariance ? "#e65100" : color;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-      <span
-        style={{
-          width: 40,
-          fontSize: labelFont,
-          fontWeight: 700,
-          color: labelColor,
-        }}
-      >
-        {label}
-      </span>
+    <div
+      style={{ display: "flex", alignItems: "center", gap: compact ? 4 : 8, marginTop: mt }}
+      aria-label={compact ? `${label}の工程帯` : undefined}
+    >
+      {!compact && (
+        <span
+          style={{
+            width: 40,
+            fontSize: labelFont,
+            fontWeight: 700,
+            color: labelColor,
+            flexShrink: 0,
+          }}
+        >
+          {label}
+        </span>
+      )}
       <div
         style={{
           flex: 1,
           display: "grid",
           gridTemplateColumns: `repeat(${periods.length}, minmax(8px, 1fr))`,
-          gap: 4,
-          minWidth: Math.max(120, periods.length * 14),
+          gap: compact ? 2 : 4,
+          minWidth: Math.max(120, periods.length * (compact ? 12 : 14)),
         }}
       >
         {rates.map((r, i) => (
@@ -117,7 +129,7 @@ function PeriodBar({
   );
 }
 
-function VarianceBadge({ row, large }: { row: ProcessMeetingRow; large?: boolean }) {
+function VarianceBadge({ row, large, compact }: { row: ProcessMeetingRow; large?: boolean; compact?: boolean }) {
   const v = getProcessRowVariance(row);
   if (!v.label) return null;
   const bg =
@@ -140,9 +152,9 @@ function VarianceBadge({ row, large }: { row: ProcessMeetingRow; large?: boolean
     <span
       style={{
         display: "inline-block",
-        fontSize: large ? 12 : 10,
+        fontSize: large ? 12 : compact ? 9 : 10,
         fontWeight: 700,
-        padding: "2px 8px",
+        padding: compact ? "1px 6px" : "2px 8px",
         borderRadius: 4,
         background: bg,
         color: fg,
@@ -191,6 +203,30 @@ export default function ProcessMeetingBoard() {
   const pdfAreaRef = useRef<HTMLDivElement>(null);
   const [presentationMode, setPresentationMode] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  /** 既定オン：案件の縦幅を詰めて一覧性を上げる。「一覧：ゆとり」で従来の余白に */
+  const [compactBoard, setCompactBoard] = useState(true);
+
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && localStorage.getItem("process-meeting-compact") === "0") {
+        setCompactBoard(false);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleCompactBoard = useCallback(() => {
+    setCompactBoard((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem("process-meeting-compact", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
 
   const periods = useMemo(
     () => periodsForMonthRange(year, month, rangeMonths),
@@ -459,29 +495,50 @@ export default function ProcessMeetingBoard() {
   const dateInput = (value: string | null, onChange: (v: string | null) => void) => (
     <input
       type="date"
+      className="pm-date-input"
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value ? e.target.value : null)}
       style={{
-        padding: "4px 6px",
-        fontSize: presentationMode ? 13 : 11,
         border: `1px solid ${T.bd}`,
-        borderRadius: 4,
         fontFamily: "inherit",
         color: T.tx,
         background: T.s,
-        maxWidth: 132,
+        ...(presentationMode ? { fontSize: 14, minHeight: 32 } : {}),
       }}
     />
   );
 
-  const pmBaseFs = presentationMode ? 15 : 13;
-  const pmBarH = presentationMode ? 18 : 14;
+  const pmBaseFs = presentationMode ? 15 : compactBoard ? 12 : 13;
+  const pmBarH = presentationMode ? 18 : compactBoard ? 10 : 14;
   const rangeTitle =
     monthHeaders.length > 0
       ? `${monthHeaders[0].year}年${monthHeaders[0].month + 1}月〜${monthHeaders[monthHeaders.length - 1].year}年${
           monthHeaders[monthHeaders.length - 1].month + 1
         }月（${rangeMonths}か月）`
       : "";
+
+  const compactListButton = (
+    <button
+      type="button"
+      onClick={toggleCompactBoard}
+      className="process-meeting-no-print"
+      title="案件カードの縦の余白・帯の高さを変えます（一覧で何件見えるか）"
+      style={{
+        padding: "5px 12px",
+        borderRadius: 4,
+        border: `1px solid ${compactBoard ? "#2e7d32" : "#d0d8e4"}`,
+        background: compactBoard ? "#e8f5e9" : "#fff",
+        color: compactBoard ? "#2e7d32" : "#4a6280",
+        cursor: "pointer",
+        fontFamily: "inherit",
+        fontSize: 11,
+        fontWeight: compactBoard ? 700 : 400,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {compactBoard ? "一覧：コンパクト" : "一覧：ゆとり"}
+    </button>
+  );
 
   const meetingActionButtons = (
     <>
@@ -707,6 +764,8 @@ export default function ProcessMeetingBoard() {
               <option value={6}>半年（6か月）</option>
               <option value={12}>1年（12か月）</option>
             </select>
+            <span style={{ fontSize: 11, color: "#90a4ae", marginLeft: 4, marginRight: 2 }}>|</span>
+            {compactListButton}
           </div>
         </div>
 
@@ -914,11 +973,12 @@ export default function ProcessMeetingBoard() {
             return (
               <section
                 key={proj.id}
+                className={compactBoard ? "process-meeting-compact" : undefined}
                 style={{
                   background: "#fff",
                   border: "1px solid #d0d8e4",
-                  borderRadius: 10,
-                  marginBottom: 16,
+                  borderRadius: compactBoard ? 8 : 10,
+                  marginBottom: compactBoard ? 8 : 16,
                   overflow: "hidden",
                 }}
               >
@@ -929,7 +989,7 @@ export default function ProcessMeetingBoard() {
                     justifyContent: "space-between",
                     gap: 8,
                     flexWrap: "wrap",
-                    padding: "10px 12px",
+                    padding: compactBoard ? "6px 10px" : "10px 12px",
                     background: "#eef1f6",
                     borderBottom: "1px solid #d0d8e4",
                   }}
@@ -937,7 +997,7 @@ export default function ProcessMeetingBoard() {
                   <div>
                     <span
                       style={{
-                        fontSize: 11,
+                        fontSize: compactBoard ? 10 : 11,
                         fontFamily: "monospace",
                         color: "#4a6280",
                         marginRight: 8,
@@ -945,7 +1005,7 @@ export default function ProcessMeetingBoard() {
                     >
                       {proj.managementNumber ?? "—"}
                     </span>
-                    <span style={{ fontSize: 14, fontWeight: 700 }}>{proj.name}</span>
+                    <span style={{ fontSize: compactBoard ? 13 : 14, fontWeight: 700 }}>{proj.name}</span>
                   </div>
                   <div className="process-meeting-no-print" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     <button
@@ -981,15 +1041,15 @@ export default function ProcessMeetingBoard() {
                   </div>
                 </div>
 
-                <div style={{ padding: 8, overflowX: "auto" }}>
+                <div style={{ padding: compactBoard ? 4 : 8, overflowX: "auto" }}>
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: `minmax(160px,220px) minmax(280px,1fr)`,
-                      gap: 8,
-                      fontSize: presentationMode ? 12 : 10,
+                      gridTemplateColumns: `minmax(200px, 300px) minmax(280px,1fr)`,
+                      gap: compactBoard ? 6 : 8,
+                      fontSize: presentationMode ? 12 : compactBoard ? 9 : 10,
                       color: "#4a6280",
-                      marginBottom: 6,
+                      marginBottom: compactBoard ? 4 : 6,
                       paddingLeft: 4,
                       minWidth: Math.max(480, 200 + periods.length * 22),
                     }}
@@ -1055,10 +1115,10 @@ export default function ProcessMeetingBoard() {
                       key={row.id}
                       style={{
                         borderTop: "1px solid #eceff1",
-                        padding: "10px 6px",
+                        padding: compactBoard ? "4px 6px" : "8px 6px",
                         display: "grid",
-                        gridTemplateColumns: `minmax(160px,220px) minmax(280px,1fr)`,
-                        gap: 10,
+                        gridTemplateColumns: `minmax(200px, 300px) minmax(280px,1fr)`,
+                        gap: compactBoard ? 6 : 10,
                         alignItems: "start",
                         minWidth: Math.max(480, 200 + periods.length * 22),
                         borderLeft: leftBorder,
@@ -1067,7 +1127,7 @@ export default function ProcessMeetingBoard() {
                       }}
                     >
                       <div>
-                        <div style={{ display: "flex", gap: 6, alignItems: "flex-start", marginBottom: 6, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4, flexWrap: "wrap" }}>
                           <input
                             type="text"
                             value={row.processName}
@@ -1075,21 +1135,21 @@ export default function ProcessMeetingBoard() {
                             onChange={(e) => updateRow(row.id, { processName: e.target.value })}
                             style={{
                               flex: 1,
-                              minWidth: 0,
-                              padding: "6px 8px",
+                              minWidth: 120,
+                              padding: "5px 8px",
                               fontSize: presentationMode ? 14 : 12,
                               border: `1px solid ${T.bd}`,
                               borderRadius: 4,
                               fontFamily: "inherit",
                             }}
                           />
-                          <VarianceBadge row={row} large={presentationMode} />
+                          <VarianceBadge row={row} large={presentationMode} compact={compactBoard} />
                           <button
                             type="button"
                             onClick={() => removeRow(row.id, proj.id)}
                             className="process-meeting-no-print"
                             style={{
-                              padding: "4px 8px",
+                              padding: "3px 8px",
                               fontSize: 10,
                               borderRadius: 4,
                               border: "1px solid #ffcdd2",
@@ -1102,27 +1162,58 @@ export default function ProcessMeetingBoard() {
                             削除
                           </button>
                         </div>
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "auto 1fr",
-                            gap: 4,
-                            alignItems: "center",
-                            fontSize: presentationMode ? 12 : 10,
-                            color: "#546e7a",
-                          }}
-                        >
-                          <span>予定</span>
-                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-                            {dateInput(row.plannedStart, (v) => updateRow(row.id, { plannedStart: v }))}
-                            <span>〜</span>
-                            {dateInput(row.plannedEnd, (v) => updateRow(row.id, { plannedEnd: v }))}
+                        <div className="process-meeting-date-strip">
+                          <div className="pm-date-line">
+                            <span
+                              style={{
+                                flex: "0 0 30px",
+                                fontSize: presentationMode ? 11 : 10,
+                                fontWeight: 700,
+                                color: "#1565c0",
+                                letterSpacing: "0.02em",
+                              }}
+                            >
+                              予定
+                            </span>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                                flexWrap: "nowrap",
+                                minWidth: 0,
+                              }}
+                            >
+                              {dateInput(row.plannedStart, (v) => updateRow(row.id, { plannedStart: v }))}
+                              <span style={{ color: "#90a4ae", fontSize: 11, userSelect: "none" }}>〜</span>
+                              {dateInput(row.plannedEnd, (v) => updateRow(row.id, { plannedEnd: v }))}
+                            </div>
                           </div>
-                          <span>実施</span>
-                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-                            {dateInput(row.actualStart, (v) => updateRow(row.id, { actualStart: v }))}
-                            <span>〜</span>
-                            {dateInput(row.actualEnd, (v) => updateRow(row.id, { actualEnd: v }))}
+                          <div className="pm-date-line">
+                            <span
+                              style={{
+                                flex: "0 0 30px",
+                                fontSize: presentationMode ? 11 : 10,
+                                fontWeight: 700,
+                                color: "#00897b",
+                                letterSpacing: "0.02em",
+                              }}
+                            >
+                              実施
+                            </span>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                                flexWrap: "nowrap",
+                                minWidth: 0,
+                              }}
+                            >
+                              {dateInput(row.actualStart, (v) => updateRow(row.id, { actualStart: v }))}
+                              <span style={{ color: "#90a4ae", fontSize: 11, userSelect: "none" }}>〜</span>
+                              {dateInput(row.actualEnd, (v) => updateRow(row.id, { actualEnd: v }))}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1133,6 +1224,7 @@ export default function ProcessMeetingBoard() {
                           rangeStart={row.plannedStart}
                           rangeEnd={row.plannedEnd}
                           barHeight={pmBarH}
+                          compact={compactBoard}
                         />
                         <PeriodBar
                           kind="actual"
@@ -1141,6 +1233,7 @@ export default function ProcessMeetingBoard() {
                           rangeEnd={row.actualEnd}
                           barHeight={pmBarH}
                           actualVariance={variance.kind}
+                          compact={compactBoard}
                         />
                       </div>
                     </div>
