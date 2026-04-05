@@ -510,6 +510,9 @@ export default function ProcessMeetingBoard() {
 
   const pmBaseFs = presentationMode ? 15 : compactBoard ? 12 : 13;
   const pmBarH = presentationMode ? 18 : compactBoard ? 10 : 14;
+  const rowGridCols = compactBoard
+    ? `minmax(140px, 260px) minmax(280px,1fr)`
+    : `minmax(200px, 300px) minmax(280px,1fr)`;
   const rangeTitle =
     monthHeaders.length > 0
       ? `${monthHeaders[0].year}年${monthHeaders[0].month + 1}月〜${monthHeaders[monthHeaders.length - 1].year}年${
@@ -522,7 +525,7 @@ export default function ProcessMeetingBoard() {
       type="button"
       onClick={toggleCompactBoard}
       className="process-meeting-no-print"
-      title="案件カードの縦の余白・帯の高さを変えます（一覧で何件見えるか）"
+      title="一覧を縦に詰めます。コンパクト時は日付入力は隠れます（編集は「一覧：ゆとり」で表示）"
       style={{
         padding: "5px 12px",
         borderRadius: 4,
@@ -1045,7 +1048,7 @@ export default function ProcessMeetingBoard() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: `minmax(200px, 300px) minmax(280px,1fr)`,
+                      gridTemplateColumns: rowGridCols,
                       gap: compactBoard ? 6 : 8,
                       fontSize: presentationMode ? 12 : compactBoard ? 9 : 10,
                       color: "#4a6280",
@@ -1054,7 +1057,7 @@ export default function ProcessMeetingBoard() {
                       minWidth: Math.max(480, 200 + periods.length * 22),
                     }}
                   >
-                    <span>工程名 / 日付</span>
+                    <span>{compactBoard ? "工程名" : "工程名 / 日付"}</span>
                     <div style={{ minWidth: periods.length * 18 }}>
                       {rangeMonths > 1 && (
                         <div
@@ -1117,7 +1120,7 @@ export default function ProcessMeetingBoard() {
                         borderTop: "1px solid #eceff1",
                         padding: compactBoard ? "4px 6px" : "8px 6px",
                         display: "grid",
-                        gridTemplateColumns: `minmax(200px, 300px) minmax(280px,1fr)`,
+                        gridTemplateColumns: rowGridCols,
                         gap: compactBoard ? 6 : 10,
                         alignItems: "start",
                         minWidth: Math.max(480, 200 + periods.length * 22),
@@ -1127,7 +1130,15 @@ export default function ProcessMeetingBoard() {
                       }}
                     >
                       <div>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4, flexWrap: "wrap" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 6,
+                            alignItems: "center",
+                            marginBottom: compactBoard ? 0 : 4,
+                            flexWrap: "wrap",
+                          }}
+                        >
                           <input
                             type="text"
                             value={row.processName}
@@ -1162,59 +1173,63 @@ export default function ProcessMeetingBoard() {
                             削除
                           </button>
                         </div>
-                        <div className="process-meeting-date-strip">
-                          <div className="pm-date-line">
-                            <span
-                              style={{
-                                flex: "0 0 30px",
-                                fontSize: presentationMode ? 11 : 10,
-                                fontWeight: 700,
-                                color: "#1565c0",
-                                letterSpacing: "0.02em",
-                              }}
-                            >
-                              予定
-                            </span>
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 4,
-                                flexWrap: "nowrap",
-                                minWidth: 0,
-                              }}
-                            >
-                              {dateInput(row.plannedStart, (v) => updateRow(row.id, { plannedStart: v }))}
-                              <span style={{ color: "#90a4ae", fontSize: 11, userSelect: "none" }}>〜</span>
-                              {dateInput(row.plannedEnd, (v) => updateRow(row.id, { plannedEnd: v }))}
+                        <div
+                          className="process-meeting-date-strip"
+                          style={{ display: compactBoard ? "none" : "block" }}
+                          aria-hidden={compactBoard}
+                        >
+                            <div className="pm-date-line">
+                              <span
+                                style={{
+                                  flex: "0 0 30px",
+                                  fontSize: presentationMode ? 11 : 10,
+                                  fontWeight: 700,
+                                  color: "#1565c0",
+                                  letterSpacing: "0.02em",
+                                }}
+                              >
+                                予定
+                              </span>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  flexWrap: "nowrap",
+                                  minWidth: 0,
+                                }}
+                              >
+                                {dateInput(row.plannedStart, (v) => updateRow(row.id, { plannedStart: v }))}
+                                <span style={{ color: "#90a4ae", fontSize: 11, userSelect: "none" }}>〜</span>
+                                {dateInput(row.plannedEnd, (v) => updateRow(row.id, { plannedEnd: v }))}
+                              </div>
                             </div>
-                          </div>
-                          <div className="pm-date-line">
-                            <span
-                              style={{
-                                flex: "0 0 30px",
-                                fontSize: presentationMode ? 11 : 10,
-                                fontWeight: 700,
-                                color: "#00897b",
-                                letterSpacing: "0.02em",
-                              }}
-                            >
-                              実施
-                            </span>
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 4,
-                                flexWrap: "nowrap",
-                                minWidth: 0,
-                              }}
-                            >
-                              {dateInput(row.actualStart, (v) => updateRow(row.id, { actualStart: v }))}
-                              <span style={{ color: "#90a4ae", fontSize: 11, userSelect: "none" }}>〜</span>
-                              {dateInput(row.actualEnd, (v) => updateRow(row.id, { actualEnd: v }))}
+                            <div className="pm-date-line">
+                              <span
+                                style={{
+                                  flex: "0 0 30px",
+                                  fontSize: presentationMode ? 11 : 10,
+                                  fontWeight: 700,
+                                  color: "#00897b",
+                                  letterSpacing: "0.02em",
+                                }}
+                              >
+                                実施
+                              </span>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  flexWrap: "nowrap",
+                                  minWidth: 0,
+                                }}
+                              >
+                                {dateInput(row.actualStart, (v) => updateRow(row.id, { actualStart: v }))}
+                                <span style={{ color: "#90a4ae", fontSize: 11, userSelect: "none" }}>〜</span>
+                                {dateInput(row.actualEnd, (v) => updateRow(row.id, { actualEnd: v }))}
+                              </div>
                             </div>
-                          </div>
                         </div>
                       </div>
                       <div>

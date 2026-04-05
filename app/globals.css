@@ -75,9 +75,9 @@ body {
   border-radius: 4px;
 }
 
-/* 工程会議：コンパクト一覧（案件カードの縦を詰める） */
+/* 工程会議：コンパクト時は日付ブロックを確実に非表示 */
 .process-meeting-compact .process-meeting-date-strip {
-  gap: 2px;
+  display: none !important;
 }
 
 /* モバイル用テーブル横スクロール */
