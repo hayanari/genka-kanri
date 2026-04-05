@@ -75,7 +75,7 @@ body {
   border-radius: 4px;
 }
 
-/* 工程会議：コンパクト時は「日付＋帯色」まとめブロックを非表示（インラインと二重で確実に） */
+/* 工程会議：コンパクト時は「日付＋帯色＋朝会メモ」まとめブロックを非表示（インラインと二重で確実に） */
 .process-meeting-compact .process-meeting-expanded-only {
   display: none !important;
 }

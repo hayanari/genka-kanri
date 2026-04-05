@@ -607,7 +607,7 @@ export default function ProcessMeetingBoard() {
       type="button"
       onClick={toggleCompactBoard}
       className="process-meeting-no-print"
-      title="一覧を縦に詰めます。コンパクト時は日付入力と帯色の変更が隠れます（「一覧：ゆとり」で表示）"
+      title="一覧を縦に詰めます。コンパクト時は日付・帯色・朝会メモが隠れます。緑の「一覧：コンパクト」＝いまコンパクト表示中。「一覧：ゆとり」を押すと編集用が出ます。"
       style={{
         padding: "5px 12px",
         borderRadius: 4,
@@ -685,7 +685,7 @@ export default function ProcessMeetingBoard() {
 
   return (
     <div
-      className="process-meeting-print-root"
+      className={`process-meeting-print-root${compactBoard ? " process-meeting-compact" : ""}`}
       style={{
         fontFamily: "'Noto Sans JP', sans-serif",
         background: "#f5f7fa",
@@ -843,60 +843,69 @@ export default function ProcessMeetingBoard() {
             </select>
             <span style={{ fontSize: 11, color: "#90a4ae", marginLeft: 4, marginRight: 2 }}>|</span>
             {compactListButton}
-            <span style={{ fontSize: 11, color: "#90a4ae", marginLeft: 4, marginRight: 2 }}>|</span>
-            <span style={{ fontSize: 11, color: "#607d8b", fontWeight: 600, whiteSpace: "nowrap" }}>朝会メモの週</span>
-            <button
-              type="button"
-              className="process-meeting-no-print"
-              onClick={() => persistMeetingNoteWeek(addWeeksToMondayYmd(meetingNoteWeek, -1))}
-              style={{
-                padding: "4px 8px",
-                fontSize: 11,
-                borderRadius: 4,
-                border: "1px solid #d0d8e4",
-                background: "#fff",
-                color: "#4a6280",
-                cursor: "pointer",
-              }}
-            >
-              ◀ 前週
-            </button>
-            <span style={{ fontSize: 11, color: "#1565c0", fontWeight: 700, whiteSpace: "nowrap" }}>
-              {formatWeekLabelJp(meetingNoteWeek)}
-            </span>
-            <button
-              type="button"
-              className="process-meeting-no-print"
-              onClick={() => persistMeetingNoteWeek(addWeeksToMondayYmd(meetingNoteWeek, 1))}
-              style={{
-                padding: "4px 8px",
-                fontSize: 11,
-                borderRadius: 4,
-                border: "1px solid #d0d8e4",
-                background: "#fff",
-                color: "#4a6280",
-                cursor: "pointer",
-              }}
-            >
-              次週 ▶
-            </button>
-            <button
-              type="button"
-              className="process-meeting-no-print"
-              title="今週の月曜始まりの週に切り替え"
-              onClick={() => persistMeetingNoteWeek(mondayOfWeekLocal(new Date()))}
-              style={{
-                padding: "4px 8px",
-                fontSize: 11,
-                borderRadius: 4,
-                border: "1px solid #1565c0",
-                background: "#fff",
-                color: "#1565c0",
-                cursor: "pointer",
-              }}
-            >
-              今週
-            </button>
+            {!compactBoard && (
+              <div
+                className="process-meeting-no-print process-meeting-expanded-only"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span style={{ fontSize: 11, color: "#90a4ae", marginRight: 2 }}>|</span>
+                <span style={{ fontSize: 11, color: "#607d8b", fontWeight: 600, whiteSpace: "nowrap" }}>朝会メモの週</span>
+                <button
+                  type="button"
+                  onClick={() => persistMeetingNoteWeek(addWeeksToMondayYmd(meetingNoteWeek, -1))}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: 11,
+                    borderRadius: 4,
+                    border: "1px solid #d0d8e4",
+                    background: "#fff",
+                    color: "#4a6280",
+                    cursor: "pointer",
+                  }}
+                >
+                  ◀ 前週
+                </button>
+                <span style={{ fontSize: 11, color: "#1565c0", fontWeight: 700, whiteSpace: "nowrap" }}>
+                  {formatWeekLabelJp(meetingNoteWeek)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => persistMeetingNoteWeek(addWeeksToMondayYmd(meetingNoteWeek, 1))}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: 11,
+                    borderRadius: 4,
+                    border: "1px solid #d0d8e4",
+                    background: "#fff",
+                    color: "#4a6280",
+                    cursor: "pointer",
+                  }}
+                >
+                  次週 ▶
+                </button>
+                <button
+                  type="button"
+                  title="今週の月曜始まりの週に切り替え"
+                  onClick={() => persistMeetingNoteWeek(mondayOfWeekLocal(new Date()))}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: 11,
+                    borderRadius: 4,
+                    border: "1px solid #1565c0",
+                    background: "#fff",
+                    color: "#1565c0",
+                    cursor: "pointer",
+                  }}
+                >
+                  今週
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1174,95 +1183,98 @@ export default function ProcessMeetingBoard() {
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    padding: compactBoard ? "6px 10px 8px" : "10px 12px 12px",
-                    borderBottom: "1px solid #eceff1",
-                    background: "#f8fafc",
-                  }}
-                >
+                {!compactBoard && (
                   <div
+                    className="process-meeting-expanded-only"
                     style={{
-                      fontSize: compactBoard ? 10 : 11,
-                      fontWeight: 700,
-                      color: "#1565c0",
-                      marginBottom: 4,
+                      padding: "10px 12px 12px",
+                      borderBottom: "1px solid #eceff1",
+                      background: "#f8fafc",
                     }}
                   >
-                    朝会メモ（次週までの反映・ToDo・指摘など）
-                    <span style={{ fontWeight: 400, color: "#607d8b", marginLeft: 6 }}>
-                      対象週: {formatWeekLabelJp(meetingNoteWeek)}
-                    </span>
-                  </div>
-                  <textarea
-                    value={weeklyNotes[proj.id]?.[meetingNoteWeek] ?? ""}
-                    onChange={(e) => updateProjectNote(proj.id, meetingNoteWeek, e.target.value)}
-                    placeholder="例：次週までに◯◯を図面反映／△△の指摘を是正／現場確認の予定…"
-                    rows={compactBoard ? 2 : presentationMode ? 5 : 4}
-                    aria-label={`${proj.name}の朝会メモ（${formatWeekLabelJp(meetingNoteWeek)}）`}
-                    style={{
-                      width: "100%",
-                      boxSizing: "border-box",
-                      resize: "vertical",
-                      minHeight: compactBoard ? 44 : presentationMode ? 120 : 88,
-                      padding: "6px 8px",
-                      fontSize: presentationMode ? 14 : compactBoard ? 11 : 12,
-                      lineHeight: 1.45,
-                      fontFamily: "inherit",
-                      border: `1px solid ${T.bd}`,
-                      borderRadius: 4,
-                      background: T.s,
-                      color: T.tx,
-                    }}
-                  />
-                  <details style={{ marginTop: 6 }}>
-                    <summary
+                    <div
                       style={{
-                        fontSize: compactBoard ? 10 : 11,
-                        color: "#607d8b",
-                        cursor: "pointer",
-                        userSelect: "none",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "#1565c0",
+                        marginBottom: 4,
                       }}
                     >
-                      過去のメモ（週ごとの履歴）
-                      {notePastWeeks.length > 0 ? ` · ${notePastWeeks.length}週分` : ""}
-                    </summary>
-                    {notePastWeeks.length === 0 ? (
-                      <p style={{ fontSize: 11, color: "#90a4ae", margin: "6px 0 0" }}>
-                        上の「朝会メモの週」で前週に切り替えると、過去に保存した内容が表示されます。
-                      </p>
-                    ) : (
-                      <div style={{ marginTop: 8 }}>
-                        {notePastWeeks.map((w) => (
-                          <div
-                            key={w}
-                            style={{
-                              marginBottom: 8,
-                              padding: 8,
-                              background: "#fff",
-                              border: "1px solid #eceff1",
-                              borderRadius: 4,
-                            }}
-                          >
+                      朝会メモ（次週までの反映・ToDo・指摘など）
+                      <span style={{ fontWeight: 400, color: "#607d8b", marginLeft: 6 }}>
+                        対象週: {formatWeekLabelJp(meetingNoteWeek)}
+                      </span>
+                    </div>
+                    <textarea
+                      value={weeklyNotes[proj.id]?.[meetingNoteWeek] ?? ""}
+                      onChange={(e) => updateProjectNote(proj.id, meetingNoteWeek, e.target.value)}
+                      placeholder="例：次週までに◯◯を図面反映／△△の指摘を是正／現場確認の予定…"
+                      rows={presentationMode ? 5 : 4}
+                      aria-label={`${proj.name}の朝会メモ（${formatWeekLabelJp(meetingNoteWeek)}）`}
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        resize: "vertical",
+                        minHeight: presentationMode ? 120 : 88,
+                        padding: "6px 8px",
+                        fontSize: presentationMode ? 14 : 12,
+                        lineHeight: 1.45,
+                        fontFamily: "inherit",
+                        border: `1px solid ${T.bd}`,
+                        borderRadius: 4,
+                        background: T.s,
+                        color: T.tx,
+                      }}
+                    />
+                    <details style={{ marginTop: 6 }}>
+                      <summary
+                        style={{
+                          fontSize: 11,
+                          color: "#607d8b",
+                          cursor: "pointer",
+                          userSelect: "none",
+                        }}
+                      >
+                        過去のメモ（週ごとの履歴）
+                        {notePastWeeks.length > 0 ? ` · ${notePastWeeks.length}週分` : ""}
+                      </summary>
+                      {notePastWeeks.length === 0 ? (
+                        <p style={{ fontSize: 11, color: "#90a4ae", margin: "6px 0 0" }}>
+                          上の「朝会メモの週」で前週に切り替えると、過去に保存した内容が表示されます。
+                        </p>
+                      ) : (
+                        <div style={{ marginTop: 8 }}>
+                          {notePastWeeks.map((w) => (
                             <div
+                              key={w}
                               style={{
-                                fontSize: 10,
-                                fontWeight: 700,
-                                color: "#1565c0",
-                                marginBottom: 4,
+                                marginBottom: 8,
+                                padding: 8,
+                                background: "#fff",
+                                border: "1px solid #eceff1",
+                                borderRadius: 4,
                               }}
                             >
-                              {formatWeekLabelJp(w)}
+                              <div
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: "#1565c0",
+                                  marginBottom: 4,
+                                }}
+                              >
+                                {formatWeekLabelJp(w)}
+                              </div>
+                              <div style={{ fontSize: 11, whiteSpace: "pre-wrap", color: T.tx }}>
+                                {weeklyNotes[proj.id]?.[w] ?? ""}
+                              </div>
                             </div>
-                            <div style={{ fontSize: 11, whiteSpace: "pre-wrap", color: T.tx }}>
-                              {weeklyNotes[proj.id]?.[w] ?? ""}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </details>
-                </div>
+                          ))}
+                        </div>
+                      )}
+                    </details>
+                  </div>
+                )}
 
                 <div style={{ padding: compactBoard ? 4 : 8, overflowX: "auto" }}>
                   <div
