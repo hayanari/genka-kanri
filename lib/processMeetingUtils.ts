@@ -100,6 +100,21 @@ export function isConstructionProject(p: { category: string; archived?: boolean;
 /** 予定終了と実施終了の比較（会議向けハイライト用） */
 export type ProcessVarianceKind = "delay" | "early" | "ok" | "overdue" | "unknown"
 
+/** 実施帯の自動色（actualBarColor 未指定時） */
+export function defaultActualBarColor(kind: ProcessVarianceKind): string {
+  switch (kind) {
+    case "delay":
+    case "overdue":
+      return "#c62828"
+    case "early":
+      return "#2e7d32"
+    case "ok":
+      return "#00897b"
+    default:
+      return "#e65100"
+  }
+}
+
 export function getProcessRowVariance(row: {
   plannedEnd: string | null
   actualEnd: string | null

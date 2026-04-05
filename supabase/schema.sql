@@ -123,10 +123,16 @@ CREATE TABLE IF NOT EXISTS process_meeting_rows (
   actual_start  date,
   actual_end    date,
   sort_order    int NOT NULL DEFAULT 0,
+  planned_bar_color text,
+  actual_bar_color  text,
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS process_meeting_rows_project_idx ON process_meeting_rows(project_id);
+
+-- 既存DB向け（テーブルが既にある場合）
+ALTER TABLE process_meeting_rows ADD COLUMN IF NOT EXISTS planned_bar_color text;
+ALTER TABLE process_meeting_rows ADD COLUMN IF NOT EXISTS actual_bar_color text;
 
 CREATE TABLE IF NOT EXISTS process_meeting_meta (
   id text PRIMARY KEY DEFAULT 'default',

@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/client"
 import type { ProcessMeetingRow } from "@/types/processMeeting"
 
 function rowFromDb(r: Record<string, unknown>): ProcessMeetingRow {
+  const pc = r.planned_bar_color != null && String(r.planned_bar_color).trim() !== "" ? String(r.planned_bar_color).trim() : null
+  const ac = r.actual_bar_color != null && String(r.actual_bar_color).trim() !== "" ? String(r.actual_bar_color).trim() : null
   return {
     id: String(r.id),
     projectId: String(r.project_id),
@@ -11,6 +13,8 @@ function rowFromDb(r: Record<string, unknown>): ProcessMeetingRow {
     actualStart: r.actual_start ? String(r.actual_start).slice(0, 10) : null,
     actualEnd: r.actual_end ? String(r.actual_end).slice(0, 10) : null,
     sortOrder: Number(r.sort_order ?? 0),
+    plannedBarColor: pc,
+    actualBarColor: ac,
   }
 }
 
@@ -63,6 +67,8 @@ export async function upsertProcessMeetingRows(rows: ProcessMeetingRow[]): Promi
     actual_start: r.actualStart,
     actual_end: r.actualEnd,
     sort_order: r.sortOrder,
+    planned_bar_color: r.plannedBarColor ?? null,
+    actual_bar_color: r.actualBarColor ?? null,
     updated_at: new Date().toISOString(),
   }))
   const { error } = await supabase.from("process_meeting_rows").upsert(payload, { onConflict: "id" })
@@ -87,6 +93,8 @@ export async function insertProcessMeetingRows(rows: ProcessMeetingRow[]): Promi
     actual_start: r.actualStart,
     actual_end: r.actualEnd,
     sort_order: r.sortOrder,
+    planned_bar_color: r.plannedBarColor ?? null,
+    actual_bar_color: r.actualBarColor ?? null,
   }))
   const { error } = await supabase.from("process_meeting_rows").insert(payload)
   if (error) throw error
