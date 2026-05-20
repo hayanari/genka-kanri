@@ -18,6 +18,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   TODAY_STR, daysInMonth, genId, workerColor, hexRgba,
   getConflicts, getMonthSchedules, applySameDayKoujimeiSuffix,
+  effectiveWorkerList,
 } from '@/lib/scheduleUtils'
 import { CalendarView }            from './CalendarView'
 import { ListView, WorkerView, MasterView } from './OtherViews'
@@ -69,8 +70,9 @@ export default function ScheduleBoard() {
     s: ScheduleEntry[],
     m: DayMemos,
     prevSchedules?: ScheduleEntry[]
-  ): Promise<boolean> => {
-    const payload = { workers: w, schedules: s, dayMemos: m }
+  ): Promise<string[] | null> => {
+    const wEff = effectiveWorkerList(w, s)
+    const payload = { workers: wEff, schedules: s, dayMemos: m }
     const remote = await fetchScheduleRevision()
     if (
       lastSyncedRevisionRef.current !== null &&
@@ -81,7 +83,7 @@ export default function ScheduleBoard() {
         'サーバー上のデータが別の端末で更新されています。\n\n' +
           'いったんページを再読み込み（F5）してから、もう一度操作してください。'
       )
-      return false
+      return null
     }
     try {
       saveSchedulePendingSync(payload)
@@ -90,7 +92,7 @@ export default function ScheduleBoard() {
     } catch (e) {
       console.error('[persist]', e)
       alert('保存に失敗しました。ネットワークをご確認ください。')
-      return false
+      return null
     }
     if (prevSchedules !== undefined && prevSchedules !== s) {
       const changes = computeScheduleChanges(prevSchedules, s)
@@ -115,7 +117,7 @@ export default function ScheduleBoard() {
         })
       }
     }
-    return true
+    return wEff
   }, [])
 
   // ── スケジュール初期ロード ────────────────────────────────────────
@@ -201,17 +203,19 @@ export default function ScheduleBoard() {
     const next = entry.shift !== 'off' && entry.koujimei
       ? applySameDayKoujimeiSuffix(entry, withEntry)
       : withEntry
-    const ok = await persist(workers, next, dayMemos, schedules)
-    if (ok) {
+    const wEff = await persist(workers, next, dayMemos, schedules)
+    if (wEff !== null) {
       setSchedules(next)
+      setWorkers(wEff)
       setModal(null)
     }
   }
   const handleDeleteEntry = async (id: string) => {
     const next = schedules.filter(x => x.id !== id)
-    const ok = await persist(workers, next, dayMemos, schedules)
-    if (ok) {
+    const wEff = await persist(workers, next, dayMemos, schedules)
+    if (wEff !== null) {
       setSchedules(next)
+      setWorkers(wEff)
       setModal(null)
     }
   }
@@ -220,22 +224,25 @@ export default function ScheduleBoard() {
   const handleDayMemo = async (date: string, value: string) => {
     const next = { ...dayMemos }
     if (value) next[date] = value; else delete next[date]
-    const ok = await persist(workers, schedules, next)
-    if (ok) setDayMemos(next)
+    const wEff = await persist(workers, schedules, next)
+    if (wEff !== null) {
+      setDayMemos(next)
+      setWorkers(wEff)
+    }
   }
 
   // ── 作業員 CRUD ──────────────────────────────────────────────────
   const handleAddWorker = async (name: string) => {
     if (!name || workers.includes(name)) return
     const next = [...workers, name]
-    const ok = await persist(next, schedules, dayMemos)
-    if (ok) setWorkers(next)
+    const wEff = await persist(next, schedules, dayMemos)
+    if (wEff !== null) setWorkers(wEff)
   }
   const handleRemoveWorker = async (name: string) => {
     if (!confirm(`「${name}」を削除しますか？`)) return
     const next = workers.filter(w => w !== name)
-    const ok = await persist(next, schedules, dayMemos)
-    if (ok) setWorkers(next)
+    const wEff = await persist(next, schedules, dayMemos)
+    if (wEff !== null) setWorkers(wEff)
   }
   const handleRenameWorker = useCallback(async (oldName: string, newName: string): Promise<boolean> => {
     const trimmed = newName.trim()
@@ -256,9 +263,9 @@ export default function ScheduleBoard() {
       ...s,
       workers: s.workers.map(n => (n === oldName ? trimmed : n)),
     }))
-    const ok = await persist(nextWorkers, nextSchedules, dayMemos)
-    if (!ok) return false
-    setWorkers(nextWorkers)
+    const wEff = await persist(nextWorkers, nextSchedules, dayMemos)
+    if (wEff === null) return false
+    setWorkers(wEff)
     setSchedules(nextSchedules)
     const email = workerContacts[oldName] ?? ''
     try {

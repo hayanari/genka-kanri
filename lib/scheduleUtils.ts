@@ -130,6 +130,47 @@ export function getBaseKoujimei(koujimei: string): string {
     return m ? m[1].trim() : koujimei.trim()
 }
 
+const scheduleSortKey = (s: ScheduleEntry) => `${s.date}\0${s.id}`
+
+/**
+ * 作業員マスタと各予定の workers を統合した一覧。
+ * - マスタが空だが予定に名前が残っている場合は、予定から復元（日付・id 順の初出順）
+ * - マスタに無いが予定だけにいる名前は、マスタの末尾に追加
+ * （DB が空マスタで壊れたケースや、マスタ削除後に予定だけ残っているケースの救済）
+ */
+export function effectiveWorkerList(master: string[], schedules: ScheduleEntry[]): string[] {
+    const masterClean = master.map((x) => x.trim()).filter(Boolean)
+    const orderedSchedules = [...schedules].sort((a, b) =>
+      scheduleSortKey(a).localeCompare(scheduleSortKey(b))
+    )
+    if (masterClean.length > 0) {
+      const set = new Set(masterClean)
+      const appended: string[] = []
+      for (const s of orderedSchedules) {
+        for (const w of s.workers ?? []) {
+          const t = w.trim()
+          if (t && !set.has(t)) {
+            set.add(t)
+            appended.push(t)
+          }
+        }
+      }
+      return [...masterClean, ...appended]
+    }
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const s of orderedSchedules) {
+      for (const w of s.workers ?? []) {
+        const t = w.trim()
+        if (t && !seen.has(t)) {
+          seen.add(t)
+          out.push(t)
+        }
+      }
+    }
+    return out
+}
+
 /**
  * 同日に同じ工事名が複数ある場合、A/B/C... を付与して区別する
  * @param entry 保存対象エントリ

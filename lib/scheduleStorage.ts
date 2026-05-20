@@ -4,6 +4,7 @@
 // ================================================================
 import type { ScheduleData } from '@/types/schedule'
 import { createClient } from '@/lib/supabase/client'
+import { effectiveWorkerList } from '@/lib/scheduleUtils'
 
 const PENDING_KEY = 'schedule_pending'
 const PENDING_TTL_MS = 15_000 // 15秒以内のバックアップのみ復元
@@ -87,8 +88,12 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
           '[ScheduleStorage] 空の pending を破棄しました（サーバーに予定が残っているため上書きしません）'
         )
       } else {
-        await saveScheduleData(pending)
-        return pending
+        const merged: ScheduleData = {
+          ...pending,
+          workers: effectiveWorkerList(pending.workers ?? [], pending.schedules ?? []),
+        }
+        await saveScheduleData(merged)
+        return merged
       }
     }
 
@@ -99,17 +104,19 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
       (memos && memos.length > 0)
     if (!hasAny) return null
 
+    const scheduleRows = (schedules ?? []).map((r: { id: string; date: string; koujimei: string; shift: string; workers: string[]; vehicle_ids?: string[]; memo: string }) => ({
+      id: r.id,
+      date: r.date,
+      koujimei: r.koujimei ?? '',
+      shift: r.shift as 'day' | 'night' | 'off',
+      workers: r.workers ?? [],
+      vehicleIds: r.vehicle_ids ?? [],
+      memo: r.memo ?? '',
+    }))
+    const workerNames = (workers ?? []).map((w: { name: string }) => w.name)
     return {
-      schedules: (schedules ?? []).map((r: { id: string; date: string; koujimei: string; shift: string; workers: string[]; vehicle_ids?: string[]; memo: string }) => ({
-        id: r.id,
-        date: r.date,
-        koujimei: r.koujimei ?? '',
-        shift: r.shift as 'day' | 'night' | 'off',
-        workers: r.workers ?? [],
-        vehicleIds: r.vehicle_ids ?? [],
-        memo: r.memo ?? '',
-      })),
-      workers: (workers ?? []).map((w: { name: string }) => w.name),
+      schedules: scheduleRows,
+      workers: effectiveWorkerList(workerNames, scheduleRows),
       dayMemos: Object.fromEntries(
         (memos ?? []).map((m: { date: string; memo: string }) => [m.date, m.memo ?? ''])
       ),
@@ -123,6 +130,7 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
 export async function saveScheduleData(data: ScheduleData): Promise<void> {
   try {
     const supabase = createClient()
+    const workersToStore = effectiveWorkerList(data.workers ?? [], data.schedules ?? [])
 
     // 1. 予定エントリ
     const keepIds = new Set(data.schedules.map((s) => s.id))
@@ -158,11 +166,11 @@ export async function saveScheduleData(data: ScheduleData): Promise<void> {
       }
     }
 
-    // 2. 作業員マスター（全置換）
+    // 2. 作業員マスター（全置換）— 空配列だけで上書きしないよう effectiveWorkerList で補完済み
     await supabase.from('schedule_workers').delete().gte('id', 1)
-    if (data.workers.length > 0) {
+    if (workersToStore.length > 0) {
       await supabase.from('schedule_workers').insert(
-        data.workers.map((name, i) => ({ name, sort_order: i }))
+        workersToStore.map((name, i) => ({ name, sort_order: i }))
       )
     }
 
