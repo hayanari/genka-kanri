@@ -39,8 +39,9 @@ yarn-error.log*
 # 備品ZIP展開作業用（コミット不要）
 /_equipment_zip_extract/
 
+# 旧・入れ子コピーの退避先（コミット不要）
+/_archive/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-.vercel

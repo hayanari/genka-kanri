@@ -30,9 +30,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": [
-    "node_modules",
-    "_equipment_zip_extract",
-    "genka-kanri/_equipment_zip_extract"
-  ]
+  "exclude": ["node_modules", "_archive", "_equipment_zip_extract"]
 }
