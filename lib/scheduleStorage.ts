@@ -92,8 +92,12 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
           ...pending,
           workers: effectiveWorkerList(pending.workers ?? [], pending.schedules ?? []),
         }
-        await saveScheduleData(merged)
-        return merged
+        try {
+          await saveScheduleData(merged)
+          return merged
+        } catch {
+          // 閲覧専用などで保存できない場合はサーバーのデータをそのまま使う
+        }
       }
     }
 
@@ -127,7 +131,13 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
   }
 }
 
+export const VIEWER_FORBIDDEN_MSG = '閲覧専用の権限のため保存できません。管理者に変更権限を依頼してください。'
+
 export async function saveScheduleData(data: ScheduleData): Promise<void> {
+  {
+    const { canWrite } = await import('@/lib/roles')
+    if (!(await canWrite())) throw new Error(VIEWER_FORBIDDEN_MSG)
+  }
   try {
     const supabase = createClient()
     const workersToStore = effectiveWorkerList(data.workers ?? [], data.schedules ?? [])

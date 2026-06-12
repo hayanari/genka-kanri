@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import { isAdminEmail } from "@/lib/supabase/admin";
 import { T } from "@/lib/constants";
 import AuthGuard from "@/components/AuthGuard";
+import { fetchAllRoles, saveUserRole, ROLE_LABELS } from "@/lib/roles";
+import type { UserRole } from "@/lib/roles";
 
 type UserItem = { id: string; email: string; createdAt: string; lastSignInAt: string | null };
 
@@ -14,6 +16,8 @@ export default function AdminPage() {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [roles, setRoles] = useState<Record<string, UserRole>>({});
+  const [roleSaving, setRoleSaving] = useState<string | null>(null);
 
   useEffect(() => {
     const run = async () => {
@@ -40,6 +44,7 @@ export default function AdminPage() {
           return;
         }
         setUsers(data.users ?? []);
+        setRoles(await fetchAllRoles());
       } catch (e) {
         setError("通信エラーが発生しました");
       } finally {
@@ -48,6 +53,19 @@ export default function AdminPage() {
     };
     run();
   }, []);
+
+  const handleRoleChange = async (email: string, role: UserRole) => {
+    setRoleSaving(email);
+    const ok = await saveUserRole(email, role);
+    if (ok) {
+      setRoles((prev) => ({ ...prev, [email.toLowerCase()]: role }));
+    } else {
+      alert(
+        "権限の保存に失敗しました。Supabase で supabase/features_upgrade.sql を実行済みか確認してください。"
+      );
+    }
+    setRoleSaving(null);
+  };
 
   const handleDelete = async (userId: string) => {
     if (!confirm("このアカウントを削除しますか？この操作は取り消せません。")) return;
@@ -147,6 +165,7 @@ export default function AdminPage() {
               <div>
                 <p style={{ fontSize: 13, color: T.ts, marginBottom: 16 }}>
                   登録済みアカウント一覧です。削除したアカウントは再度ログインできません。
+                  権限は「閲覧のみ」「入力可」「管理者」から選べます（未設定は入力可）。
                 </p>
                 <table
                   style={{
@@ -166,6 +185,9 @@ export default function AdminPage() {
                       <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: T.ts }}>
                         最終ログイン
                       </th>
+                      <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: T.ts }}>
+                        権限
+                      </th>
                       <th style={{ width: 80 }} />
                     </tr>
                   </thead>
@@ -183,6 +205,37 @@ export default function AdminPage() {
                         </td>
                         <td style={{ padding: "12px 8px", color: T.ts, fontSize: 12 }}>
                           {formatDate(u.lastSignInAt)}
+                        </td>
+                        <td style={{ padding: "12px 8px" }}>
+                          {isAdminEmail(u.email) ? (
+                            <span style={{ fontSize: 12, fontWeight: 600, color: T.ac }}>
+                              管理者（固定）
+                            </span>
+                          ) : (
+                            <select
+                              value={roles[u.email.toLowerCase()] ?? "editor"}
+                              disabled={roleSaving === u.email}
+                              onChange={(e) =>
+                                handleRoleChange(u.email, e.target.value as UserRole)
+                              }
+                              style={{
+                                padding: "6px 8px",
+                                borderRadius: 6,
+                                border: `1px solid ${T.bd}`,
+                                fontSize: 12,
+                                fontFamily: "inherit",
+                                background: T.s,
+                                color: T.tx,
+                                cursor: "pointer",
+                              }}
+                            >
+                              {(Object.keys(ROLE_LABELS) as UserRole[]).map((r) => (
+                                <option key={r} value={r}>
+                                  {ROLE_LABELS[r]}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                         </td>
                         <td style={{ padding: "12px 8px" }}>
                           <button

@@ -178,7 +178,9 @@ export function loadFromLocalBackup(): BackupData | null {
   return loadLocalBackup();
 }
 
-export type SaveResult = { ok: true } | { ok: false; reason: "guard" | "error" };
+export type SaveResult =
+  | { ok: true }
+  | { ok: false; reason: "guard" | "error" | "forbidden" };
 
 export async function saveData(
   data: {
@@ -193,6 +195,11 @@ export async function saveData(
   options?: { force?: boolean }
 ): Promise<SaveResult> {
   try {
+    // 閲覧専用ロールは保存不可
+    const { canWrite } = await import("../roles");
+    if (!(await canWrite())) {
+      return { ok: false, reason: "forbidden" };
+    }
     const sanitized = sanitizeBeforeSave(data);
     const backupPayload = {
       projects: sanitized.projects,

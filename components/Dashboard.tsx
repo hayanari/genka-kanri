@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { COST_CATEGORIES, STATUS_MAP, Icons } from "@/lib/constants";
 import { projStats, normalizePersonName } from "@/lib/utils";
-import type { Project, Cost, Quantity } from "@/lib/utils";
+import type { Project, Cost, Quantity, Vehicle } from "@/lib/utils";
 import { Metric, Card, Bar, Btn } from "./ui/primitives";
 import { T } from "@/lib/constants";
 import { fmt } from "@/lib/constants";
+import { loadScheduleData } from "@/lib/scheduleStorage";
+import type { ScheduleEntry } from "@/types/schedule";
 
 function buildMonthOptions() {
   const now = new Date();
@@ -28,6 +30,7 @@ export default function Dashboard({
   projects,
   costs,
   quantities,
+  vehicles = [],
   onNav,
   onNavToCashflowMonth,
   onNavToPersonFilter,
@@ -35,6 +38,7 @@ export default function Dashboard({
   projects: Project[];
   costs: Cost[];
   quantities: Quantity[];
+  vehicles?: Vehicle[];
   onNav: (v: string, pid?: string) => void;
   onNavToCashflowMonth?: (yyyyMM: string) => void;
   onNavToPersonFilter?: (personName: string) => void;
@@ -42,6 +46,17 @@ export default function Dashboard({
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const [cashflowMonth, setCashflowMonth] = useState(defaultMonth);
+  const [scheduleEntries, setScheduleEntries] = useState<ScheduleEntry[] | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    loadScheduleData().then((d) => {
+      if (mounted) setScheduleEntries(d?.schedules ?? []);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const cashflowProjects = projects.filter(
     (p) => p.expectedPaymentDate && p.expectedPaymentDate.startsWith(cashflowMonth)
@@ -88,6 +103,74 @@ export default function Dashboard({
   });
 
   const isMobile = useMediaQuery("(max-width: 767px)");
+
+  // ── 予実対比アラート（実行予算に対する原価の消化率） ──
+  const budgetAlerts = projects
+    .filter((p) => p.mode !== "subcontract" && p.budget > 0)
+    .map((p) => {
+      const st = projStats(p, costs, quantities);
+      return { p, st, ratio: Math.round((st.totalCost / p.budget) * 100) };
+    })
+    .filter((x) => x.ratio >= 80)
+    .sort((a, b) => b.ratio - a.ratio);
+
+  // ── 資金繰り予測（今月から6ヶ月の入金予定） ──
+  const todayStr = now.toISOString().slice(0, 10);
+  const expectedAmountOf = (p: Project) => {
+    const amt = p.expectedPaymentAmount ?? (p.billedAmount - p.paidAmount);
+    return amt > 0 ? amt : 0;
+  };
+  const cashflowMonths = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const list = projects.filter(
+      (p) => p.expectedPaymentDate?.startsWith(ym) && p.status !== "paid"
+    );
+    return {
+      ym,
+      label: `${d.getFullYear()}年${d.getMonth() + 1}月`,
+      count: list.length,
+      total: list.reduce((s, p) => s + expectedAmountOf(p), 0),
+    };
+  });
+  let cashflowCum = 0;
+  const cashflowRows = cashflowMonths.map((m) => {
+    cashflowCum += m.total;
+    return { ...m, cum: cashflowCum };
+  });
+  const overduePayments = projects
+    .filter(
+      (p) =>
+        p.expectedPaymentDate &&
+        p.expectedPaymentDate < todayStr &&
+        p.status !== "paid" &&
+        expectedAmountOf(p) > 0
+    )
+    .sort((a, b) => (a.expectedPaymentDate! < b.expectedPaymentDate! ? -1 : 1));
+
+  // ── 稼働状況（直近30日のスケジュール実績） ──
+  const date30ago = new Date(now.getTime() - 30 * 24 * 3600 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const recentEntries = (scheduleEntries ?? []).filter(
+    (e) => e.shift !== "off" && e.date >= date30ago && e.date <= todayStr
+  );
+  const workerDays = new Map<string, number>();
+  const vehicleDays = new Map<string, number>();
+  for (const e of recentEntries) {
+    for (const w of e.workers ?? []) workerDays.set(w, (workerDays.get(w) ?? 0) + 1);
+    for (const v of e.vehicleIds ?? []) vehicleDays.set(v, (vehicleDays.get(v) ?? 0) + 1);
+  }
+  const workerRanking = [...workerDays.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const vehicleRanking = [...vehicleDays.entries()]
+    .map(([id, days]) => ({
+      name: vehicles.find((v) => v.id === id)?.registration ?? id,
+      days,
+    }))
+    .sort((a, b) => b.days - a.days)
+    .slice(0, 10);
+  const maxWorkerDays = Math.max(...workerRanking.map(([, d]) => d), 1);
+  const maxVehicleDays = Math.max(...vehicleRanking.map((v) => v.days), 1);
 
   return (
     <div>
@@ -139,6 +222,58 @@ export default function Dashboard({
           color={T.ok}
         />
       </div>
+
+      {budgetAlerts.length > 0 && (
+        <Card
+          style={{
+            marginBottom: "24px",
+            background: "#fef2f2",
+            borderColor: "#fecaca",
+          }}
+        >
+          <div style={{ fontSize: "13px", fontWeight: 700, color: T.dg, marginBottom: "12px" }}>
+            ⚠️ 予算アラート — 実行予算の8割を超えた案件（{budgetAlerts.length}件）
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {budgetAlerts.map(({ p, st, ratio }) => (
+              <div
+                key={p.id}
+                onClick={() => onNav("detail", p.id)}
+                style={{ cursor: "pointer" }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    marginBottom: "4px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "13px",
+                      color: T.tx,
+                      fontWeight: 600,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      maxWidth: isMobile ? "100%" : "60%",
+                    }}
+                  >
+                    {p.name}
+                  </span>
+                  <span style={{ fontSize: "12px", color: ratio > 100 ? T.dg : T.wn, fontWeight: 700 }}>
+                    原価 ¥{fmt(st.totalCost)} / 予算 ¥{fmt(p.budget)}（{ratio}%
+                    {ratio > 100 ? " 超過" : ""}）
+                  </span>
+                </div>
+                <Bar value={ratio} color={ratio > 100 ? T.dg : T.wn} h={6} />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <Card
         style={{ marginBottom: "24px" }}
@@ -205,6 +340,82 @@ export default function Dashboard({
             </span>
           )}
         </div>
+      </Card>
+
+      <Card style={{ marginBottom: "24px" }}>
+        <div style={{ fontSize: "11px", color: T.ts, marginBottom: "10px" }}>
+          📈 資金繰り予測（今後6ヶ月の入金予定）
+        </div>
+        <div className="table-scroll">
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${T.bd}` }}>
+                <th style={{ padding: "6px 8px", textAlign: "left", color: T.ts, fontWeight: 500 }}>月</th>
+                <th style={{ padding: "6px 8px", textAlign: "right", color: T.ts, fontWeight: 500 }}>件数</th>
+                <th style={{ padding: "6px 8px", textAlign: "right", color: T.ts, fontWeight: 500 }}>入金予定額</th>
+                <th style={{ padding: "6px 8px", textAlign: "right", color: T.ts, fontWeight: 500 }}>累計</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cashflowRows.map((m) => (
+                <tr
+                  key={m.ym}
+                  onClick={
+                    m.count > 0 && onNavToCashflowMonth
+                      ? () => onNavToCashflowMonth(m.ym)
+                      : undefined
+                  }
+                  style={{
+                    borderBottom: `1px solid ${T.bd}22`,
+                    cursor: m.count > 0 && onNavToCashflowMonth ? "pointer" : "default",
+                  }}
+                >
+                  <td style={{ padding: "8px", color: T.tx }}>{m.label}</td>
+                  <td style={{ padding: "8px", textAlign: "right", color: T.ts }}>{m.count}件</td>
+                  <td style={{ padding: "8px", textAlign: "right", fontWeight: 600, color: m.total > 0 ? T.ac : T.ts }}>
+                    ¥{fmt(m.total)}
+                  </td>
+                  <td style={{ padding: "8px", textAlign: "right", color: T.ts }}>¥{fmt(m.cum)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {overduePayments.length > 0 && (
+          <div
+            style={{
+              marginTop: "12px",
+              padding: "12px",
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: "8px",
+            }}
+          >
+            <div style={{ fontSize: "12px", fontWeight: 700, color: T.dg, marginBottom: "8px" }}>
+              🔔 入金予定日を過ぎている案件（{overduePayments.length}件）
+            </div>
+            {overduePayments.map((p) => (
+              <div
+                key={p.id}
+                onClick={() => onNav("detail", p.id)}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  fontSize: "12px",
+                  padding: "4px 0",
+                  cursor: "pointer",
+                  flexWrap: "wrap",
+                }}
+              >
+                <span style={{ color: T.tx }}>{p.name}</span>
+                <span style={{ color: T.dg, fontWeight: 600 }}>
+                  予定日 {p.expectedPaymentDate} ／ ¥{fmt(expectedAmountOf(p))}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       <div
@@ -500,6 +711,62 @@ export default function Dashboard({
               </div>
             );
           })}
+        </Card>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          gap: "14px",
+          marginBottom: "24px",
+        }}
+      >
+        <Card>
+          <h4 style={{ margin: "0 0 4px", fontSize: "14px", color: T.tx }}>
+            👷 作業員の稼働状況（直近30日）
+          </h4>
+          <div style={{ fontSize: "11px", color: T.ts, marginBottom: "12px" }}>
+            スケジュール管理の実績から自動集計
+          </div>
+          {scheduleEntries === null && (
+            <div style={{ fontSize: "12px", color: T.ts }}>読み込み中...</div>
+          )}
+          {scheduleEntries !== null && workerRanking.length === 0 && (
+            <div style={{ fontSize: "12px", color: T.ts }}>直近30日の予定がありません</div>
+          )}
+          {workerRanking.map(([name, days]) => (
+            <div key={name} style={{ marginBottom: "10px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                <span style={{ fontSize: "12px", color: T.tx }}>{name}</span>
+                <span style={{ fontSize: "12px", fontWeight: 600, color: T.ac }}>{days}日</span>
+              </div>
+              <Bar value={Math.round((days / maxWorkerDays) * 100)} color={T.ac} h={5} />
+            </div>
+          ))}
+        </Card>
+        <Card>
+          <h4 style={{ margin: "0 0 4px", fontSize: "14px", color: T.tx }}>
+            🚛 車両の稼働状況（直近30日）
+          </h4>
+          <div style={{ fontSize: "11px", color: T.ts, marginBottom: "12px" }}>
+            スケジュール管理の実績から自動集計
+          </div>
+          {scheduleEntries === null && (
+            <div style={{ fontSize: "12px", color: T.ts }}>読み込み中...</div>
+          )}
+          {scheduleEntries !== null && vehicleRanking.length === 0 && (
+            <div style={{ fontSize: "12px", color: T.ts }}>直近30日の使用記録がありません</div>
+          )}
+          {vehicleRanking.map((v) => (
+            <div key={v.name} style={{ marginBottom: "10px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                <span style={{ fontSize: "12px", color: T.tx, fontFamily: "monospace" }}>{v.name}</span>
+                <span style={{ fontSize: "12px", fontWeight: 600, color: "#8b5cf6" }}>{v.days}日</span>
+              </div>
+              <Bar value={Math.round((v.days / maxVehicleDays) * 100)} color="#8b5cf6" h={5} />
+            </div>
+          ))}
         </Card>
       </div>
 

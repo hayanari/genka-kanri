@@ -13,6 +13,9 @@ import { loadScheduleData } from "@/lib/scheduleStorage";
 import { signOut } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/client";
 import { isAdminEmail } from "@/lib/supabase/admin";
+import { useUserRole } from "@/lib/roles";
+import { logAudit, summarizeGenkaChanges } from "@/lib/auditLog";
+import type { GenkaSnapshot } from "@/lib/auditLog";
 import type {
   Project,
   Cost,
@@ -64,6 +67,8 @@ export default function Home() {
   const [showCsvExportModal, setShowCsvExportModal] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const lastSyncedRevisionRef = useRef<string | null>(null);
+  const { role } = useUserRole();
+  const lastAuditedSnapshotRef = useRef<GenkaSnapshot | null>(null);
   const viewRef = useRef(view);
   const csvModalRef = useRef(showCsvExportModal);
   viewRef.current = view;
@@ -95,6 +100,22 @@ export default function Home() {
       const result = await saveData(d, opts);
       if (result.ok) {
         lastSyncedRevisionRef.current = await fetchGenkaDataRevision();
+        // 変更履歴（監査ログ）を記録
+        const prevSnap = lastAuditedSnapshotRef.current;
+        const nextSnap: GenkaSnapshot = {
+          projects: d.projects,
+          costs: d.costs,
+          quantities: d.quantities,
+          bidSchedules: d.bidSchedules,
+          equipmentRequests: d.equipmentRequests,
+          vehicles: d.vehicles,
+          processMasters: d.processMasters,
+        };
+        if (prevSnap) {
+          const lines = summarizeGenkaChanges(prevSnap, nextSnap);
+          if (lines.length > 0) logAudit("案件データ更新", lines.join("\n"));
+        }
+        lastAuditedSnapshotRef.current = JSON.parse(JSON.stringify(nextSnap));
       }
       return result;
     },
@@ -121,6 +142,15 @@ export default function Home() {
           hasLoadedSuccessfully.current = true;
           setLoadError(false);
           lastSyncedRevisionRef.current = await fetchGenkaDataRevision();
+          lastAuditedSnapshotRef.current = JSON.parse(JSON.stringify({
+            projects: loaded.projects,
+            costs: loaded.costs,
+            quantities: loaded.quantities,
+            bidSchedules: loaded.bidSchedules,
+            equipmentRequests: loaded.equipmentRequests,
+            vehicles: loaded.vehicles,
+            processMasters: loaded.processMasters,
+          }));
         }
         setLoading(false);
       })
@@ -132,6 +162,8 @@ export default function Home() {
 
   useEffect(() => {
     if (loading || loadError || !hasLoadedSuccessfully.current) return;
+    // 権限取得前・閲覧専用ユーザーは自動保存しない
+    if (role === null || role === "viewer") return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       const d = dataRef.current;
@@ -140,6 +172,8 @@ export default function Home() {
       if (!result.ok) {
         if (result.reason === "conflict") {
           setSaveError("別の端末でデータが更新されました。ページを再読み込み（F5）してください。");
+        } else if (result.reason === "forbidden") {
+          setSaveError("閲覧専用の権限のため変更は保存されません");
         } else {
           setSaveError(result.reason === "guard" ? "データ保護のため保存をキャンセルしました" : "保存に失敗しました");
         }
@@ -155,7 +189,7 @@ export default function Home() {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [data, loading, loadError, saveDataIfCurrent]);
+  }, [data, loading, loadError, saveDataIfCurrent, role]);
 
   // タブ復帰時: 案件データが他端末で更新されていれば自動再読み込み（新規作成画面・CSVモーダル中は除く）
   useEffect(() => {
@@ -535,12 +569,14 @@ export default function Home() {
     { id: "new", label: "新規案件", icon: Icons.plus },
     { id: "equipment", label: "備品申請", icon: Icons.list },
     { id: "schedule", label: "スケジュール管理", icon: Icons.calendar, href: "/schedule" },
+    { id: "field", label: "現場入力（スマホ）", icon: Icons.plus, href: "/field" },
     { id: "processmeeting", label: "工程会議ボード", icon: Icons.process, href: "/process-meeting" },
     { id: "bidschedule", label: "入札スケジュール", icon: Icons.calendar },
     { id: "archive", label: "アーカイブ", icon: Icons.archive },
     { id: "deleted", label: "削除済み", icon: Icons.trash },
     { id: "vehicles", label: "車両マスタ", icon: Icons.truck },
     { id: "processmasters", label: "工程マスタ", icon: Icons.process },
+    { id: "history", label: "変更履歴", icon: Icons.list, href: "/history" },
   ];
 
   const handleLogout = async () => {
@@ -851,6 +887,21 @@ export default function Home() {
             {syncNotice}
           </div>
         )}
+        {role === "viewer" && (
+          <div
+            style={{
+              background: "#fffbeb",
+              border: "1px solid #fcd34d",
+              color: "#92400e",
+              padding: "10px 16px",
+              borderRadius: "8px",
+              fontSize: "13px",
+              marginBottom: "16px",
+            }}
+          >
+            👁 閲覧専用モードです。画面上で操作しても変更は保存されません。
+          </div>
+        )}
         {loading && (
           <div
             style={{
@@ -923,6 +974,7 @@ export default function Home() {
             projects={activeProjects}
             costs={data.costs}
             quantities={data.quantities}
+            vehicles={data.vehicles}
             onNav={navWithClose}
             onNavToCashflowMonth={(yyyyMM) => {
               setExpectedPaymentMonthFilter(yyyyMM);

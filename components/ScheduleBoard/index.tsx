@@ -10,7 +10,8 @@ import { jsPDF } from 'jspdf'
 import type { ScheduleEntry, DayMemos, ViewType } from '@/types/schedule'
 import type { Project, Vehicle } from '@/lib/utils'
 import { SAMPLE_DATA, getSampleDataForMarch2026 } from '@/lib/sampleData'
-import { loadScheduleData, saveScheduleData, saveSchedulePendingSync, fetchScheduleRevision } from '@/lib/scheduleStorage'
+import { loadScheduleData, saveScheduleData, saveSchedulePendingSync, fetchScheduleRevision, VIEWER_FORBIDDEN_MSG } from '@/lib/scheduleStorage'
+import { logAudit } from '@/lib/auditLog'
 import { loadData } from '@/lib/supabase/data'
 import { loadWorkerContacts, saveWorkerContact, deleteWorkerContact } from '@/lib/workerContacts'
 import { computeScheduleChanges } from '@/lib/scheduleNotify'
@@ -91,11 +92,22 @@ export default function ScheduleBoard() {
       lastSyncedRevisionRef.current = await fetchScheduleRevision()
     } catch (e) {
       console.error('[persist]', e)
-      alert('保存に失敗しました。ネットワークをご確認ください。')
+      if (e instanceof Error && e.message === VIEWER_FORBIDDEN_MSG) {
+        alert(VIEWER_FORBIDDEN_MSG)
+      } else {
+        alert('保存に失敗しました。ネットワークをご確認ください。')
+      }
       return null
     }
     if (prevSchedules !== undefined && prevSchedules !== s) {
       const changes = computeScheduleChanges(prevSchedules, s)
+      if (changes.length > 0) {
+        logAudit(
+          'スケジュール更新',
+          changes.slice(0, 10).map(c => `${c.workerName}: ${c.date} ${c.message}`).join('\n') +
+            (changes.length > 10 ? `\n…ほか${changes.length - 10}件` : '')
+        )
+      }
       if (changes.length > 0) {
         console.log('[Notify] 変更検知', changes.length, '件', changes.map(c => `${c.workerName}: ${c.message}`))
         createClient().auth.getSession().then(({ data: { session } }) => {

@@ -44,6 +44,22 @@ export default function BidScheduleList({
   const canAddToProjects = (b: BidSchedule) =>
     (b.status === "won" || b.status === "expected") && !b.projectId;
 
+  // ── 勝率分析（結果が出た入札 = 落札 + 失札） ──
+  const decided = bidSchedules.filter((b) => b.status === "won" || b.status === "lost");
+  const wonCount = decided.filter((b) => b.status === "won").length;
+  const winRate = decided.length > 0 ? Math.round((wonCount / decided.length) * 100) : null;
+  const winRateBy = (filterFn: (b: BidSchedule) => boolean) => {
+    const d = decided.filter(filterFn);
+    const w = d.filter((b) => b.status === "won").length;
+    return { total: d.length, won: w, rate: d.length > 0 ? Math.round((w / d.length) * 100) : null };
+  };
+  const koujiStats = winRateBy((b) => b.category === "工事");
+  const gyomuStats = winRateBy((b) => b.category === "業務");
+  const clientStats = [...new Set(decided.map((b) => b.client))]
+    .map((client) => ({ client, ...winRateBy((b) => b.client === client) }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+
   return (
     <div>
       <div
@@ -62,6 +78,60 @@ export default function BidScheduleList({
           {Icons.plus} 新規追加
         </Btn>
       </div>
+      {decided.length > 0 && (
+        <Card style={{ marginBottom: "16px" }}>
+          <div style={{ fontSize: "11px", color: T.ts, marginBottom: "12px" }}>
+            🎯 入札勝率分析（結果が出た入札 {decided.length}件）
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "20px 32px", alignItems: "baseline" }}>
+            <div>
+              <div style={{ fontSize: "10px", color: T.ts }}>全体勝率</div>
+              <div style={{ fontSize: "24px", fontWeight: 700, color: winRate !== null && winRate >= 50 ? T.ok : T.wn }}>
+                {winRate}%
+                <span style={{ fontSize: "12px", color: T.ts, fontWeight: 400 }}>
+                  {" "}（落札{wonCount} / {decided.length}件）
+                </span>
+              </div>
+            </div>
+            {koujiStats.total > 0 && (
+              <div>
+                <div style={{ fontSize: "10px", color: T.ts }}>工事</div>
+                <div style={{ fontSize: "18px", fontWeight: 700, color: T.tx }}>
+                  {koujiStats.rate}%
+                  <span style={{ fontSize: "11px", color: T.ts, fontWeight: 400 }}> （{koujiStats.won}/{koujiStats.total}）</span>
+                </div>
+              </div>
+            )}
+            {gyomuStats.total > 0 && (
+              <div>
+                <div style={{ fontSize: "10px", color: T.ts }}>業務</div>
+                <div style={{ fontSize: "18px", fontWeight: 700, color: T.tx }}>
+                  {gyomuStats.rate}%
+                  <span style={{ fontSize: "11px", color: T.ts, fontWeight: 400 }}> （{gyomuStats.won}/{gyomuStats.total}）</span>
+                </div>
+              </div>
+            )}
+          </div>
+          {clientStats.length > 0 && (
+            <div style={{ marginTop: "14px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
+              {clientStats.map((c) => (
+                <span
+                  key={c.client}
+                  style={{
+                    fontSize: "11px",
+                    padding: "4px 10px",
+                    background: T.s2,
+                    borderRadius: "6px",
+                    color: T.ts,
+                  }}
+                >
+                  {c.client}: <b style={{ color: T.tx }}>{c.rate}%</b>（{c.won}/{c.total}）
+                </span>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
       <Card>
         <div
           style={{

@@ -38,6 +38,15 @@ import {
 } from "./ui/primitives";
 import { parseDesignBookToProcesses } from "@/lib/parseDesignBook";
 import { parseQuantityTableToSections } from "@/lib/parseQuantityTable";
+import { loadScheduleData } from "@/lib/scheduleStorage";
+import {
+  aggregateScheduleForProject,
+  aggregatesToQuantities,
+  findExistingAutoRows,
+} from "@/lib/scheduleLabor";
+import type { MonthlyLaborAggregate } from "@/lib/scheduleLabor";
+import { uploadReceipt, getReceiptUrl, deleteReceipt } from "@/lib/receipts";
+import type { ReceiptAttachment } from "@/lib/receipts";
 
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 
@@ -140,6 +149,11 @@ export default function ProjectDetail({
     date: new Date().toISOString().slice(0, 10),
   });
   const [ef, setEf] = useState<Project | null>(null);
+  const [cfAttachments, setCfAttachments] = useState<ReceiptAttachment[]>([]);
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);
+  const pendingCostIdRef = useRef<string | null>(null);
+  const [schedAgg, setSchedAgg] = useState<MonthlyLaborAggregate[] | null>(null);
+  const [schedAggLoading, setSchedAggLoading] = useState(false);
 
   const st = projStats(p, allCosts, allQty);
   const payStatus =
@@ -154,23 +168,28 @@ export default function ProjectDetail({
   });
 
   const handleAddCost = () => {
+    const attachments = cfAttachments.length > 0 ? cfAttachments : undefined;
     if (editingCostId) {
       onUpdateCost({
         id: editingCostId,
         projectId: p.id,
         ...cf,
         amount: Number(cf.amount),
+        attachments,
       });
     } else {
       onAddCost({
-        id: genId(),
+        id: pendingCostIdRef.current ?? genId(),
         projectId: p.id,
         ...cf,
         amount: Number(cf.amount),
+        attachments,
       });
     }
     setCostModal(false);
     setEditingCostId(null);
+    pendingCostIdRef.current = null;
+    setCfAttachments([]);
     setCf({
       category: "material",
       description: "",
@@ -189,7 +208,118 @@ export default function ProjectDetail({
       date: c.date,
       vendor: c.vendor,
     });
+    setCfAttachments(c.attachments ?? []);
     setCostModal(true);
+  };
+
+  /** 既存明細を複製して追加モーダルを開く（日付は今日） */
+  const openCostDuplicate = (c: Cost) => {
+    setEditingCostId(null);
+    pendingCostIdRef.current = genId();
+    setCf({
+      category: c.category,
+      description: c.description,
+      amount: String(c.amount),
+      date: new Date().toISOString().slice(0, 10),
+      vendor: c.vendor,
+    });
+    setCfAttachments([]);
+    setCostModal(true);
+  };
+
+  /** 先月の原価明細を今月の日付で一括コピー */
+  const handleCopyLastMonthCosts = () => {
+    const now = new Date();
+    const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const prevD = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonth = `${prevD.getFullYear()}-${String(prevD.getMonth() + 1).padStart(2, "0")}`;
+    const src = st.costs.filter((c) => (c.date ?? "").startsWith(prevMonth));
+    if (src.length === 0) {
+      alert(`先月（${prevD.getFullYear()}年${prevD.getMonth() + 1}月）の原価明細がありません`);
+      return;
+    }
+    if (
+      !confirm(
+        `先月の原価 ${src.length}件（外注費・リース料などの定期費用）を今月の日付でコピーします。よろしいですか？`
+      )
+    )
+      return;
+    const daysInThis = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    for (const c of src) {
+      const day = Math.min(Number(c.date.slice(8, 10)) || 1, daysInThis);
+      onAddCost({
+        ...c,
+        id: genId(),
+        date: `${thisMonth}-${String(day).padStart(2, "0")}`,
+        attachments: undefined,
+      });
+    }
+  };
+
+  /** 領収書アップロード */
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!pendingCostIdRef.current && !editingCostId) pendingCostIdRef.current = genId();
+    const costId = editingCostId ?? pendingCostIdRef.current!;
+    setUploadingReceipt(true);
+    const att = await uploadReceipt(file, costId);
+    setUploadingReceipt(false);
+    e.target.value = "";
+    if (!att) {
+      alert(
+        "アップロードに失敗しました。Supabase で supabase/features_upgrade.sql（receiptsバケット作成）を実行済みか確認してください。"
+      );
+      return;
+    }
+    setCfAttachments((prev) => [...prev, att]);
+  };
+
+  const openAttachment = async (path: string) => {
+    const url = await getReceiptUrl(path);
+    if (url) window.open(url, "_blank");
+    else alert("添付ファイルを取得できませんでした");
+  };
+
+  /** スケジュール実績を集計（プレビュー） */
+  const handleAggregateSchedule = async () => {
+    setSchedAggLoading(true);
+    try {
+      const data = await loadScheduleData();
+      if (!data) {
+        alert("スケジュールデータを読み込めませんでした");
+        return;
+      }
+      const aggs = aggregateScheduleForProject(p, data.schedules);
+      setSchedAgg(aggs);
+      if (aggs.length === 0) {
+        alert(
+          `スケジュールにこの案件と一致する予定が見つかりませんでした。\n\nスケジュールの「工事名」に案件名（または管理番号 ${p.managementNumber ?? ""}）と同じ名前が含まれていると自動で一致します。`
+        );
+      }
+    } finally {
+      setSchedAggLoading(false);
+    }
+  };
+
+  /** 集計結果を人工・車両記録として取込（既存の自動集計行は置き換え） */
+  const handleImportScheduleAgg = () => {
+    if (!schedAgg || schedAgg.length === 0) return;
+    const existing = findExistingAutoRows(p.id, allQty);
+    const rows = aggregatesToQuantities(p.id, schedAgg);
+    if (
+      !confirm(
+        `スケジュール実績を月別 ${rows.length}行として取り込みます。` +
+          (existing.length > 0
+            ? `\n（既存の自動集計 ${existing.length}行は新しい集計に置き換えます）`
+            : "") +
+          "\nよろしいですか？"
+      )
+    )
+      return;
+    existing.forEach((q) => onDeleteQty(q.id));
+    rows.forEach((r) => onAddQty(r));
+    setSchedAgg(null);
   };
   const handleAddQty = () => {
     const isVehicle = qf.category === "vehicle";
@@ -983,23 +1113,30 @@ export default function ProjectDetail({
               原価明細（実費）
               {isSubcontract ? " ※打合せ等" : ""} {st.costs.length}件
             </h4>
-            <Btn
-              v="primary"
-              sm
-              onClick={() => {
-                setEditingCostId(null);
-                setCf({
-                  category: "material",
-                  description: "",
-                  amount: "",
-                  date: new Date().toISOString().slice(0, 10),
-                  vendor: "",
-                });
-                setCostModal(true);
-              }}
-            >
-              {Icons.plus} 原価追加
-            </Btn>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <Btn sm onClick={handleCopyLastMonthCosts} title="先月の原価明細を今月の日付で一括コピー">
+                📋 先月分をコピー
+              </Btn>
+              <Btn
+                v="primary"
+                sm
+                onClick={() => {
+                  setEditingCostId(null);
+                  pendingCostIdRef.current = genId();
+                  setCfAttachments([]);
+                  setCf({
+                    category: "material",
+                    description: "",
+                    amount: "",
+                    date: new Date().toISOString().slice(0, 10),
+                    vendor: "",
+                  });
+                  setCostModal(true);
+                }}
+              >
+                {Icons.plus} 原価追加
+              </Btn>
+            </div>
           </div>
           {st.costs.length === 0 ? (
             <div
@@ -1071,6 +1208,22 @@ export default function ProjectDetail({
                           }}
                         >
                           {c.description}
+                          {(c.attachments?.length ?? 0) > 0 && (
+                            <button
+                              onClick={() => openAttachment(c.attachments![0].path)}
+                              title={`添付 ${c.attachments!.length}件を表示`}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                marginLeft: "6px",
+                                padding: 0,
+                              }}
+                            >
+                              📎{c.attachments!.length > 1 ? c.attachments!.length : ""}
+                            </button>
+                          )}
                         </td>
                         <td
                           style={{
@@ -1094,6 +1247,20 @@ export default function ProjectDetail({
                         </td>
                         <td style={{ padding: "10px 4px" }}>
                           <span style={{ display: "flex", gap: "4px" }}>
+                            <button
+                              onClick={() => openCostDuplicate(c)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: T.ts,
+                                cursor: "pointer",
+                                opacity: 0.6,
+                                fontSize: "12px",
+                              }}
+                              title="この明細を複製"
+                            >
+                              ⧉
+                            </button>
                             <button
                               onClick={() => openCostEdit(c)}
                               style={{
@@ -1211,10 +1378,71 @@ export default function ProjectDetail({
               人工・車両記録
               {isSubcontract ? " ※打合せ等" : ""} {st.quantities.length}件
             </h4>
-            <Btn v="primary" sm onClick={() => setQtyModal(true)}>
-              {Icons.plus} 記録追加
-            </Btn>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <Btn sm onClick={handleAggregateSchedule} disabled={schedAggLoading}>
+                {schedAggLoading ? "集計中..." : "📅 スケジュール実績を集計"}
+              </Btn>
+              <Btn v="primary" sm onClick={() => setQtyModal(true)}>
+                {Icons.plus} 記録追加
+              </Btn>
+            </div>
           </div>
+          {schedAgg && schedAgg.length > 0 && (
+            <div
+              style={{
+                padding: "16px",
+                background: "#f0fdf4",
+                borderRadius: "10px",
+                border: "1px solid #86efac",
+                marginBottom: "20px",
+              }}
+            >
+              <div style={{ fontSize: "13px", fontWeight: 600, color: T.tx, marginBottom: "10px" }}>
+                📅 スケジュールから集計した実績（取込前のプレビュー）
+              </div>
+              <div className="table-scroll">
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${T.bd}` }}>
+                      <th style={{ padding: "6px 8px", textAlign: "left", color: T.ts, fontWeight: 500 }}>月</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right", color: T.ts, fontWeight: 500 }}>人工（人日）</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right", color: T.ts, fontWeight: 500 }}>車両（台日）</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right", color: T.ts, fontWeight: 500 }}>予定数</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left", color: T.ts, fontWeight: 500 }}>一致した工事名</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {schedAgg.map((a) => (
+                      <tr key={a.month} style={{ borderBottom: `1px solid ${T.bd}22` }}>
+                        <td style={{ padding: "6px 8px", color: T.tx }}>
+                          {a.month.slice(0, 4)}年{Number(a.month.slice(5))}月
+                        </td>
+                        <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: T.tx }}>
+                          {a.laborDays}
+                        </td>
+                        <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: T.tx }}>
+                          {a.vehicleDays}
+                        </td>
+                        <td style={{ padding: "6px 8px", textAlign: "right", color: T.ts }}>{a.entryCount}</td>
+                        <td style={{ padding: "6px 8px", color: T.ts, fontSize: "11px" }}>
+                          {a.koujimeiSamples.join(" / ")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", gap: "8px", marginTop: "12px", justifyContent: "flex-end" }}>
+                <Btn sm onClick={() => setSchedAgg(null)}>キャンセル</Btn>
+                <Btn v="success" sm onClick={handleImportScheduleAgg}>
+                  この内容で人工・車両記録に取込
+                </Btn>
+              </div>
+              <div style={{ fontSize: "11px", color: T.ts, marginTop: "8px" }}>
+                ※ 月別に1行ずつ登録されます。再度取り込むと自動集計分だけが最新に置き換わります（手入力の記録はそのまま残ります）。
+              </div>
+            </div>
+          )}
           <div
             style={{
               padding: "16px",
@@ -3200,6 +3428,68 @@ export default function ProjectDetail({
             value={cf.date}
             onChange={(e) => setCf((f) => ({ ...f, date: e.target.value }))}
           />
+          <div>
+            <label
+              style={{
+                fontSize: 12,
+                color: T.ts,
+                fontWeight: 500,
+                marginBottom: 6,
+                display: "block",
+              }}
+            >
+              📎 領収書・請求書の写真（任意）
+            </label>
+            {cfAttachments.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                {cfAttachments.map((a) => (
+                  <div
+                    key={a.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 12,
+                      background: T.s2,
+                      borderRadius: 6,
+                      padding: "6px 10px",
+                    }}
+                  >
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {a.name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => openAttachment(a.path)}
+                      style={{ background: "none", border: "none", color: T.ac, cursor: "pointer", fontSize: 12 }}
+                    >
+                      表示
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        deleteReceipt(a.path);
+                        setCfAttachments((prev) => prev.filter((x) => x.id !== a.id));
+                      }}
+                      style={{ background: "none", border: "none", color: T.dg, cursor: "pointer", fontSize: 12 }}
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={handleReceiptUpload}
+              disabled={uploadingReceipt}
+              style={{ fontSize: 12, fontFamily: "inherit" }}
+            />
+            {uploadingReceipt && (
+              <div style={{ fontSize: 12, color: T.ts, marginTop: 4 }}>アップロード中...</div>
+            )}
+          </div>
           <div
             style={{
               display: "flex",

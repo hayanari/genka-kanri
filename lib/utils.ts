@@ -104,6 +104,8 @@ export interface Cost {
   amount: number;
   date: string;
   vendor: string;
+  /** 領収書・請求書の添付（Supabase Storage receipts バケットのパス） */
+  attachments?: { id: string; path: string; name: string }[];
 }
 
 export interface BidSchedule {
