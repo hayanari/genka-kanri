@@ -2,9 +2,10 @@
 // lib/scheduleStorage.ts
 // ストレージ層 — Supabase
 // ================================================================
-import type { ScheduleData } from '@/types/schedule'
+import type { ScheduleData, ScheduleEntry, DayMemos } from '@/types/schedule'
 import { createClient } from '@/lib/supabase/client'
 import { effectiveWorkerList } from '@/lib/scheduleUtils'
+import { mergeCollection } from '@/lib/mergeData'
 
 const PENDING_KEY = 'schedule_pending'
 const PENDING_TTL_MS = 15_000 // 15秒以内のバックアップのみ復元
@@ -133,7 +134,72 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
 
 export const VIEWER_FORBIDDEN_MSG = '閲覧専用の権限のため保存できません。管理者に変更権限を依頼してください。'
 
-export async function saveScheduleData(data: ScheduleData): Promise<void> {
+/**
+ * 同時編集対策のための「自分が最後に同期した状態」。
+ * 削除はこのベースラインに存在した分にだけ適用し、
+ * 他の端末が後から追加した予定・作業員・メモを誤って消さないようにする。
+ */
+export type ScheduleBaseline = ScheduleData
+
+/** スケジュールの三方マージ（base=最後に同期した状態 / local=自分 / server=サーバー最新） */
+export function mergeScheduleData(
+  base: ScheduleData,
+  local: ScheduleData,
+  server: ScheduleData
+): ScheduleData {
+  // 予定エントリ: ID単位で統合
+  const schedules = mergeCollection<ScheduleEntry>(
+    base.schedules ?? [],
+    local.schedules ?? [],
+    server.schedules ?? []
+  )
+
+  // 作業員: 追加はどちらの分も残し、削除は「相手が触っていない場合」だけ適用
+  const baseW = new Set(base.workers ?? [])
+  const localW = new Set(local.workers ?? [])
+  const serverW = new Set(server.workers ?? [])
+  const workers: string[] = []
+  for (const w of [...(local.workers ?? []), ...(server.workers ?? [])]) {
+    if (workers.includes(w)) continue
+    const inL = localW.has(w)
+    const inS = serverW.has(w)
+    const inB = baseW.has(w)
+    if (inL && inS) workers.push(w)
+    else if (inL && !inS) {
+      if (!inB) workers.push(w) // 自分が追加
+      // inB: サーバー側で削除済み → 適用
+    } else if (!inL && inS) {
+      if (!inB) workers.push(w) // 相手が追加
+      // inB: 自分が削除 → 適用
+    }
+  }
+
+  // 日次メモ: 日付単位で統合（自分が変更した日は自分優先）
+  const dayMemos: DayMemos = {}
+  const dates = new Set([
+    ...Object.keys(base.dayMemos ?? {}),
+    ...Object.keys(local.dayMemos ?? {}),
+    ...Object.keys(server.dayMemos ?? {}),
+  ])
+  for (const d of dates) {
+    const b = (base.dayMemos ?? {})[d]
+    const l = (local.dayMemos ?? {})[d]
+    const s = (server.dayMemos ?? {})[d]
+    const v = l !== b ? l : s // 自分が変更（削除含む）していれば自分、そうでなければサーバー
+    if (v !== undefined && v !== '') dayMemos[d] = v
+  }
+
+  return {
+    schedules,
+    workers: effectiveWorkerList(workers, schedules),
+    dayMemos,
+  }
+}
+
+export async function saveScheduleData(
+  data: ScheduleData,
+  baseline?: ScheduleBaseline
+): Promise<void> {
   {
     const { canWrite } = await import('@/lib/roles')
     if (!(await canWrite())) throw new Error(VIEWER_FORBIDDEN_MSG)
@@ -159,28 +225,39 @@ export async function saveScheduleData(data: ScheduleData): Promise<void> {
       )
     }
 
-    // クライアントに無い ID を削除（.not('id','in',...) の文字列形式は PostgREST で誤動作しうるため in で明示）
-    const { data: existingRows, error: selErr } = await supabase.from('schedule_entries').select('id')
-    if (selErr) {
-      console.error('[ScheduleStorage] schedule_entries select id:', selErr)
-      throw selErr
-    }
-    const toDelete = (existingRows ?? [])
-      .map((r: { id: string }) => r.id)
-      .filter((id) => !keepIds.has(id))
-    if (toDelete.length > 0) {
-      const { error: delErr } = await supabase.from('schedule_entries').delete().in('id', toDelete)
-      if (delErr) {
-        console.error('[ScheduleStorage] schedule_entries delete:', delErr)
-        throw delErr
+    // 削除: 自分が知っていた（ベースラインにあった）IDのうち、現在残っていないものだけを消す。
+    // 他端末が後から追加した予定は削除対象にしない（同時編集でのデータ消失防止）
+    if (baseline) {
+      const toDelete = (baseline.schedules ?? [])
+        .map((s) => s.id)
+        .filter((id) => !keepIds.has(id))
+      if (toDelete.length > 0) {
+        const { error: delErr } = await supabase.from('schedule_entries').delete().in('id', toDelete)
+        if (delErr) {
+          console.error('[ScheduleStorage] schedule_entries delete:', delErr)
+          throw delErr
+        }
       }
     }
 
-    // 2. 作業員マスター（全置換）— 空配列だけで上書きしないよう effectiveWorkerList で補完済み
+    // 2. 作業員マスター: サーバー側の名前と統合してから置換
+    //    （他端末が追加した作業員を消さない。削除はベースラインにあった分のみ適用）
+    const { data: serverWorkerRows } = await supabase
+      .from('schedule_workers')
+      .select('name, sort_order')
+      .order('sort_order')
+    const serverWorkers = (serverWorkerRows ?? []).map((w: { name: string }) => w.name)
+    const removedByMe = new Set(
+      baseline ? (baseline.workers ?? []).filter((w) => !workersToStore.includes(w)) : []
+    )
+    const finalWorkers = [...workersToStore]
+    for (const w of serverWorkers) {
+      if (!finalWorkers.includes(w) && !removedByMe.has(w)) finalWorkers.push(w)
+    }
     await supabase.from('schedule_workers').delete().gte('id', 1)
-    if (workersToStore.length > 0) {
+    if (finalWorkers.length > 0) {
       await supabase.from('schedule_workers').insert(
-        workersToStore.map((name, i) => ({ name, sort_order: i }))
+        finalWorkers.map((name, i) => ({ name, sort_order: i }))
       )
     }
 
@@ -193,13 +270,15 @@ export async function saveScheduleData(data: ScheduleData): Promise<void> {
       await supabase.from('schedule_day_memos').upsert(memoRows, { onConflict: 'date' })
     }
 
-    // 削除されたメモを除去
-    const memoDates = Object.keys(data.dayMemos)
-    if (memoDates.length > 0) {
-      const datesStr = memoDates.map((d) => `"${d}"`).join(',')
-      await supabase.from('schedule_day_memos').delete().not('date', 'in', `(${datesStr})`)
-    } else {
-      await supabase.from('schedule_day_memos').delete().gte('date', '1970-01-01')
+    // 削除されたメモ: ベースラインにあった日付のうち現在無いものだけを消す
+    if (baseline) {
+      const currentDates = new Set(Object.keys(data.dayMemos))
+      const memoDatesToDelete = Object.keys(baseline.dayMemos ?? {}).filter(
+        (d) => !currentDates.has(d)
+      )
+      if (memoDatesToDelete.length > 0) {
+        await supabase.from('schedule_day_memos').delete().in('date', memoDatesToDelete)
+      }
     }
   } catch (e) {
     console.error('[ScheduleStorage] save error:', e)

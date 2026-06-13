@@ -17,7 +17,9 @@ import {
   setLastRemoteCount,
   isDangerousOverwrite,
 } from "../backup";
-import type { BackupData } from "../backup";
+import type { BackupData, PendingData } from "../backup";
+import { mergeGenkaData } from "../mergeData";
+import type { GenkaDataSet } from "../mergeData";
 
 /** データ消失を防ぐ: 空の projects は保存しない。車両・工程マスタは空配列も意図した状態として保存する */
 function sanitizeBeforeSave(data: {
@@ -65,7 +67,7 @@ export async function fetchGenkaDataRevision(): Promise<string | null> {
   }
 }
 
-export async function loadData(): Promise<{
+export type LoadedData = {
   projects: Project[];
   costs: Cost[];
   quantities: Quantity[];
@@ -73,33 +75,57 @@ export async function loadData(): Promise<{
   processMasters: ProcessMaster[];
   bidSchedules: BidSchedule[];
   equipmentRequests: EquipmentRequest[];
-} | null> {
+};
+
+const pendingToSet = (p: PendingData): GenkaDataSet => ({
+  projects: p.projects ?? [],
+  costs: p.costs ?? [],
+  quantities: p.quantities ?? [],
+  vehicles: (p.vehicles ?? []) as Vehicle[],
+  processMasters: (p.processMasters ?? []) as ProcessMaster[],
+  bidSchedules: p.bidSchedules ?? [],
+  equipmentRequests: (p.equipmentRequests ?? []) as EquipmentRequest[],
+});
+
+export async function loadData(): Promise<LoadedData | null> {
   try {
-    const pending = loadDataPending();
-    if (pending) {
-      const result = await saveData({
-        projects: pending.projects,
-        costs: pending.costs,
-        quantities: pending.quantities,
-        vehicles: pending.vehicles,
-        processMasters: pending.processMasters,
-        bidSchedules: pending.bidSchedules,
-        equipmentRequests: pending.equipmentRequests,
-      }, { force: true });
+    const pendingRes = loadDataPending();
+    if (pendingRes) {
+      // リロード直前の未保存データを復元。
+      // base（最後に同期した状態）があれば、サーバー最新と三方マージして
+      // 他の端末の変更を消さないようにする
+      let payload: GenkaDataSet = pendingToSet(pendingRes.data);
+      if (pendingRes.base) {
+        try {
+          const remote = await fetchRemoteData();
+          if (remote) {
+            payload = mergeGenkaData(
+              pendingToSet(pendingRes.base),
+              payload,
+              remote as GenkaDataSet
+            );
+          }
+        } catch {
+          // リモート取得に失敗した場合は pending をそのまま保存
+        }
+      }
+      const result = await saveData(payload, { force: true });
       if (result.ok) {
         clearDataPending();
-        return {
-          projects: pending.projects,
-          costs: pending.costs,
-          quantities: pending.quantities,
-          vehicles: pending.vehicles as Vehicle[],
-          processMasters: (pending.processMasters ?? []) as ProcessMaster[],
-          bidSchedules: pending.bidSchedules ?? [],
-          equipmentRequests: (pending.equipmentRequests ?? []) as EquipmentRequest[],
-        };
+        return payload as LoadedData;
       }
     }
 
+    return await fetchRemoteData();
+  } catch (e) {
+    console.error("[loadData] Error:", e);
+    return null;
+  }
+}
+
+/** Supabase から案件データを取得・正規化 */
+async function fetchRemoteData(): Promise<LoadedData | null> {
+  try {
     const supabase = createClient();
     const { data, error } = await supabase
       .from("genka_kanri_data")
@@ -168,7 +194,7 @@ export async function loadData(): Promise<{
     setLastRemoteCount(result.projects.length, result.costs.length, result.quantities.length);
     return result;
   } catch (e) {
-    console.error("[loadData] Error:", e);
+    console.error("[fetchRemoteData] Error:", e);
     return null;
   }
 }

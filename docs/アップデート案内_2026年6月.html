@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>案件管理アプリ アップデート案内（2026年6月）</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Yu Gothic", "Meiryo", "Noto Sans JP", sans-serif;
+    color: #1a2535;
+    font-size: 11.5pt;
+    line-height: 1.75;
+    margin: 0;
+  }
+  .header {
+    border-bottom: 3px solid #2563eb;
+    padding-bottom: 10px;
+    margin-bottom: 18px;
+  }
+  .header h1 {
+    font-size: 17pt;
+    margin: 0 0 4px;
+    color: #1e3a8a;
+  }
+  .header .sub {
+    font-size: 10pt;
+    color: #64748b;
+  }
+  .intro {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 10.5pt;
+    margin-bottom: 18px;
+  }
+  h2 {
+    font-size: 13pt;
+    color: #1e3a8a;
+    border-left: 5px solid #2563eb;
+    padding-left: 10px;
+    margin: 22px 0 8px;
+    page-break-after: avoid;
+  }
+  .feature {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    page-break-inside: avoid;
+  }
+  .feature h3 {
+    font-size: 11.5pt;
+    margin: 0 0 6px;
+    color: #0f172a;
+  }
+  .feature p { margin: 4px 0; }
+  .steps {
+    background: #f8fafc;
+    border-radius: 6px;
+    padding: 8px 14px 8px 30px;
+    margin: 6px 0;
+    font-size: 10.5pt;
+  }
+  .steps li { margin: 3px 0; }
+  .point {
+    font-size: 10pt;
+    color: #92400e;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-top: 6px;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 9pt;
+    font-weight: bold;
+    color: #fff;
+    background: #2563eb;
+    border-radius: 4px;
+    padding: 1px 8px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .tag.green { background: #059669; }
+  .tag.orange { background: #d97706; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+    margin: 8px 0;
+  }
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 6px 10px;
+    text-align: left;
+  }
+  th { background: #f1f5f9; }
+  .footer {
+    margin-top: 24px;
+    padding-top: 10px;
+    border-top: 1px solid #cbd5e1;
+    font-size: 9.5pt;
+    color: #64748b;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📐 案件管理アプリ アップデート案内</h1>
+  <div class="sub">2026年6月13日　株式会社トキト　案件管理システム（https://genka-kanri.vercel.app）</div>
+</div>
+
+<div class="intro">
+  案件管理アプリに新しい機能を追加しました。<b>今までのデータや操作はそのまま</b>です。
+  このご案内では、現場のみなさんが日々の業務で使う機能を中心に説明します。
+</div>
+
+<h2>1. スマホから現場入力ができるようになりました</h2>
+<div class="feature">
+  <span class="tag green">現場で使う</span>
+  <h3>📱 現場入力ページ（メニューの「現場入力（スマホ）」）</h3>
+  <p>その日の作業を、現場からスマホで直接登録できます。事務所に戻ってからの入力が不要になります。</p>
+  <ol class="steps">
+    <li>スマホでアプリにログインし、メニューから「現場入力（スマホ）」を開く</li>
+    <li>日付を確認（今日の日付が最初から入っています）</li>
+    <li>工事名を一覧から選ぶ（一覧にない場合は「その他」で入力）</li>
+    <li>日勤・夜勤を選び、<b>作業員と車両をタップで選択</b></li>
+    <li>「この内容で登録する」を押して完了</li>
+  </ol>
+  <p class="point">💡 登録した内容はスケジュール管理に反映され、同じ画面でその日の登録済み予定も確認できます。</p>
+</div>
+
+<h2>2. スケジュールから人工・車両が自動集計できます</h2>
+<div class="feature">
+  <span class="tag">入力がラクに</span>
+  <h3>📅 スケジュール実績の取り込み</h3>
+  <p>スケジュール管理に入れた予定（作業員・車両）を、案件ごとの人工・車両記録として自動で集計できます。1日ずつ手入力する必要はありません。</p>
+  <ol class="steps">
+    <li>案件詳細を開き「👷 人工・車両」タブを選ぶ</li>
+    <li>「📅 スケジュール実績を集計」ボタンを押す</li>
+    <li>月ごとの人工（人日）・車両（台日）が表で表示されるので、内容を確認</li>
+    <li>「この内容で人工・車両記録に取込」を押して確定</li>
+  </ol>
+  <p class="point">💡 スケジュールの「工事名」が案件名と同じなら自動で見つかります。月末に1回取り込めばOK。再度取り込むと自動分だけ最新に置き換わり、手入力した記録は消えません。</p>
+</div>
+
+<h2>3. 原価入力がラクになりました</h2>
+<div class="feature">
+  <span class="tag">入力がラクに</span>
+  <h3>📋 「先月分をコピー」と「複製」ボタン</h3>
+  <p>毎月発生するリース料や外注費を、毎回手で入力しなくてよくなりました。</p>
+  <ul class="steps">
+    <li><b>先月分をコピー</b>：原価明細タブのボタンひとつで、先月の明細を今月の日付でまとめてコピー</li>
+    <li><b>複製（⧉ボタン）</b>：1件だけコピーしたいときは、明細の行にある「⧉」を押すと同じ内容で追加画面が開く</li>
+  </ul>
+</div>
+<div class="feature">
+  <span class="tag green">現場で使う</span>
+  <h3>📎 領収書・請求書の写真添付</h3>
+  <p>原価を入力するとき、領収書や請求書を<b>スマホで撮ってそのまま添付</b>できます。紙の整理や後日の照合がラクになります。</p>
+  <ol class="steps">
+    <li>原価追加（または編集）画面の「📎 領収書・請求書の写真」でファイルを選択（カメラ撮影もOK）</li>
+    <li>保存すると明細に「📎」マークが付き、タップでいつでも確認できます</li>
+  </ol>
+</div>
+
+<h2>4. 会社全体の状況が見やすくなりました（ダッシュボード）</h2>
+<div class="feature">
+  <h3>📊 新しく追加された表示</h3>
+  <table>
+    <tr><th>表示</th><th>内容</th></tr>
+    <tr><td>⚠️ 予算アラート</td><td>実行予算の8割を超えた案件を自動で警告表示。原価の使いすぎに早く気づけます</td></tr>
+    <tr><td>📈 資金繰り予測</td><td>今後6ヶ月の入金予定と、入金予定日を過ぎている案件の一覧</td></tr>
+    <tr><td>👷🚛 稼働状況</td><td>直近30日の作業員の出勤日数・車両の使用日数ランキング</td></tr>
+    <tr><td>🎯 入札勝率</td><td>入札スケジュール画面に、全体・工事/業務別・発注者別の勝率を表示</td></tr>
+  </table>
+</div>
+
+<h2>5. Teamsに毎朝自動でお知らせが届きます</h2>
+<div class="feature">
+  <span class="tag orange">自動</span>
+  <h3>🔔 毎朝8時の自動チェック</h3>
+  <p>毎朝8時に、以下の内容がTeamsに自動配信されます。<b>自分の担当案件が入力漏れに出ていないか</b>確認してください。</p>
+  <ul class="steps">
+    <li><b>入力漏れ</b>：施工中なのに2週間 原価・人工の入力がない案件（担当者名つき）</li>
+    <li><b>予算アラート</b>：実行予算の9割を超えた案件</li>
+    <li><b>入金遅延</b>：入金予定日を過ぎている案件</li>
+    <li>毎月1日は、会社全体の月次サマリー（受注額・原価・粗利・入金予定）も配信</li>
+  </ul>
+</div>
+
+<h2>6. 安心して使うための仕組み</h2>
+<div class="feature">
+  <h3>🔐 権限管理と変更履歴</h3>
+  <ul class="steps">
+    <li><b>権限管理</b>：ユーザーごとに「閲覧のみ／入力可／管理者」を設定できるようになりました（設定は管理者が行います）</li>
+    <li><b>変更履歴</b>：「誰が・いつ・どの案件の何を変更したか」が自動で記録され、メニューの「変更履歴」から確認できます。間違って変更しても原因をすぐ追えます</li>
+  </ul>
+</div>
+
+<div class="footer">
+  操作で分からないことがあれば管理者までご連絡ください。<br>
+  ※ 今回の更新で既存のデータ（案件・原価・スケジュールなど）は一切変更されていません。
+</div>
+
+</body>
+</html>

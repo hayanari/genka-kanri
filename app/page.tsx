@@ -16,6 +16,8 @@ import { isAdminEmail } from "@/lib/supabase/admin";
 import { useUserRole } from "@/lib/roles";
 import { logAudit, summarizeGenkaChanges } from "@/lib/auditLog";
 import type { GenkaSnapshot } from "@/lib/auditLog";
+import { mergeGenkaData } from "@/lib/mergeData";
+import type { GenkaDataSet } from "@/lib/mergeData";
 import type {
   Project,
   Cost,
@@ -74,6 +76,24 @@ export default function Home() {
   viewRef.current = view;
   csvModalRef.current = showCsvExportModal;
 
+  const toDataSet = (d: {
+    projects: Project[];
+    costs: Cost[];
+    quantities: Quantity[];
+    vehicles?: { id: string; registration: string }[];
+    processMasters?: ProcessMasterType[];
+    bidSchedules?: BidSchedule[];
+    equipmentRequests?: EquipmentRequest[];
+  }): GenkaDataSet => ({
+    projects: d.projects ?? [],
+    costs: d.costs ?? [],
+    quantities: d.quantities ?? [],
+    vehicles: (d.vehicles ?? []) as Vehicle[],
+    processMasters: d.processMasters ?? [],
+    bidSchedules: d.bidSchedules ?? [],
+    equipmentRequests: d.equipmentRequests ?? [],
+  });
+
   const saveDataIfCurrent = useCallback(
     async (
       d: {
@@ -94,7 +114,27 @@ export default function Home() {
           remote !== null &&
           remote !== lastSyncedRevisionRef.current
         ) {
-          return { ok: false as const, reason: "conflict" as const };
+          // 他の端末が先に保存していた場合: 自動マージして双方の変更を残す
+          const base = lastAuditedSnapshotRef.current;
+          const remoteData = await loadData();
+          if (!base || !remoteData) {
+            return { ok: false as const, reason: "conflict" as const };
+          }
+          const baseSet = toDataSet(base as unknown as GenkaDataSet);
+          const localSet = toDataSet(d);
+          const merged = mergeGenkaData(baseSet, localSet, toDataSet(remoteData));
+          const result = await saveData(merged, opts);
+          if (result.ok) {
+            lastSyncedRevisionRef.current = await fetchGenkaDataRevision();
+            // 監査ログは自分の変更分のみ記録（相手の変更は相手側で記録済み）
+            const lines = summarizeGenkaChanges(baseSet, localSet);
+            if (lines.length > 0) logAudit("案件データ更新", lines.join("\n"));
+            lastAuditedSnapshotRef.current = JSON.parse(JSON.stringify(merged));
+            setData(merged);
+            setSyncNotice("他の端末の変更と自動で統合して保存しました");
+            window.setTimeout(() => setSyncNotice(null), 5000);
+          }
+          return result;
         }
       }
       const result = await saveData(d, opts);
@@ -224,7 +264,11 @@ export default function Home() {
       }
       const d = dataRef.current;
       saveLocalBackup({ ...d, schedule: undefined });
-      saveDataPendingSync(d);
+      // base（最後に同期した状態）も保存し、復元時にサーバー最新とマージできるようにする
+      saveDataPendingSync(
+        d,
+        lastAuditedSnapshotRef.current as unknown as Parameters<typeof saveDataPendingSync>[1]
+      );
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);

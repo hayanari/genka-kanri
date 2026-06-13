@@ -60,8 +60,15 @@ export function saveLocalBackup(data: BackupData): void {
   }
 }
 
-/** リロード対策: beforeunload で同期的に sessionStorage へ保存 */
-export function saveDataPendingSync(data: Omit<BackupData, "schedule">): void {
+/**
+ * リロード対策: beforeunload で同期的に sessionStorage へ保存。
+ * base（最後にサーバーと同期した状態）も一緒に保存し、
+ * 復元時にサーバー最新と三方マージできるようにする（同時編集対策）
+ */
+export function saveDataPendingSync(
+  data: Omit<BackupData, "schedule">,
+  base?: Omit<BackupData, "schedule"> | null
+): void {
   try {
     sessionStorage.setItem(DATA_PENDING_KEY, JSON.stringify({
       projects: data.projects,
@@ -71,13 +78,18 @@ export function saveDataPendingSync(data: Omit<BackupData, "schedule">): void {
       processMasters: data.processMasters ?? [],
       bidSchedules: data.bidSchedules ?? [],
       equipmentRequests: data.equipmentRequests ?? [],
+      base: base ?? null,
       ts: Date.now(),
     }));
   } catch {}
 }
 
+export type PendingData = Omit<BackupData, "schedule"> & {
+  vehicles: { id: string; registration: string }[];
+};
+
 /** 直近で保存された未確定データがあれば返す（リロード直後の復元用） */
-export function loadDataPending(): (Omit<BackupData, "schedule"> & { vehicles: { id: string; registration: string }[] }) | null {
+export function loadDataPending(): { data: PendingData; base: PendingData | null } | null {
   try {
     const raw = sessionStorage.getItem(DATA_PENDING_KEY);
     if (!raw) return null;
@@ -89,6 +101,7 @@ export function loadDataPending(): (Omit<BackupData, "schedule"> & { vehicles: {
       processMasters?: unknown[];
       bidSchedules?: unknown[];
       equipmentRequests?: unknown[];
+      base?: Record<string, unknown> | null;
       ts?: number;
     };
     if (!parsed?.ts || Date.now() - parsed.ts > PENDING_TTL_MS) {
@@ -99,15 +112,19 @@ export function loadDataPending(): (Omit<BackupData, "schedule"> & { vehicles: {
       try { sessionStorage.removeItem(DATA_PENDING_KEY); } catch {}
       return null;
     }
-    return {
-      projects: parsed.projects as BackupData["projects"],
-      costs: parsed.costs as BackupData["costs"],
-      quantities: parsed.quantities as BackupData["quantities"],
-      vehicles: (parsed.vehicles ?? []) as { id: string; registration: string }[],
-      processMasters: (parsed.processMasters ?? []) as BackupData["processMasters"],
-      bidSchedules: (parsed.bidSchedules ?? []) as BackupData["bidSchedules"],
-      equipmentRequests: (parsed.equipmentRequests ?? []) as EquipmentRequest[],
-    };
+    const toPending = (o: Record<string, unknown>): PendingData => ({
+      projects: (o.projects ?? []) as BackupData["projects"],
+      costs: (o.costs ?? []) as BackupData["costs"],
+      quantities: (o.quantities ?? []) as BackupData["quantities"],
+      vehicles: (o.vehicles ?? []) as { id: string; registration: string }[],
+      processMasters: (o.processMasters ?? []) as BackupData["processMasters"],
+      bidSchedules: (o.bidSchedules ?? []) as BackupData["bidSchedules"],
+      equipmentRequests: (o.equipmentRequests ?? []) as EquipmentRequest[],
+    });
+    const baseRaw = parsed.base;
+    const base =
+      baseRaw && Array.isArray(baseRaw.projects) ? toPending(baseRaw) : null;
+    return { data: toPending(parsed as Record<string, unknown>), base };
   } catch {
     return null;
   }
