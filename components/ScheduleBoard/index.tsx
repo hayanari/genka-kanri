@@ -271,10 +271,27 @@ export default function ScheduleBoard() {
     if (saved !== null) applySaved(saved)
   }
   const handleRemoveWorker = async (name: string) => {
-    if (!confirm(`「${name}」を削除しますか？`)) return
-    const next = workers.filter(w => w !== name)
-    const saved = await persist(next, schedules, dayMemos)
-    if (saved !== null) applySaved(saved)
+    if (!confirm(`「${name}」をマスターと全ての予定から削除しますか？`)) return
+    const nextWorkers = workers.filter(w => w !== name)
+    const nextSchedules = schedules.map(s => ({
+      ...s,
+      workers: s.workers.filter(n => n !== name),
+    }))
+    const saved = await persist(nextWorkers, nextSchedules, dayMemos, schedules)
+    if (saved === null) return
+    applySaved(saved)
+    try {
+      await deleteWorkerContact(name)
+      setWorkerContacts(prev => {
+        const next = { ...prev }
+        delete next[name]
+        return next
+      })
+    } catch (e) {
+      console.error('[handleRemoveWorker] contacts', e)
+    }
+    if (filterWorker === name) setFilterWorker(null)
+    if (selectedWorker === name) setSelectedWorker(null)
   }
   const handleRenameWorker = useCallback(async (oldName: string, newName: string): Promise<boolean> => {
     const trimmed = newName.trim()
