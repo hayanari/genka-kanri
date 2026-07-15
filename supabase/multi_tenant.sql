@@ -48,7 +48,7 @@ INSERT INTO companies (id, company_code, name, allow_legacy_email_login)
 VALUES (
   '00000000-0000-0000-0000-000000000001',
   'tokito',
-  'TOKITO CORP',
+  '時任',
   true
 )
 ON CONFLICT (company_code) DO UPDATE

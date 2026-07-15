@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Icons, T, SIDEBAR_ORG_LABEL } from "@/lib/constants";
+import { Icons, T } from "@/lib/constants";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { createEmptyData, exportCSV } from "@/lib/utils";
 import { loadData, saveData, fetchGenkaDataRevision } from "@/lib/supabase/data";
@@ -54,7 +54,8 @@ export default function Home() {
   const [loadError, setLoadError] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [orgLabel, setOrgLabel] = useState(SIDEBAR_ORG_LABEL);
+  const [orgLabel, setOrgLabel] = useState("…");
+  const [orgCode, setOrgCode] = useState("");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedSuccessfully = useRef(false);
   const dataRef = useRef(data);
@@ -166,11 +167,32 @@ export default function Home() {
     createClient().auth.getSession().then(({ data: { session } }) => {
       setUserEmail(session?.user?.email ?? null);
     });
-    import("@/lib/tenant").then(({ fetchCurrentTenant }) =>
-      fetchCurrentTenant().then((t) => {
+    (async () => {
+      try {
+        const { fetchCurrentTenant } = await import("@/lib/tenant");
+        const t = await fetchCurrentTenant();
         if (t?.companyName) setOrgLabel(t.companyName);
-      })
-    );
+        if (t?.companyCode) setOrgCode(t.companyCode);
+      } catch {
+        /* ignore */
+      }
+      try {
+        const supabase = createClient();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const res = await fetch("/api/admin/me", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+        const me = await res.json();
+        if (me.companyName) setOrgLabel(me.companyName);
+        if (me.companyCode) setOrgCode(me.companyCode);
+      } catch {
+        /* ignore */
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -701,14 +723,26 @@ export default function Home() {
           <div
             style={{
               fontSize: "11px",
-              fontWeight: 600,
-              color: T.ts,
-              letterSpacing: "0.05em",
-              marginBottom: "4px",
+              fontWeight: 700,
+              color: T.tx,
+              letterSpacing: "0.02em",
+              marginBottom: "2px",
             }}
           >
             {orgLabel}
           </div>
+          {orgCode ? (
+            <div
+              style={{
+                fontSize: "10px",
+                color: T.ts,
+                marginBottom: "6px",
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              }}
+            >
+              会社ID: {orgCode}
+            </div>
+          ) : null}
           <div
             style={{
               fontSize: "16px",

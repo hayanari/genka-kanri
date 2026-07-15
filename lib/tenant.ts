@@ -58,18 +58,20 @@ export async function fetchCurrentTenant(): Promise<TenantCache | null> {
     cachedTenant = {
       companyId: DEFAULT_COMPANY_ID,
       companyCode: DEFAULT_COMPANY_CODE,
-      companyName: "TOKITO CORP",
+      companyName: "未設定の会社",
       loginId: user.email?.split("@")[0] ?? "user",
     };
     return cachedTenant;
   }
 
   const company = Array.isArray(data.companies) ? data.companies[0] : data.companies;
+  const code = String(company?.company_code ?? DEFAULT_COMPANY_CODE);
+  const name = String(company?.name ?? "").trim() || code;
   cachedUserId = user.id;
   cachedTenant = {
     companyId: String(data.company_id),
-    companyCode: String(company?.company_code ?? DEFAULT_COMPANY_CODE),
-    companyName: String(company?.name ?? "未設定の会社"),
+    companyCode: code,
+    companyName: name,
     loginId: String(data.login_id),
   };
   return cachedTenant;

@@ -1,6 +1,6 @@
-/** サイドバー上部の組織名。Vercel でプロジェクトごとに `NEXT_PUBLIC_SIDEBAR_ORG_LABEL` を設定 */
+/** @deprecated サイドバーはログイン会社の companies.name を表示。環境変数は使わない */
 export const SIDEBAR_ORG_LABEL =
-  process.env.NEXT_PUBLIC_SIDEBAR_ORG_LABEL ?? "TOKITO CORP";
+  process.env.NEXT_PUBLIC_SIDEBAR_ORG_LABEL ?? "案件管理";
 
 export const genId = () => Math.random().toString(36).slice(2, 10);
 export const fmt = (n: number | undefined) =>

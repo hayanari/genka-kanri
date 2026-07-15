@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
-import { T, SIDEBAR_ORG_LABEL } from "@/lib/constants";
+import { T } from "@/lib/constants";
 import { clearTenantCache } from "@/lib/tenant";
 import { clearRoleCache } from "@/lib/roles";
 import { Btn } from "@/components/ui/primitives";
@@ -167,7 +167,7 @@ export default function LoginPage() {
         }}
       >
         <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontSize: 12, color: T.ts, marginBottom: 8 }}>{SIDEBAR_ORG_LABEL}</div>
+          <div style={{ fontSize: 12, color: T.ts, marginBottom: 8 }}>案件管理システム</div>
           <div style={{ fontSize: 22, fontWeight: 700, color: T.tx }}>📐 案件管理</div>
           <div style={{ fontSize: 13, color: T.ts, marginTop: 8 }}>
             会社ID・ログインID・パスワードでログイン
