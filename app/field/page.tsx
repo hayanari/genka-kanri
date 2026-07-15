@@ -16,6 +16,7 @@ import { canWrite } from "@/lib/roles";
 import { logAudit } from "@/lib/auditLog";
 import type { Vehicle } from "@/lib/utils";
 import type { ScheduleEntry } from "@/types/schedule";
+import { requireCompanyId } from "@/lib/tenant";
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
@@ -39,9 +40,11 @@ export default function FieldInputPage() {
   const refreshDayEntries = useCallback(async (d: string) => {
     try {
       const supabase = createClient();
+      const companyId = await requireCompanyId();
       const { data } = await supabase
         .from("schedule_entries")
         .select("*")
+        .eq("company_id", companyId)
         .eq("date", d)
         .order("created_at");
       setDayEntries(
@@ -98,8 +101,10 @@ export default function FieldInputPage() {
     setSaving(true);
     try {
       const supabase = createClient();
+      const companyId = await requireCompanyId();
       const { error } = await supabase.from("schedule_entries").insert({
         id: genId(),
+        company_id: companyId,
         date,
         koujimei: effectiveKoujimei,
         shift,

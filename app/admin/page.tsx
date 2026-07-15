@@ -18,6 +18,11 @@ export default function AdminPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [roles, setRoles] = useState<Record<string, UserRole>>({});
   const [roleSaving, setRoleSaving] = useState<string | null>(null);
+  const [newLoginId, setNewLoginId] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newDisplayName, setNewDisplayName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createMsg, setCreateMsg] = useState("");
 
   useEffect(() => {
     const run = async () => {
@@ -65,6 +70,53 @@ export default function AdminPage() {
       );
     }
     setRoleSaving(null);
+  };
+
+  const handleCreateUser = async () => {
+    setCreateMsg("");
+    setCreating(true);
+    try {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setCreateMsg("ログインしてください");
+        return;
+      }
+      const res = await fetch("/api/admin/company-users", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          companyCode: "tokito",
+          loginId: newLoginId,
+          password: newPassword,
+          displayName: newDisplayName || newLoginId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCreateMsg(data.error ?? "作成に失敗しました");
+        return;
+      }
+      setCreateMsg(`作成しました。会社ID=tokito / ログインID=${data.user.loginId}`);
+      setNewLoginId("");
+      setNewPassword("");
+      setNewDisplayName("");
+      // 一覧再取得
+      const listRes = await fetch("/api/admin/users", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const listData = await listRes.json();
+      if (listRes.ok) setUsers(listData.users ?? []);
+    } catch {
+      setCreateMsg("通信エラーが発生しました");
+    } finally {
+      setCreating(false);
+    }
   };
 
   const handleDelete = async (userId: string) => {
@@ -163,6 +215,79 @@ export default function AdminPage() {
             )}
             {!loading && !error && (
               <div>
+                <div
+                  style={{
+                    marginBottom: 24,
+                    padding: 16,
+                    border: `1px solid ${T.bd}`,
+                    borderRadius: 8,
+                    background: T.bg,
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 8, color: T.tx }}>
+                    ログインID付きユーザーを発行
+                  </div>
+                  <p style={{ fontSize: 12, color: T.ts, marginTop: 0 }}>
+                    会社ID <code>tokito</code> 向け。発行後は「会社ID + ログインID + パスワード」でログインします。
+                  </p>
+                  <div style={{ display: "grid", gap: 8, maxWidth: 360 }}>
+                    <input
+                      placeholder="ログインID（例: tanaka）"
+                      value={newLoginId}
+                      onChange={(e) => setNewLoginId(e.target.value)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 6,
+                        border: `1px solid ${T.bd}`,
+                        fontFamily: "inherit",
+                      }}
+                    />
+                    <input
+                      placeholder="表示名（任意）"
+                      value={newDisplayName}
+                      onChange={(e) => setNewDisplayName(e.target.value)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 6,
+                        border: `1px solid ${T.bd}`,
+                        fontFamily: "inherit",
+                      }}
+                    />
+                    <input
+                      type="password"
+                      placeholder="初期パスワード（6文字以上）"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 6,
+                        border: `1px solid ${T.bd}`,
+                        fontFamily: "inherit",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCreateUser}
+                      disabled={creating}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: 6,
+                        border: "none",
+                        background: T.ac,
+                        color: "#fff",
+                        fontWeight: 600,
+                        cursor: creating ? "not-allowed" : "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {creating ? "作成中..." : "ユーザーを作成"}
+                    </button>
+                    {createMsg && (
+                      <div style={{ fontSize: 12, color: T.ts }}>{createMsg}</div>
+                    )}
+                  </div>
+                </div>
+
                 <p style={{ fontSize: 13, color: T.ts, marginBottom: 16 }}>
                   登録済みアカウント一覧です。削除したアカウントは再度ログインできません。
                   権限は「閲覧のみ」「入力可」「管理者」から選べます（未設定は入力可）。

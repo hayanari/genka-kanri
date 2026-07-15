@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client"
 import type { ProcessMeetingRow } from "@/types/processMeeting"
+import { requireCompanyId } from "@/lib/tenant"
 
 function rowFromDb(r: Record<string, unknown>): ProcessMeetingRow {
   const pc = r.planned_bar_color != null && String(r.planned_bar_color).trim() !== "" ? String(r.planned_bar_color).trim() : null
@@ -20,9 +21,11 @@ function rowFromDb(r: Record<string, unknown>): ProcessMeetingRow {
 
 export async function loadProcessMeetingRows(): Promise<ProcessMeetingRow[]> {
   const supabase = createClient()
+  const companyId = await requireCompanyId()
   const { data, error } = await supabase
     .from("process_meeting_rows")
     .select("*")
+    .eq("company_id", companyId)
     .order("project_id")
     .order("sort_order")
   if (error) {
@@ -34,7 +37,12 @@ export async function loadProcessMeetingRows(): Promise<ProcessMeetingRow[]> {
 
 export async function loadProcessMeetingMeta(): Promise<{ hiddenProjectIds: string[] }> {
   const supabase = createClient()
-  const { data, error } = await supabase.from("process_meeting_meta").select("hidden_project_ids").eq("id", "default").maybeSingle()
+  const companyId = await requireCompanyId()
+  const { data, error } = await supabase
+    .from("process_meeting_meta")
+    .select("hidden_project_ids")
+    .eq("id", companyId)
+    .maybeSingle()
   if (error) {
     console.error("[processMeeting] load meta", error)
     return { hiddenProjectIds: [] }
@@ -45,9 +53,10 @@ export async function loadProcessMeetingMeta(): Promise<{ hiddenProjectIds: stri
 
 export async function saveProcessMeetingMeta(hiddenProjectIds: string[]): Promise<void> {
   const supabase = createClient()
+  const companyId = await requireCompanyId()
   const { error } = await supabase.from("process_meeting_meta").upsert(
     {
-      id: "default",
+      id: companyId,
       hidden_project_ids: hiddenProjectIds,
       updated_at: new Date().toISOString(),
     },
@@ -58,8 +67,10 @@ export async function saveProcessMeetingMeta(hiddenProjectIds: string[]): Promis
 
 export async function upsertProcessMeetingRows(rows: ProcessMeetingRow[]): Promise<void> {
   const supabase = createClient()
+  const companyId = await requireCompanyId()
   const payload = rows.map((r) => ({
     id: r.id,
+    company_id: companyId,
     project_id: r.projectId,
     process_name: r.processName,
     planned_start: r.plannedStart,
@@ -77,15 +88,22 @@ export async function upsertProcessMeetingRows(rows: ProcessMeetingRow[]): Promi
 
 export async function deleteProcessMeetingRow(id: string): Promise<void> {
   const supabase = createClient()
-  const { error } = await supabase.from("process_meeting_rows").delete().eq("id", id)
+  const companyId = await requireCompanyId()
+  const { error } = await supabase
+    .from("process_meeting_rows")
+    .delete()
+    .eq("company_id", companyId)
+    .eq("id", id)
   if (error) throw error
 }
 
 export async function insertProcessMeetingRows(rows: ProcessMeetingRow[]): Promise<void> {
   if (rows.length === 0) return
   const supabase = createClient()
+  const companyId = await requireCompanyId()
   const payload = rows.map((r) => ({
     id: r.id,
+    company_id: companyId,
     project_id: r.projectId,
     process_name: r.processName,
     planned_start: r.plannedStart,
@@ -110,9 +128,11 @@ export type ProcessMeetingWeeklyNoteRow = {
 /** 案件×週の朝会メモをすべて読み込み（週ごとの履歴） */
 export async function loadProcessMeetingWeeklyNotes(): Promise<ProcessMeetingWeeklyNoteRow[]> {
   const supabase = createClient()
+  const companyId = await requireCompanyId()
   const { data, error } = await supabase
     .from("process_meeting_project_notes")
     .select("project_id, week_start, note_text")
+    .eq("company_id", companyId)
     .order("week_start", { ascending: false })
   if (error) {
     console.error("[processMeeting] load weekly notes", error)
@@ -135,14 +155,16 @@ export async function upsertProcessMeetingProjectNote(
   noteText: string
 ): Promise<void> {
   const supabase = createClient()
+  const companyId = await requireCompanyId()
   const { error } = await supabase.from("process_meeting_project_notes").upsert(
     {
+      company_id: companyId,
       project_id: projectId,
       week_start: weekStart,
       note_text: noteText,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "project_id,week_start" }
+    { onConflict: "company_id,project_id,week_start" }
   )
   if (error) throw error
 }

@@ -6,6 +6,7 @@ import type { ScheduleData, ScheduleEntry, DayMemos } from '@/types/schedule'
 import { createClient } from '@/lib/supabase/client'
 import { effectiveWorkerList } from '@/lib/scheduleUtils'
 import { mergeCollection } from '@/lib/mergeData'
+import { requireCompanyId } from '@/lib/tenant'
 
 const PENDING_KEY = 'schedule_pending'
 const PENDING_TTL_MS = 15_000 // 15秒以内のバックアップのみ復元
@@ -43,6 +44,7 @@ export function loadSchedulePending(): ScheduleData | null {
 export async function fetchScheduleRevision(): Promise<string> {
   try {
     const supabase = createClient()
+    const companyId = await requireCompanyId()
     const [
       { data: eRow },
       { count: eCount },
@@ -50,11 +52,11 @@ export async function fetchScheduleRevision(): Promise<string> {
       { count: mCount },
       { count: wCount },
     ] = await Promise.all([
-      supabase.from('schedule_entries').select('updated_at').order('updated_at', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('schedule_entries').select('*', { count: 'exact', head: true }),
-      supabase.from('schedule_day_memos').select('updated_at').order('updated_at', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('schedule_day_memos').select('*', { count: 'exact', head: true }),
-      supabase.from('schedule_workers').select('*', { count: 'exact', head: true }),
+      supabase.from('schedule_entries').select('updated_at').eq('company_id', companyId).order('updated_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('schedule_entries').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
+      supabase.from('schedule_day_memos').select('updated_at').eq('company_id', companyId).order('updated_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('schedule_day_memos').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
+      supabase.from('schedule_workers').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
     ])
     const eMax = (eRow as { updated_at?: string } | null)?.updated_at ?? ''
     const mMax = (mRow as { updated_at?: string } | null)?.updated_at ?? ''
@@ -68,14 +70,15 @@ export async function fetchScheduleRevision(): Promise<string> {
 export async function loadScheduleData(): Promise<ScheduleData | null> {
   try {
     const supabase = createClient()
+    const companyId = await requireCompanyId()
     const [
       { data: schedules },
       { data: workers },
       { data: memos },
     ] = await Promise.all([
-      supabase.from('schedule_entries').select('*').order('date'),
-      supabase.from('schedule_workers').select('name, sort_order').order('sort_order'),
-      supabase.from('schedule_day_memos').select('date, memo'),
+      supabase.from('schedule_entries').select('*').eq('company_id', companyId).order('date'),
+      supabase.from('schedule_workers').select('name, sort_order').eq('company_id', companyId).order('sort_order'),
+      supabase.from('schedule_day_memos').select('date, memo').eq('company_id', companyId),
     ])
 
     // 直近でリロードされた可能性: sessionStorage に未確定データがあれば優先
@@ -206,6 +209,7 @@ export async function saveScheduleData(
   }
   try {
     const supabase = createClient()
+    const companyId = await requireCompanyId()
     const workersToStore = effectiveWorkerList(data.workers ?? [], data.schedules ?? [])
 
     // 1. 予定エントリ
@@ -214,6 +218,7 @@ export async function saveScheduleData(
       await supabase.from('schedule_entries').upsert(
         data.schedules.map((s) => ({
           id: s.id,
+          company_id: companyId,
           date: s.date,
           koujimei: s.koujimei,
           shift: s.shift,
@@ -232,7 +237,11 @@ export async function saveScheduleData(
         .map((s) => s.id)
         .filter((id) => !keepIds.has(id))
       if (toDelete.length > 0) {
-        const { error: delErr } = await supabase.from('schedule_entries').delete().in('id', toDelete)
+        const { error: delErr } = await supabase
+          .from('schedule_entries')
+          .delete()
+          .eq('company_id', companyId)
+          .in('id', toDelete)
         if (delErr) {
           console.error('[ScheduleStorage] schedule_entries delete:', delErr)
           throw delErr
@@ -245,6 +254,7 @@ export async function saveScheduleData(
     const { data: serverWorkerRows } = await supabase
       .from('schedule_workers')
       .select('name, sort_order')
+      .eq('company_id', companyId)
       .order('sort_order')
     const serverWorkers = (serverWorkerRows ?? []).map((w: { name: string }) => w.name)
     const removedByMe = new Set(
@@ -254,10 +264,10 @@ export async function saveScheduleData(
     for (const w of serverWorkers) {
       if (!finalWorkers.includes(w) && !removedByMe.has(w)) finalWorkers.push(w)
     }
-    await supabase.from('schedule_workers').delete().gte('id', 1)
+    await supabase.from('schedule_workers').delete().eq('company_id', companyId)
     if (finalWorkers.length > 0) {
       await supabase.from('schedule_workers').insert(
-        finalWorkers.map((name, i) => ({ name, sort_order: i }))
+        finalWorkers.map((name, i) => ({ name, sort_order: i, company_id: companyId }))
       )
     }
 
@@ -265,9 +275,10 @@ export async function saveScheduleData(
     const memoRows = Object.entries(data.dayMemos).map(([date, memo]) => ({
       date,
       memo: memo ?? '',
+      company_id: companyId,
     }))
     if (memoRows.length > 0) {
-      await supabase.from('schedule_day_memos').upsert(memoRows, { onConflict: 'date' })
+      await supabase.from('schedule_day_memos').upsert(memoRows, { onConflict: 'company_id,date' })
     }
 
     // 削除されたメモ: ベースラインにあった日付のうち現在無いものだけを消す
@@ -277,7 +288,11 @@ export async function saveScheduleData(
         (d) => !currentDates.has(d)
       )
       if (memoDatesToDelete.length > 0) {
-        await supabase.from('schedule_day_memos').delete().in('date', memoDatesToDelete)
+        await supabase
+          .from('schedule_day_memos')
+          .delete()
+          .eq('company_id', companyId)
+          .in('date', memoDatesToDelete)
       }
     }
   } catch (e) {

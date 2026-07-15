@@ -20,6 +20,7 @@ import {
 import type { BackupData, PendingData } from "../backup";
 import { mergeGenkaData } from "../mergeData";
 import type { GenkaDataSet } from "../mergeData";
+import { DEFAULT_COMPANY_ID, getCompanyDataId } from "../tenant";
 
 /** データ消失を防ぐ: 空の projects は保存しない。車両・工程マスタは空配列も意図した状態として保存する */
 function sanitizeBeforeSave(data: {
@@ -53,10 +54,11 @@ function sanitizeBeforeSave(data: {
 export async function fetchGenkaDataRevision(): Promise<string | null> {
   try {
     const supabase = createClient();
+    const dataId = await getCompanyDataId();
     const { data, error } = await supabase
       .from("genka_kanri_data")
       .select("updated_at")
-      .eq("id", "default")
+      .eq("id", dataId)
       .maybeSingle();
     if (error) throw error;
     const ts = data?.updated_at;
@@ -127,13 +129,26 @@ export async function loadData(): Promise<LoadedData | null> {
 async function fetchRemoteData(): Promise<LoadedData | null> {
   try {
     const supabase = createClient();
-    const { data, error } = await supabase
+    const dataId = await getCompanyDataId();
+    let { data, error } = await supabase
       .from("genka_kanri_data")
       .select("data")
-      .eq("id", "default")
-      .single();
+      .eq("id", dataId)
+      .maybeSingle();
+
+    // 移行直後: 自社行がまだ無く default だけある場合
+    if (!data && dataId === DEFAULT_COMPANY_ID) {
+      const fallback = await supabase
+        .from("genka_kanri_data")
+        .select("data")
+        .eq("id", "default")
+        .maybeSingle();
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) throw error;
+    if (!data) return createEmptyData();
     const stored = data?.data as {
       projects?: unknown[];
       costs?: unknown[];
@@ -243,6 +258,7 @@ export async function saveData(
     }
 
     const supabase = createClient();
+    const dataId = await getCompanyDataId();
     const payload = {
       projects: backupPayload.projects,
       costs: backupPayload.costs,
@@ -260,7 +276,7 @@ export async function saveData(
       const { error } = await supabase
         .from("genka_kanri_data")
         .upsert(
-          { id: "default", data: payload, updated_at: new Date().toISOString() },
+          { id: dataId, data: payload, updated_at: new Date().toISOString() },
           { onConflict: "id" }
         );
 

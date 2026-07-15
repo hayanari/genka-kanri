@@ -3,18 +3,17 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
-import { signIn, signUp } from "@/lib/supabase/auth";
 import { T, SIDEBAR_ORG_LABEL } from "@/lib/constants";
+import { clearTenantCache } from "@/lib/tenant";
 import { Btn } from "@/components/ui/primitives";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [companyCode, setCompanyCode] = useState("tokito");
+  const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
-  const [isSignUp, setIsSignUp] = useState(false);
   const [checking, setChecking] = useState(true);
   const [configError, setConfigError] = useState<string | null>(null);
 
@@ -30,11 +29,13 @@ export default function LoginPage() {
     const check = async () => {
       try {
         const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (!cancelled && session?.user) {
           router.replace("/");
         }
-      } catch (e) {
+      } catch {
         if (!cancelled) {
           setConfigError("接続エラーが発生しました。しばらく経ってから再度お試しください。");
         }
@@ -43,7 +44,9 @@ export default function LoginPage() {
       }
     };
     check();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   if (checking) {
@@ -54,9 +57,8 @@ export default function LoginPage() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "#0c0e14",
-          color: "#7c84a0",
-          fontSize: "14px",
+          background: T.bg,
+          color: T.ts,
         }}
       >
         読み込み中...
@@ -73,23 +75,21 @@ export default function LoginPage() {
           alignItems: "center",
           justifyContent: "center",
           background: T.bg,
-          padding: "20px",
+          padding: 24,
         }}
       >
         <div
           style={{
-            maxWidth: "480px",
-            padding: "32px",
+            maxWidth: 480,
             background: T.s,
             border: `1px solid ${T.bd}`,
-            borderRadius: "16px",
+            borderRadius: 12,
+            padding: 24,
             color: T.tx,
-            fontSize: "14px",
-            lineHeight: 1.6,
           }}
         >
-          <h2 style={{ margin: "0 0 16px", fontSize: "18px" }}>⚠️ 設定が必要です</h2>
-          <p style={{ margin: 0 }}>{configError}</p>
+          <h2 style={{ marginTop: 0 }}>⚠️ 設定が必要です</h2>
+          <p style={{ color: T.ts, lineHeight: 1.6 }}>{configError}</p>
         </div>
       </div>
     );
@@ -98,51 +98,49 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setSuccess("");
     setLoading(true);
     try {
-      if (isSignUp) {
-        await signUp(email, password);
-        setSuccess("登録完了。確認メールをご確認のうえ、ログインしてください。");
-        setError("");
-        setIsSignUp(false);
-      } else {
-        await signIn(email, password);
-        router.push("/");
-        router.refresh();
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyCode, loginId, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "ログインに失敗しました");
+        return;
       }
-    } catch (err: unknown) {
-      const msg =
-        typeof err === "object" && err !== null && "message" in err
-          ? String((err as { message?: unknown }).message)
-          : err instanceof Error
-            ? err.message
-            : "";
-      const low = msg.toLowerCase();
-      const jaMsg = isSignUp
-        ? low.includes("signup") && (low.includes("not allowed") || low.includes("disabled"))
-          ? "新規登録は現在無効になっています。管理者にお問い合わせください。"
-          : low.includes("user already registered") || low.includes("already been registered")
-            ? "このメールアドレスは既に登録されています。ログインしてください。"
-            : low.includes("password") && low.includes("6")
-              ? "パスワードは6文字以上で入力してください。"
-              : low.includes("invalid") && low.includes("email")
-                ? "有効なメールアドレスを入力してください。"
-                : low.includes("too many") || low.includes("429") || low.includes("rate limit")
-                  ? "メール送信の制限に達しました。1時間ほど待ってから再度お試しください。"
-                  : msg || "新規登録に失敗しました。入力内容を確認してください。"
-        : low.includes("Invalid login") || low.includes("invalid")
-          ? "IDまたはパスワードが正しくありません。"
-          : low.includes("Email not confirmed")
-            ? "メールアドレスの確認が完了していません。確認メールをご確認ください。"
-            : low.includes("too many") || low.includes("429") || low.includes("rate limit")
-              ? "メール送信の制限に達しました。1時間ほど待ってから再度お試しください。"
-              : msg || "ログインに失敗しました。ID・パスワードを確認してください。";
-      setError(jaMsg);
-      setSuccess("");
+
+      const supabase = createClient();
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
+      });
+      if (sessionError) {
+        setError(sessionError.message || "セッションの開始に失敗しました");
+        return;
+      }
+      clearTenantCache();
+      router.push("/");
+      router.refresh();
+    } catch {
+      setError("通信エラーが発生しました");
     } finally {
       setLoading(false);
     }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "12px 14px",
+    background: T.bg,
+    border: `1px solid ${T.bd}`,
+    borderRadius: "8px",
+    color: T.tx,
+    fontSize: "14px",
+    fontFamily: "inherit",
+    outline: "none",
+    boxSizing: "border-box",
   };
 
   return (
@@ -153,180 +151,92 @@ export default function LoginPage() {
         alignItems: "center",
         justifyContent: "center",
         background: T.bg,
-        padding: "20px",
+        padding: 24,
       }}
     >
       <div
         style={{
           width: "100%",
-          maxWidth: "400px",
-          padding: "32px",
+          maxWidth: 400,
           background: T.s,
           border: `1px solid ${T.bd}`,
-          borderRadius: "16px",
+          borderRadius: 16,
+          padding: "32px 28px",
         }}
       >
-        <div style={{ marginBottom: "24px", textAlign: "center" }}>
-          <div
-            style={{
-              fontSize: "11px",
-              fontWeight: 600,
-              color: T.ts,
-              letterSpacing: "0.05em",
-              marginBottom: "8px",
-            }}
-          >
-            {SIDEBAR_ORG_LABEL}
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontSize: 12, color: T.ts, marginBottom: 8 }}>{SIDEBAR_ORG_LABEL}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: T.tx }}>📐 案件管理</div>
+          <div style={{ fontSize: 13, color: T.ts, marginTop: 8 }}>
+            会社ID・ログインID・パスワードでログイン
           </div>
-          <h1
-            style={{
-              margin: 0,
-              fontSize: "20px",
-              fontWeight: 700,
-              color: T.tx,
-            }}
-          >
-            📐 案件管理
-          </h1>
-          <p
-            style={{
-              margin: "8px 0 0",
-              fontSize: "13px",
-              color: T.ts,
-            }}
-          >
-            ログインしてください
-          </p>
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: "16px" }}>
-            <label
-              style={{
-                display: "block",
-                fontSize: "12px",
-                fontWeight: 600,
-                color: T.ts,
-                marginBottom: "6px",
-              }}
-            >
-              ID（メールアドレス）
-            </label>
+          <label style={{ display: "block", marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: T.ts, marginBottom: 6 }}>会社ID</div>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              value={companyCode}
+              onChange={(e) => setCompanyCode(e.target.value)}
               required
-              autoComplete="email"
-              placeholder="example@company.com"
-              style={{
-                width: "100%",
-                padding: "12px 14px",
-                background: T.bg,
-                border: `1px solid ${T.bd}`,
-                borderRadius: "8px",
-                color: T.tx,
-                fontSize: "14px",
-                fontFamily: "inherit",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
+              autoComplete="organization"
+              placeholder="tokito"
+              style={inputStyle}
             />
-          </div>
-          <div style={{ marginBottom: "20px" }}>
-            <label
-              style={{
-                display: "block",
-                fontSize: "12px",
-                fontWeight: 600,
-                color: T.ts,
-                marginBottom: "6px",
-              }}
-            >
-              パスワード
-            </label>
+          </label>
+
+          <label style={{ display: "block", marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: T.ts, marginBottom: 6 }}>ログインID</div>
+            <input
+              type="text"
+              value={loginId}
+              onChange={(e) => setLoginId(e.target.value)}
+              required
+              autoComplete="username"
+              placeholder="例: tanaka または 現行メール"
+              style={inputStyle}
+            />
+          </label>
+
+          <label style={{ display: "block", marginBottom: 18 }}>
+            <div style={{ fontSize: 12, color: T.ts, marginBottom: 6 }}>パスワード</div>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              autoComplete={isSignUp ? "new-password" : "current-password"}
+              autoComplete="current-password"
               placeholder="••••••••"
               minLength={6}
-              style={{
-                width: "100%",
-                padding: "12px 14px",
-                background: T.bg,
-                border: `1px solid ${T.bd}`,
-                borderRadius: "8px",
-                color: T.tx,
-                fontSize: "14px",
-                fontFamily: "inherit",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
+              style={inputStyle}
             />
-          </div>
-          {success && (
-            <div
-              style={{
-                marginBottom: "16px",
-                padding: "12px",
-                background: T.ok + "18",
-                border: `1px solid ${T.ok}44`,
-                borderRadius: "8px",
-                fontSize: "13px",
-                color: T.ok,
-              }}
-            >
-              {success}
-            </div>
-          )}
+          </label>
+
           {error && (
             <div
               style={{
-                marginBottom: "16px",
-                padding: "12px",
-                background: T.dg + "18",
-                border: `1px solid ${T.dg}44`,
-                borderRadius: "8px",
-                fontSize: "13px",
-                color: T.dg,
+                marginBottom: 14,
+                padding: "10px 12px",
+                borderRadius: 8,
+                background: "#fef2f2",
+                color: "#b91c1c",
+                fontSize: 13,
               }}
             >
               {error}
             </div>
           )}
-          <Btn
-            type="submit"
-            v="primary"
-            disabled={loading}
-            style={{ width: "100%", justifyContent: "center", marginBottom: "12px" }}
-          >
-            {loading ? "処理中..." : isSignUp ? "新規登録" : "ログイン"}
+
+          <Btn type="submit" disabled={loading} style={{ width: "100%", padding: "12px 14px" }}>
+            {loading ? "処理中..." : "ログイン"}
           </Btn>
         </form>
 
-        <button
-          type="button"
-          onClick={() => {
-            setIsSignUp(!isSignUp);
-            setError("");
-            setSuccess("");
-          }}
-          style={{
-            width: "100%",
-            padding: "10px",
-            background: "none",
-            border: "none",
-            color: T.ts,
-            fontSize: "12px",
-            cursor: "pointer",
-            textDecoration: "underline",
-          }}
-        >
-          {isSignUp ? "ログイン画面に戻る" : "初回のみ：新規登録"}
-        </button>
+        <p style={{ marginTop: 18, fontSize: 11, color: T.ts, lineHeight: 1.6 }}>
+          新規アカウントは管理者が発行します。自社（会社ID: tokito）の既存ユーザーは、ログインIDに
+          従来のメールアドレス（例: tokito@tokito-co.jp）を入れてログインできます。
+        </p>
       </div>
     </div>
   );

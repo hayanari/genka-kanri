@@ -5,6 +5,7 @@ import { createClient } from "./client";
 import type { BackupData } from "../backup";
 import { saveData } from "./data";
 import { loadScheduleData, saveScheduleData } from "@/lib/scheduleStorage";
+import { requireCompanyId } from "@/lib/tenant";
 
 export type RemoteBackupItem = {
   id: string;
@@ -21,9 +22,11 @@ const BACKUPS_TABLE = "genka_kanri_backups";
 export async function createRemoteBackup(data: BackupData): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const supabase = createClient();
+    const companyId = await requireCompanyId();
     const { data: { user } } = await supabase.auth.getUser();
     const schedule = await loadScheduleData();
     const payload = {
+      company_id: companyId,
       data: {
         projects: data.projects,
         costs: data.costs,
@@ -58,9 +61,11 @@ export async function createRemoteBackup(data: BackupData): Promise<{ ok: true; 
 export async function listRemoteBackups(): Promise<RemoteBackupItem[]> {
   try {
     const supabase = createClient();
+    const companyId = await requireCompanyId();
     const { data, error } = await supabase
       .from(BACKUPS_TABLE)
       .select("id, created_at, created_by, data")
+      .eq("company_id", companyId)
       .order("created_at", { ascending: false })
       .limit(50);
 

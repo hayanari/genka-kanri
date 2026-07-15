@@ -8,6 +8,7 @@
 import { createClient } from "@/lib/supabase/client";
 import type { Project, Cost, Quantity, BidSchedule, EquipmentRequest } from "@/lib/utils";
 import { fmt } from "@/lib/constants";
+import { requireCompanyId } from "@/lib/tenant";
 
 export interface AuditLogRow {
   id: string;
@@ -21,9 +22,11 @@ export interface AuditLogRow {
 export async function logAudit(action: string, detail: string): Promise<void> {
   try {
     const supabase = createClient();
+    const companyId = await requireCompanyId();
     const { data: { session } } = await supabase.auth.getSession();
     const email = session?.user?.email ?? "";
     await supabase.from("audit_logs").insert({
+      company_id: companyId,
       user_email: email,
       action,
       detail: detail.slice(0, 2000),
@@ -36,9 +39,11 @@ export async function logAudit(action: string, detail: string): Promise<void> {
 export async function fetchAuditLogs(limit = 200): Promise<AuditLogRow[] | null> {
   try {
     const supabase = createClient();
+    const companyId = await requireCompanyId();
     const { data, error } = await supabase
       .from("audit_logs")
       .select("*")
+      .eq("company_id", companyId)
       .order("created_at", { ascending: false })
       .limit(limit);
     if (error) return null;
