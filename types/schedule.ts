@@ -23,6 +23,8 @@ export type DayMemos = Record<string, string>
 /** ストレージに保存するデータ全体 */
 export interface ScheduleData {
   workers: string[]
+  /** 作業員名 → 退職日(YYYY-MM-DD)。この日以降は空き・新規割当候補に出さない */
+  workerLeftAt?: Record<string, string>
   schedules: ScheduleEntry[]
   dayMemos: DayMemos
 }

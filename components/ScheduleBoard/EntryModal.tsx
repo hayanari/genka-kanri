@@ -6,7 +6,7 @@
 import React, { useState, useMemo } from 'react'
 import type { ScheduleEntry, Shift } from '@/types/schedule'
 import type { Project, Vehicle } from '@/lib/utils'
-import { genId, getBaseKoujimei, workerColor, hexRgba } from '@/lib/scheduleUtils'
+import { genId, getBaseKoujimei, workerColor, hexRgba, getSelectableWorkers } from '@/lib/scheduleUtils'
 
 const OTHER_ID = '__other__'
 
@@ -14,6 +14,7 @@ interface Props {
   /** 編集時は既存エントリ、新規時は { date } だけ必須 */
   entry: Partial<ScheduleEntry> & { date: string }
   workers: string[]
+  workerLeftAt?: Record<string, string>
   projects: Project[]
   vehicles: Vehicle[]
   isEdit: boolean
@@ -35,7 +36,7 @@ const SHIFT_HINT: Record<Shift, string | null> = {
 }
 
 export const EntryModal: React.FC<Props> = ({
-  entry, workers, projects, vehicles, isEdit, onSave, onDelete, onClose,
+  entry, workers, workerLeftAt, projects, vehicles, isEdit, onSave, onDelete, onClose,
 }) => {
   const baseKouji = getBaseKoujimei(entry.koujimei ?? '')
   const matchedProj = useMemo(
@@ -50,6 +51,11 @@ export const EntryModal: React.FC<Props> = ({
   const [selectedVehicles, setSelectedVehicles] = useState<Set<string>>(new Set(entry.vehicleIds ?? []))
   const [memo, setMemo]             = useState(entry.memo ?? '')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  const selectableWorkers = useMemo(
+    () => getSelectableWorkers(date, workers, selected, workerLeftAt),
+    [date, workers, selected, workerLeftAt]
+  )
 
   const toggleWorker = (w: string) =>
     setSelected(prev => { const s = new Set(prev); s.has(w) ? s.delete(w) : s.add(w); return s })
@@ -178,7 +184,7 @@ export const EntryModal: React.FC<Props> = ({
               display: 'flex', flexWrap: 'wrap', gap: 5, padding: 8,
               background: '#eef1f6', borderRadius: 4, border: '1px solid #d0d8e4',
             }}>
-              {workers.map(w => {
+              {selectableWorkers.map(w => {
                 const sel = selected.has(w)
                 const c = workerColor(w)
                 return (

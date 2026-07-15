@@ -30,6 +30,7 @@ const VIEW_LABELS: Record<ViewType, string> = { cal:'カレンダー', list:'一
 export default function ScheduleBoard() {
   // ── State ──────────────────────────────────────────────────────
   const [workers,   setWorkers]   = useState<string[]>([])
+  const [workerLeftAt, setWorkerLeftAt] = useState<Record<string, string>>({})
   const [schedules, setSchedules] = useState<ScheduleEntry[]>([])
   const [dayMemos,  setDayMemos]  = useState<DayMemos>({})
   const [view,           setView]           = useState<ViewType>('cal')
@@ -71,10 +72,15 @@ export default function ScheduleBoard() {
     w: string[],
     s: ScheduleEntry[],
     m: DayMemos,
-    prevSchedules?: ScheduleEntry[]
+    opts?: { prevSchedules?: ScheduleEntry[]; leftAt?: Record<string, string> }
   ): Promise<ScheduleData | null> => {
     const wEff = effectiveWorkerList(w, s)
-    let payload: ScheduleData = { workers: wEff, schedules: s, dayMemos: m }
+    const left = opts?.leftAt ?? workerLeftAt
+    const cleanedLeft: Record<string, string> = {}
+    for (const name of wEff) {
+      if (left[name]) cleanedLeft[name] = left[name].slice(0, 10)
+    }
+    let payload: ScheduleData = { workers: wEff, schedules: s, dayMemos: m, workerLeftAt: cleanedLeft }
     let deleteBaseline: ScheduleData | undefined = baselineRef.current ?? undefined
     const remote = await fetchScheduleRevision()
     if (
@@ -82,7 +88,6 @@ export default function ScheduleBoard() {
       remote !== '' &&
       remote !== lastSyncedRevisionRef.current
     ) {
-      // 他の端末が先に保存していた場合: サーバー最新と自動マージして双方の変更を残す
       const server = await loadScheduleData()
       const baseline = baselineRef.current
       if (server && baseline) {
@@ -112,6 +117,7 @@ export default function ScheduleBoard() {
       }
       return null
     }
+    const prevSchedules = opts?.prevSchedules
     if (prevSchedules !== undefined && prevSchedules !== s) {
       const changes = computeScheduleChanges(prevSchedules, s)
       if (changes.length > 0) {
@@ -143,7 +149,7 @@ export default function ScheduleBoard() {
       }
     }
     return payload
-  }, [])
+  }, [workerLeftAt])
 
   // ── スケジュール初期ロード ────────────────────────────────────────
   useEffect(() => {
@@ -156,16 +162,19 @@ export default function ScheduleBoard() {
         const w = Array.isArray(data.workers) ? data.workers : []
         const s = data.schedules ?? []
         const m = data.dayMemos ?? {}
+        const left = data.workerLeftAt ?? {}
         setWorkers(w)
         setSchedules(s)
         setDayMemos(m)
-        baselineRef.current = { workers: w, schedules: s, dayMemos: m }
+        setWorkerLeftAt(left)
+        baselineRef.current = { workers: w, schedules: s, dayMemos: m, workerLeftAt: left }
       } else {
         // サーバーが空のときはサンプルを表示せず、空のまま開始する
         setWorkers([])
         setSchedules([])
         setDayMemos({})
-        baselineRef.current = { workers: [], schedules: [], dayMemos: {} }
+        setWorkerLeftAt({})
+        baselineRef.current = { workers: [], schedules: [], dayMemos: {}, workerLeftAt: {} }
       }
       if (!cancelled) lastSyncedRevisionRef.current = await fetchScheduleRevision()
       } catch (e) {
@@ -190,11 +199,13 @@ export default function ScheduleBoard() {
       const w = Array.isArray(fresh.workers) ? fresh.workers : []
       const s = fresh.schedules ?? []
       const mem = fresh.dayMemos ?? {}
+      const left = fresh.workerLeftAt ?? {}
       const { year: y, month: mo } = yearMonthRef.current
       setWorkers(w)
       setSchedules(s)
       setDayMemos(mem)
-      baselineRef.current = { workers: w, schedules: s, dayMemos: mem }
+      setWorkerLeftAt(left)
+      baselineRef.current = { workers: w, schedules: s, dayMemos: mem, workerLeftAt: left }
       lastSyncedRevisionRef.current = await fetchScheduleRevision()
       setSyncNotice('他の端末での更新を取り込みました')
       window.setTimeout(() => setSyncNotice(null), 5000)
@@ -207,17 +218,18 @@ export default function ScheduleBoard() {
   useEffect(() => {
     const handler = () => {
       if (!scheduleHydratedRef.current) return
-      saveSchedulePendingSync({ workers, schedules, dayMemos })
+      saveSchedulePendingSync({ workers, schedules, dayMemos, workerLeftAt })
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [workers, schedules, dayMemos])
+  }, [workers, schedules, dayMemos, workerLeftAt])
 
   /** persist の結果（マージ後の確定データ）を画面に反映 */
   const applySaved = (saved: ScheduleData) => {
     setSchedules(saved.schedules)
     setWorkers(saved.workers)
     setDayMemos(saved.dayMemos)
+    setWorkerLeftAt(saved.workerLeftAt ?? {})
   }
 
   // ── 予定 CRUD ──────────────────────────────────────────────────
@@ -228,7 +240,7 @@ export default function ScheduleBoard() {
     const next = entry.shift !== 'off' && entry.koujimei
       ? applySameDayKoujimeiSuffix(entry, withEntry)
       : withEntry
-    const saved = await persist(workers, next, dayMemos, schedules)
+    const saved = await persist(workers, next, dayMemos, { prevSchedules: schedules })
     if (saved !== null) {
       applySaved(saved)
       setModal(null)
@@ -236,7 +248,7 @@ export default function ScheduleBoard() {
   }
   const handleDeleteEntry = async (id: string) => {
     const next = schedules.filter(x => x.id !== id)
-    const saved = await persist(workers, next, dayMemos, schedules)
+    const saved = await persist(workers, next, dayMemos, { prevSchedules: schedules })
     if (saved !== null) {
       applySaved(saved)
       setModal(null)
@@ -265,7 +277,12 @@ export default function ScheduleBoard() {
       ...s,
       workers: s.workers.filter(n => n !== name),
     }))
-    const saved = await persist(nextWorkers, nextSchedules, dayMemos, schedules)
+    const nextLeft = { ...workerLeftAt }
+    delete nextLeft[name]
+    const saved = await persist(nextWorkers, nextSchedules, dayMemos, {
+      prevSchedules: schedules,
+      leftAt: nextLeft,
+    })
     if (saved === null) return
     applySaved(saved)
     try {
@@ -300,11 +317,14 @@ export default function ScheduleBoard() {
       ...s,
       workers: s.workers.map(n => (n === oldName ? trimmed : n)),
     }))
-    const saved = await persist(nextWorkers, nextSchedules, dayMemos)
+    const nextLeft = { ...workerLeftAt }
+    if (nextLeft[oldName]) {
+      nextLeft[trimmed] = nextLeft[oldName]
+      delete nextLeft[oldName]
+    }
+    const saved = await persist(nextWorkers, nextSchedules, dayMemos, { leftAt: nextLeft })
     if (saved === null) return false
-    setWorkers(saved.workers)
-    setSchedules(saved.schedules)
-    setDayMemos(saved.dayMemos)
+    applySaved(saved)
     const email = workerContacts[oldName] ?? ''
     try {
       await deleteWorkerContact(oldName)
@@ -322,7 +342,15 @@ export default function ScheduleBoard() {
     if (filterWorker === oldName) setFilterWorker(trimmed)
     if (selectedWorker === oldName) setSelectedWorker(trimmed)
     return true
-  }, [workers, schedules, dayMemos, persist, workerContacts, filterWorker, selectedWorker])
+  }, [workers, schedules, dayMemos, persist, workerContacts, filterWorker, selectedWorker, workerLeftAt])
+
+  const handleSetWorkerLeftAt = useCallback(async (name: string, leftAt: string | null) => {
+    const nextLeft = { ...workerLeftAt }
+    if (leftAt) nextLeft[name] = leftAt.slice(0, 10)
+    else delete nextLeft[name]
+    const saved = await persist(workers, schedules, dayMemos, { leftAt: nextLeft })
+    if (saved !== null) applySaved(saved)
+  }, [workers, schedules, dayMemos, workerLeftAt, persist])
   const handleSaveContact = useCallback(async (workerName: string, email: string) => {
     await saveWorkerContact(workerName, email)
     setWorkerContacts(prev => ({ ...prev, [workerName]: email }))
@@ -561,7 +589,8 @@ export default function ScheduleBoard() {
         {view === 'cal' && (
           <CalendarView
             year={year} month={month}
-            schedules={schedules} workers={workers} vehicles={vehicles} projects={projects} dayMemos={dayMemos}
+            schedules={schedules} workers={workers} workerLeftAt={workerLeftAt}
+            vehicles={vehicles} projects={projects} dayMemos={dayMemos}
             filterWorker={filterWorker}
             onFilterWorker={handleFilterWorker}
             onClickEntry={e => setModal({ entry: e, isEdit: true })}
@@ -593,10 +622,12 @@ export default function ScheduleBoard() {
             workers={workers}
             schedules={schedules}
             workerContacts={workerContacts}
+            workerLeftAt={workerLeftAt}
             onAdd={handleAddWorker}
             onRemove={handleRemoveWorker}
             onRename={handleRenameWorker}
             onSaveContact={handleSaveContact}
+            onSetLeftAt={handleSetWorkerLeftAt}
             onTestTeams={handleTestTeams}
           />
         )}
@@ -607,6 +638,7 @@ export default function ScheduleBoard() {
         <EntryModal
           entry={modal.entry}
           workers={workers}
+          workerLeftAt={workerLeftAt}
           projects={projects}
           vehicles={vehicles}
           isEdit={modal.isEdit}

@@ -77,7 +77,7 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
       { data: memos },
     ] = await Promise.all([
       supabase.from('schedule_entries').select('*').eq('company_id', companyId).order('date'),
-      supabase.from('schedule_workers').select('name, sort_order').eq('company_id', companyId).order('sort_order'),
+      supabase.from('schedule_workers').select('name, sort_order, left_at').eq('company_id', companyId).order('sort_order'),
       supabase.from('schedule_day_memos').select('date, memo').eq('company_id', companyId),
     ])
 
@@ -122,9 +122,15 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
       memo: r.memo ?? '',
     }))
     const workerNames = (workers ?? []).map((w: { name: string }) => w.name)
+    const workerLeftAt: Record<string, string> = {}
+    for (const w of workers ?? []) {
+      const row = w as { name: string; left_at?: string | null }
+      if (row.left_at) workerLeftAt[row.name] = String(row.left_at).slice(0, 10)
+    }
     return {
       schedules: scheduleRows,
       workers: effectiveWorkerList(workerNames, scheduleRows),
+      workerLeftAt,
       dayMemos: Object.fromEntries(
         (memos ?? []).map((m: { date: string; memo: string }) => [m.date, m.memo ?? ''])
       ),
@@ -192,9 +198,26 @@ export function mergeScheduleData(
     if (v !== undefined && v !== '') dayMemos[d] = v
   }
 
+  // 退職日: 自分またはサーバーが設定した値を統合（空＝クリア）
+  const workerLeftAt: Record<string, string> = {}
+  const leftNames = new Set([
+    ...Object.keys(base.workerLeftAt ?? {}),
+    ...Object.keys(local.workerLeftAt ?? {}),
+    ...Object.keys(server.workerLeftAt ?? {}),
+  ])
+  for (const name of leftNames) {
+    if (!workers.includes(name)) continue
+    const b = (base.workerLeftAt ?? {})[name]
+    const l = (local.workerLeftAt ?? {})[name]
+    const s = (server.workerLeftAt ?? {})[name]
+    const v = l !== b ? l : s
+    if (v) workerLeftAt[name] = v.slice(0, 10)
+  }
+
   return {
     schedules,
     workers: effectiveWorkerList(workers, schedules),
+    workerLeftAt,
     dayMemos,
   }
 }
@@ -253,10 +276,15 @@ export async function saveScheduleData(
     //    （他端末が追加した作業員を消さない。削除はベースラインにあった分のみ適用）
     const { data: serverWorkerRows } = await supabase
       .from('schedule_workers')
-      .select('name, sort_order')
+      .select('name, sort_order, left_at')
       .eq('company_id', companyId)
       .order('sort_order')
     const serverWorkers = (serverWorkerRows ?? []).map((w: { name: string }) => w.name)
+    const serverLeftAt: Record<string, string> = {}
+    for (const w of serverWorkerRows ?? []) {
+      const row = w as { name: string; left_at?: string | null }
+      if (row.left_at) serverLeftAt[row.name] = String(row.left_at).slice(0, 10)
+    }
     const removedByMe = new Set(
       baseline ? (baseline.workers ?? []).filter((w) => !workersToStore.includes(w)) : []
     )
@@ -264,10 +292,25 @@ export async function saveScheduleData(
     for (const w of serverWorkers) {
       if (!finalWorkers.includes(w) && !removedByMe.has(w)) finalWorkers.push(w)
     }
+    const leftAtMap: Record<string, string> = {}
+    const localNames = new Set(workersToStore)
+    for (const name of finalWorkers) {
+      if (localNames.has(name)) {
+        const v = (data.workerLeftAt ?? {})[name]
+        if (v) leftAtMap[name] = v.slice(0, 10)
+      } else if (serverLeftAt[name]) {
+        leftAtMap[name] = serverLeftAt[name]
+      }
+    }
     await supabase.from('schedule_workers').delete().eq('company_id', companyId)
     if (finalWorkers.length > 0) {
       await supabase.from('schedule_workers').insert(
-        finalWorkers.map((name, i) => ({ name, sort_order: i, company_id: companyId }))
+        finalWorkers.map((name, i) => ({
+          name,
+          sort_order: i,
+          company_id: companyId,
+          left_at: leftAtMap[name] ?? null,
+        }))
       )
     }
 

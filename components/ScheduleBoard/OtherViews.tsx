@@ -213,16 +213,22 @@ interface MasterViewProps {
   workers: string[]
   schedules: ScheduleEntry[]
   workerContacts: Record<string, string>
+  workerLeftAt: Record<string, string>
   onAdd: (name: string) => void
   onRemove: (name: string) => void
   onRename: (oldName: string, newName: string) => Promise<boolean>
   onSaveContact: (name: string, email: string) => void
+  onSetLeftAt: (name: string, leftAt: string | null) => void
   onTestTeams?: () => void
 }
-export const MasterView: React.FC<MasterViewProps> = ({ workers, schedules, workerContacts, onAdd, onRemove, onRename, onSaveContact, onTestTeams }) => {
+export const MasterView: React.FC<MasterViewProps> = ({
+  workers, schedules, workerContacts, workerLeftAt,
+  onAdd, onRemove, onRename, onSaveContact, onSetLeftAt, onTestTeams,
+}) => {
   const [name, setName] = useState('')
   const [editingEmail, setEditingEmail] = useState<Record<string, string>>({})
   const [editingDisplayName, setEditingDisplayName] = useState<Record<string, string>>({})
+  const [editingLeftAt, setEditingLeftAt] = useState<Record<string, string>>({})
   const [testLoading, setTestLoading] = useState(false)
   const add = () => { onAdd(name.trim()); setName('') }
   const handleTest = () => {
@@ -234,7 +240,7 @@ export const MasterView: React.FC<MasterViewProps> = ({ workers, schedules, work
   return (
     <div>
       <p style={{ fontSize: 11, color: '#4a6280', marginBottom: 12 }}>
-        表示名・メールアドレスを編集できます。メールを登録すると、スケジュール変更時にTeamsチャネルへ通知されます。
+        表示名・メール・退職日を編集できます。退職日を入れると、その日以降はカレンダーの「空き」と予定の選択候補から外れます（過去の予定はそのまま残ります）。
       </p>
       {onTestTeams && (
         <div style={{ marginBottom: 12 }}>
@@ -269,6 +275,7 @@ export const MasterView: React.FC<MasterViewProps> = ({ workers, schedules, work
           const cnt = schedules.filter(e => e.workers.includes(w) && e.shift !== 'off').length
           const email = editingEmail[w] ?? workerContacts[w] ?? ''
           const displayName = editingDisplayName[w] ?? w
+          const leftVal = editingLeftAt[w] ?? workerLeftAt[w] ?? ''
           const commitDisplayName = async () => {
             const next = displayName.trim()
             if (!next) {
@@ -283,7 +290,18 @@ export const MasterView: React.FC<MasterViewProps> = ({ workers, schedules, work
             if (ok) {
               setEditingDisplayName(prev => { const p = { ...prev }; delete p[w]; return p })
               setEditingEmail(prev => { const p = { ...prev }; delete p[w]; return p })
+              setEditingLeftAt(prev => { const p = { ...prev }; delete p[w]; return p })
             }
+          }
+          const commitLeftAt = () => {
+            const next = leftVal.trim()
+            const prev = workerLeftAt[w] ?? ''
+            if (next === prev) {
+              setEditingLeftAt(p => { const x = { ...p }; delete x[w]; return x })
+              return
+            }
+            onSetLeftAt(w, next || null)
+            setEditingLeftAt(p => { const x = { ...p }; delete x[w]; return x })
           }
           return (
             <div key={w} style={{ background: '#fff', border: '1px solid #d0d8e4', borderRadius: 6, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -302,9 +320,14 @@ export const MasterView: React.FC<MasterViewProps> = ({ workers, schedules, work
                   }}
                 />
                 <span style={{ fontSize: 11, color: '#4a6280', flexShrink: 0 }}>稼働 {cnt}件</span>
+                {leftVal && (
+                  <span style={{ fontSize: 10, color: '#c62828', flexShrink: 0 }}>
+                    {leftVal}〜退職
+                  </span>
+                )}
                 <IconBtn danger onClick={() => onRemove(w)}>✕</IconBtn>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <input
                   type="email"
                   placeholder="通知用メールアドレス"
@@ -313,6 +336,32 @@ export const MasterView: React.FC<MasterViewProps> = ({ workers, schedules, work
                   onBlur={() => email !== (workerContacts[w] ?? '') && onSaveContact(w, email)}
                   style={{ padding: '5px 8px', border: '1px solid #d0d8e4', borderRadius: 4, fontSize: 11, flex: 1, maxWidth: 260 }}
                 />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#4a6280' }}>
+                  退職日
+                  <input
+                    type="date"
+                    aria-label={`${w} の退職日`}
+                    value={leftVal}
+                    onChange={e => setEditingLeftAt(prev => ({ ...prev, [w]: e.target.value }))}
+                    onBlur={commitLeftAt}
+                    style={{ padding: '5px 8px', border: '1px solid #d0d8e4', borderRadius: 4, fontSize: 11 }}
+                  />
+                </label>
+                {leftVal && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingLeftAt(prev => ({ ...prev, [w]: '' }))
+                      onSetLeftAt(w, null)
+                    }}
+                    style={{
+                      padding: '4px 8px', borderRadius: 4, border: '1px solid #d0d8e4',
+                      background: '#fff', color: '#4a6280', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit',
+                    }}
+                  >
+                    退職日をクリア
+                  </button>
+                )}
               </div>
             </div>
           )

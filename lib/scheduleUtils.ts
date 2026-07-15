@@ -86,18 +86,47 @@ export function getNightBefore(date: string, schedules: ScheduleEntry[]): Set<st
         )
 }
 
-/** その日に空いているメンバー（有休・夜勤明けを除外） */
+/** その日に退職済みか（退職日当日以降は true） */
+export function isWorkerLeftOnDate(
+  name: string,
+  date: string,
+  workerLeftAt?: Record<string, string> | null
+): boolean {
+  const left = workerLeftAt?.[name]
+  if (!left) return false
+  return date >= left.slice(0, 10)
+}
+
+/** その日に空いているメンバー（有休・夜勤明け・退職済みを除外） */
 export function getAvailableWorkers(
-    date: string,
-    schedules: ScheduleEntry[],
-    workers: string[]
-  ): string[] {
-    const assigned = new Set(
-          schedules.filter(s => s.date === date && s.shift !== 'off').flatMap(e => e.workers)
-        )
-    const off = getOffWorkers(date, schedules)
-    const nightBefore = getNightBefore(date, schedules)
-    return workers.filter(w => !assigned.has(w) && !off.has(w) && !nightBefore.has(w))
+  date: string,
+  schedules: ScheduleEntry[],
+  workers: string[],
+  workerLeftAt?: Record<string, string> | null
+): string[] {
+  const assigned = new Set(
+    schedules.filter(s => s.date === date && s.shift !== 'off').flatMap(e => e.workers)
+  )
+  const off = getOffWorkers(date, schedules)
+  const nightBefore = getNightBefore(date, schedules)
+  return workers.filter(
+    w =>
+      !assigned.has(w) &&
+      !off.has(w) &&
+      !nightBefore.has(w) &&
+      !isWorkerLeftOnDate(w, date, workerLeftAt)
+  )
+}
+
+/** 予定モーダル等で選べる作業員（退職済みは、既に選択中の場合のみ残す） */
+export function getSelectableWorkers(
+  date: string,
+  workers: string[],
+  selected: Iterable<string>,
+  workerLeftAt?: Record<string, string> | null
+): string[] {
+  const sel = new Set(selected)
+  return workers.filter(w => sel.has(w) || !isWorkerLeftOnDate(w, date, workerLeftAt))
 }
 
 /** 前日の夜勤エントリ（翌日に「夜勤明け」として表示） */

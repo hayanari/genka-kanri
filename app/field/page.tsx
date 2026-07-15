@@ -17,12 +17,14 @@ import { logAudit } from "@/lib/auditLog";
 import type { Vehicle } from "@/lib/utils";
 import type { ScheduleEntry } from "@/types/schedule";
 import { requireCompanyId } from "@/lib/tenant";
+import { getSelectableWorkers } from "@/lib/scheduleUtils";
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
 export default function FieldInputPage() {
   const [projectNames, setProjectNames] = useState<string[]>([]);
   const [workerList, setWorkerList] = useState<string[]>([]);
+  const [workerLeftAt, setWorkerLeftAt] = useState<Record<string, string>>({});
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [dayEntries, setDayEntries] = useState<ScheduleEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,7 +73,10 @@ export default function FieldInputPage() {
         );
         setVehicles(d.vehicles ?? []);
       }
-      if (s) setWorkerList(s.workers ?? []);
+      if (s) {
+        setWorkerList(s.workers ?? []);
+        setWorkerLeftAt(s.workerLeftAt ?? {});
+      }
       setLoading(false);
     });
   }, []);
@@ -271,7 +276,7 @@ export default function FieldInputPage() {
 
                 <label style={labelStyle}>作業員（タップで選択）</label>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {workerList.map((w) => (
+                  {getSelectableWorkers(date, workerList, selWorkers, workerLeftAt).map((w) => (
                     <button
                       key={w}
                       type="button"

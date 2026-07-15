@@ -20,6 +20,8 @@ interface Props {
   month: number
   schedules: ScheduleEntry[]
   workers: string[]
+  /** 作業員名 → 退職日(YYYY-MM-DD) */
+  workerLeftAt?: Record<string, string>
   vehicles: Vehicle[]
   /** 案件管理から連携する案件（未アーカイブ）。その日に予定が無い案件を「未配置」に出す */
   projects: Project[]
@@ -36,7 +38,7 @@ interface DayRowProps extends Omit<Props, 'year'|'month'> {
   dateStr: string
 }
 const DayRow: React.FC<DayRowProps> = ({
-  dateStr, schedules, workers, vehicles, projects, dayMemos,
+  dateStr, schedules, workers, workerLeftAt, vehicles, projects, dayMemos,
   filterWorker, onFilterWorker, onClickEntry, onAddEntry, onDayMemoChange,
 }) => {
   const vehicleMap = React.useMemo(() => new Map(vehicles.map(v => [v.id, v.registration])), [vehicles])
@@ -47,7 +49,7 @@ const DayRow: React.FC<DayRowProps> = ({
   const isToday     = dateStr === TODAY_STR
   const d           = parseInt(dateStr.split('-')[2], 10)
   const cf          = getConflicts(dateStr, schedules)
-  const avail       = getAvailableWorkers(dateStr, schedules, workers)
+  const avail       = getAvailableWorkers(dateStr, schedules, workers, workerLeftAt)
   const offWs       = [...getOffWorkers(dateStr, schedules)]
   const morningEs   = getMorningEntries(dateStr, schedules)
   const dayMemo     = dayMemos[dateStr] ?? ''
