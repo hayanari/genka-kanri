@@ -275,101 +275,6 @@ export const projStats = (
   };
 };
 
-const REGISTERED_PROJECTS: Omit<Project, "id">[] = [
-  {
-    name: "府道堺狭山線ほか路面清掃業務",
-    client: "堺市等",
-    category: "業務",
-    contractAmount: 12840000,
-    originalAmount: 12840000,
-    budget: 11556000,
-    status: "ordered",
-    startDate: "2025-04-01",
-    endDate: "2026-03-31",
-    progress: 0,
-    billedAmount: 0,
-    paidAmount: 0,
-    notes: "トキト落札。契約工期開始日未定。工期末2026年3月末。担当者未定。",
-    mode: "normal",
-    marginRate: 0,
-    subcontractAmount: 0,
-    subcontractVendor: "",
-    payments: [],
-    changes: [],
-    archived: false,
-    deleted: false,
-  },
-  {
-    name: "路面清掃業務（中及び南区）（市道）",
-    client: "堺市等",
-    category: "業務",
-    contractAmount: 13964000,
-    originalAmount: 13964000,
-    budget: 12567600,
-    status: "ordered",
-    startDate: "2025-04-01",
-    endDate: "2026-03-31",
-    progress: 0,
-    billedAmount: 0,
-    paidAmount: 0,
-    notes: "トキト落札。契約工期開始日未定。工期末2026年3月末。担当者未定。",
-    mode: "normal",
-    marginRate: 0,
-    subcontractAmount: 0,
-    subcontractVendor: "",
-    payments: [],
-    changes: [],
-    archived: false,
-    deleted: false,
-  },
-  {
-    name: "道路排水施設等清掃業務（堺及び西区）単価契約",
-    client: "堺市等",
-    category: "業務",
-    contractAmount: 6360000,
-    originalAmount: 6360000,
-    budget: 5724000,
-    status: "ordered",
-    startDate: "2025-04-01",
-    endDate: "2026-03-31",
-    progress: 0,
-    billedAmount: 0,
-    paidAmount: 0,
-    notes: "トキト落札（単契）。契約工期開始日未定。工期末2026年3月末。担当者未定。",
-    mode: "normal",
-    marginRate: 0,
-    subcontractAmount: 0,
-    subcontractVendor: "",
-    payments: [],
-    changes: [],
-    archived: false,
-    deleted: false,
-  },
-  {
-    name: "道路排水施設等清掃業務（中及び南区）単価契約",
-    client: "メット（元請）",
-    category: "業務",
-    contractAmount: 6331000,
-    originalAmount: 6331000,
-    budget: 5697900,
-    status: "ordered",
-    startDate: "2025-04-01",
-    endDate: "2026-03-31",
-    progress: 0,
-    billedAmount: 0,
-    paidAmount: 0,
-    notes: "メット落札（単契）。グループ元請。契約工期開始日未定。工期末2026年3月末。担当者未定。",
-    mode: "normal",
-    marginRate: 0,
-    subcontractAmount: 0,
-    subcontractVendor: "",
-    payments: [],
-    changes: [],
-    archived: false,
-    deleted: false,
-  },
-];
-
 /** 区分に応じた管理番号プレフィックス（工事: K, 業務: G） */
 const PREFIX: Record<string, string> = { 工事: "K", 業務: "G" };
 
@@ -502,13 +407,11 @@ export const bidScheduleToProject = (b: BidSchedule, id: string): Project => {
   };
 };
 
-/** 初回・空DB時のみ使用。DBに保存されれば通常の案件として扱われる */
+/** 初回・空DB時に使用する空データ（プリセット案件は含めない） */
 export const createEmptyData = () => ({
   vehicles: [...DEFAULT_VEHICLES],
   processMasters: [...DEFAULT_PROCESS_MASTERS],
-  projects: ensureManagementNumbers(
-    REGISTERED_PROJECTS.map((r, i) => ({ ...r, id: `p${i + 1}` } as Project))
-  ),
+  projects: [] as Project[],
   costs: [] as Cost[],
   quantities: [] as Quantity[],
   bidSchedules: [] as BidSchedule[],

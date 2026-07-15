@@ -9,7 +9,6 @@ import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import type { ScheduleEntry, DayMemos, ViewType, ScheduleData } from '@/types/schedule'
 import type { Project, Vehicle } from '@/lib/utils'
-import { SAMPLE_DATA, getSampleDataForMarch2026 } from '@/lib/sampleData'
 import { loadScheduleData, saveScheduleData, saveSchedulePendingSync, fetchScheduleRevision, mergeScheduleData, VIEWER_FORBIDDEN_MSG } from '@/lib/scheduleStorage'
 import { logAudit } from '@/lib/auditLog'
 import { loadData } from '@/lib/supabase/data'
@@ -30,7 +29,7 @@ const VIEW_LABELS: Record<ViewType, string> = { cal:'カレンダー', list:'一
 
 export default function ScheduleBoard() {
   // ── State ──────────────────────────────────────────────────────
-  const [workers,   setWorkers]   = useState<string[]>(SAMPLE_DATA.workers)
+  const [workers,   setWorkers]   = useState<string[]>([])
   const [schedules, setSchedules] = useState<ScheduleEntry[]>([])
   const [dayMemos,  setDayMemos]  = useState<DayMemos>({})
   const [view,           setView]           = useState<ViewType>('cal')
@@ -154,7 +153,7 @@ export default function ScheduleBoard() {
       const data = await loadScheduleData()
       if (cancelled) return
       if (data) {
-        const w = Array.isArray(data.workers) ? data.workers : SAMPLE_DATA.workers
+        const w = Array.isArray(data.workers) ? data.workers : []
         const s = data.schedules ?? []
         const m = data.dayMemos ?? {}
         setWorkers(w)
@@ -162,21 +161,10 @@ export default function ScheduleBoard() {
         setDayMemos(m)
         baselineRef.current = { workers: w, schedules: s, dayMemos: m }
       } else {
-        const now = new Date()
-        const isMarch2026 = now.getFullYear() === 2026 && now.getMonth() === 2
-        if (isMarch2026) {
-          const sample = getSampleDataForMarch2026()
-          setWorkers(sample.workers)
-          setSchedules(sample.schedules)
-          setDayMemos(sample.dayMemos)
-          setYear(2026)
-          setMonth(2)
-        } else {
-          setWorkers(SAMPLE_DATA.workers)
-          setSchedules([])
-          setDayMemos({})
-        }
-        // サーバーは空なので、ベースラインも空として扱う
+        // サーバーが空のときはサンプルを表示せず、空のまま開始する
+        setWorkers([])
+        setSchedules([])
+        setDayMemos({})
         baselineRef.current = { workers: [], schedules: [], dayMemos: {} }
       }
       if (!cancelled) lastSyncedRevisionRef.current = await fetchScheduleRevision()
@@ -199,7 +187,7 @@ export default function ScheduleBoard() {
       if (modalRef.current) return
       const fresh = await loadScheduleData()
       if (!fresh) return
-      const w = Array.isArray(fresh.workers) ? fresh.workers : SAMPLE_DATA.workers
+      const w = Array.isArray(fresh.workers) ? fresh.workers : []
       const s = fresh.schedules ?? []
       const mem = fresh.dayMemos ?? {}
       const { year: y, month: mo } = yearMonthRef.current
