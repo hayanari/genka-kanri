@@ -55,7 +55,6 @@ export default function Home() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [orgLabel, setOrgLabel] = useState("…");
-  const [orgCode, setOrgCode] = useState("");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedSuccessfully = useRef(false);
   const dataRef = useRef(data);
@@ -172,7 +171,6 @@ export default function Home() {
         const { fetchCurrentTenant } = await import("@/lib/tenant");
         const t = await fetchCurrentTenant();
         if (t?.companyName) setOrgLabel(t.companyName);
-        if (t?.companyCode) setOrgCode(t.companyCode);
       } catch {
         /* ignore */
       }
@@ -188,7 +186,6 @@ export default function Home() {
         if (!res.ok) return;
         const me = await res.json();
         if (me.companyName) setOrgLabel(me.companyName);
-        if (me.companyCode) setOrgCode(me.companyCode);
       } catch {
         /* ignore */
       }
