@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { isAdminEmail } from "@/lib/supabase/admin";
@@ -9,11 +9,24 @@ import AuthGuard from "@/components/AuthGuard";
 import { fetchAllRoles, saveUserRole, ROLE_LABELS } from "@/lib/roles";
 import type { UserRole } from "@/lib/roles";
 
-type UserItem = { id: string; email: string; createdAt: string; lastSignInAt: string | null };
+type UserItem = {
+  id: string;
+  email: string;
+  loginId: string;
+  displayName: string;
+  companyCode: string;
+  companyName: string;
+  createdAt: string | null;
+  lastSignInAt: string | null;
+};
+
+type CompanyItem = { company_code: string; name: string };
 
 export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<UserItem[]>([]);
+  const [companies, setCompanies] = useState<CompanyItem[]>([]);
+  const [companyFilter, setCompanyFilter] = useState("tokito");
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
   const [roles, setRoles] = useState<Record<string, UserRole>>({});
@@ -21,13 +34,29 @@ export default function AdminPage() {
   const [newLoginId, setNewLoginId] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
+  const [createCompanyCode, setCreateCompanyCode] = useState("tokito");
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState("");
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+
+  const loadUsers = useCallback(async (token: string, company: string) => {
+    const q = company && company !== "all" ? `?company=${encodeURIComponent(company)}` : "";
+    const res = await fetch(`/api/admin/users${q}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "取得に失敗しました");
+    setUsers(data.users ?? []);
+    setCompanies(data.companies ?? []);
+    setRoles(await fetchAllRoles());
+  }, []);
 
   useEffect(() => {
     const run = async () => {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session?.user) {
         setError("ログインしてください");
         setLoading(false);
@@ -39,25 +68,17 @@ export default function AdminPage() {
         return;
       }
 
+      setAccessToken(session.access_token);
       try {
-        const res = await fetch("/api/admin/users", {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.error ?? "取得に失敗しました");
-          return;
-        }
-        setUsers(data.users ?? []);
-        setRoles(await fetchAllRoles());
+        await loadUsers(session.access_token, companyFilter);
       } catch (e) {
-        setError("通信エラーが発生しました");
+        setError(e instanceof Error ? e.message : "通信エラーが発生しました");
       } finally {
         setLoading(false);
       }
     };
     run();
-  }, []);
+  }, [companyFilter, loadUsers]);
 
   const handleRoleChange = async (email: string, role: UserRole) => {
     setRoleSaving(email);
@@ -76,22 +97,18 @@ export default function AdminPage() {
     setCreateMsg("");
     setCreating(true);
     try {
-      const supabase = createClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      if (!accessToken) {
         setCreateMsg("ログインしてください");
         return;
       }
       const res = await fetch("/api/admin/company-users", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          companyCode: "tokito",
+          companyCode: createCompanyCode,
           loginId: newLoginId,
           password: newPassword,
           displayName: newDisplayName || newLoginId,
@@ -102,16 +119,14 @@ export default function AdminPage() {
         setCreateMsg(data.error ?? "作成に失敗しました");
         return;
       }
-      setCreateMsg(`作成しました。会社ID=tokito / ログインID=${data.user.loginId}`);
+      setCreateMsg(
+        `作成しました。会社ID=${data.user.companyCode} / ログインID=${data.user.loginId}`
+      );
       setNewLoginId("");
       setNewPassword("");
       setNewDisplayName("");
-      // 一覧再取得
-      const listRes = await fetch("/api/admin/users", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      const listData = await listRes.json();
-      if (listRes.ok) setUsers(listData.users ?? []);
+      setCompanyFilter(createCompanyCode);
+      await loadUsers(accessToken, createCompanyCode);
     } catch {
       setCreateMsg("通信エラーが発生しました");
     } finally {
@@ -121,16 +136,13 @@ export default function AdminPage() {
 
   const handleDelete = async (userId: string) => {
     if (!confirm("このアカウントを削除しますか？この操作は取り消せません。")) return;
-    const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) return;
-    if (!isAdminEmail(session.user.email)) return;
+    if (!accessToken) return;
 
     setDeleting(userId);
     try {
       const res = await fetch(`/api/admin/users/${userId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = await res.json();
       if (!res.ok) {
@@ -148,8 +160,7 @@ export default function AdminPage() {
   const formatDate = (s: string | null) => {
     if (!s) return "—";
     try {
-      const d = new Date(s);
-      return d.toLocaleString("ja-JP");
+      return new Date(s).toLocaleString("ja-JP");
     } catch {
       return s;
     }
@@ -167,7 +178,7 @@ export default function AdminPage() {
       >
         <div
           style={{
-            maxWidth: 720,
+            maxWidth: 960,
             margin: "0 auto",
             background: T.s,
             border: `1px solid ${T.bd}`,
@@ -184,10 +195,7 @@ export default function AdminPage() {
               gap: 12,
             }}
           >
-            <Link
-              href="/"
-              style={{ color: T.ts, textDecoration: "none", fontSize: 14 }}
-            >
+            <Link href="/" style={{ color: T.ts, textDecoration: "none", fontSize: 14 }}>
               ← 案件管理に戻る
             </Link>
             <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.tx }}>
@@ -196,9 +204,7 @@ export default function AdminPage() {
           </div>
 
           <div style={{ padding: 20 }}>
-            {loading && (
-              <div style={{ color: T.ts, fontSize: 14 }}>読み込み中...</div>
-            )}
+            {loading && <div style={{ color: T.ts, fontSize: 14 }}>読み込み中...</div>}
             {error && (
               <div
                 style={{
@@ -228,9 +234,25 @@ export default function AdminPage() {
                     ログインID付きユーザーを発行
                   </div>
                   <p style={{ fontSize: 12, color: T.ts, marginTop: 0 }}>
-                    会社ID <code>tokito</code> 向け。発行後は「会社ID + ログインID + パスワード」でログインします。
+                    発行後は「会社ID + ログインID + パスワード」でログインします。
                   </p>
                   <div style={{ display: "grid", gap: 8, maxWidth: 360 }}>
+                    <select
+                      value={createCompanyCode}
+                      onChange={(e) => setCreateCompanyCode(e.target.value)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 6,
+                        border: `1px solid ${T.bd}`,
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {companies.map((c) => (
+                        <option key={c.company_code} value={c.company_code}>
+                          {c.name}（{c.company_code}）
+                        </option>
+                      ))}
+                    </select>
                     <input
                       placeholder="ログインID（例: tanaka）"
                       value={newLoginId}
@@ -282,15 +304,45 @@ export default function AdminPage() {
                     >
                       {creating ? "作成中..." : "ユーザーを作成"}
                     </button>
-                    {createMsg && (
-                      <div style={{ fontSize: 12, color: T.ts }}>{createMsg}</div>
-                    )}
+                    {createMsg && <div style={{ fontSize: 12, color: T.ts }}>{createMsg}</div>}
                   </div>
                 </div>
 
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    marginBottom: 12,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span style={{ fontSize: 13, color: T.ts }}>会社で絞り込み</span>
+                  <select
+                    value={companyFilter}
+                    onChange={(e) => {
+                      setLoading(true);
+                      setCompanyFilter(e.target.value);
+                    }}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      border: `1px solid ${T.bd}`,
+                      fontFamily: "inherit",
+                      fontSize: 13,
+                    }}
+                  >
+                    <option value="all">すべて</option>
+                    {companies.map((c) => (
+                      <option key={c.company_code} value={c.company_code}>
+                        {c.name}（{c.company_code}）
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <p style={{ fontSize: 13, color: T.ts, marginBottom: 16 }}>
-                  登録済みアカウント一覧です。削除したアカウントは再度ログインできません。
-                  権限は「閲覧のみ」「入力可」「管理者」から選べます（未設定は入力可）。
+                  所属会社ごとのアカウントです。統合前は全ユーザーが一覧に混ざっていましたが、会社で分けて表示します。
                 </p>
                 <table
                   style={{
@@ -302,10 +354,13 @@ export default function AdminPage() {
                   <thead>
                     <tr style={{ borderBottom: `2px solid ${T.bd}` }}>
                       <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: T.ts }}>
-                        メールアドレス
+                        会社
                       </th>
                       <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: T.ts }}>
-                        登録日時
+                        ログインID
+                      </th>
+                      <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: T.ts }}>
+                        メール
                       </th>
                       <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: T.ts }}>
                         最終ログイン
@@ -318,16 +373,13 @@ export default function AdminPage() {
                   </thead>
                   <tbody>
                     {users.map((u) => (
-                      <tr
-                        key={u.id}
-                        style={{ borderBottom: `1px solid ${T.bd}` }}
-                      >
-                        <td style={{ padding: "12px 8px", color: T.tx }}>
-                          {u.email}
+                      <tr key={`${u.companyCode}-${u.id}`} style={{ borderBottom: `1px solid ${T.bd}` }}>
+                        <td style={{ padding: "12px 8px", color: T.tx, fontSize: 12 }}>
+                          <div style={{ fontWeight: 600 }}>{u.companyName || "—"}</div>
+                          <div style={{ color: T.ts }}>{u.companyCode}</div>
                         </td>
-                        <td style={{ padding: "12px 8px", color: T.ts, fontSize: 12 }}>
-                          {formatDate(u.createdAt)}
-                        </td>
+                        <td style={{ padding: "12px 8px", color: T.tx }}>{u.loginId || "—"}</td>
+                        <td style={{ padding: "12px 8px", color: T.tx, fontSize: 12 }}>{u.email}</td>
                         <td style={{ padding: "12px 8px", color: T.ts, fontSize: 12 }}>
                           {formatDate(u.lastSignInAt)}
                         </td>
@@ -386,7 +438,7 @@ export default function AdminPage() {
                 </table>
                 {users.length === 0 && (
                   <div style={{ padding: 24, textAlign: "center", color: T.ts, fontSize: 14 }}>
-                    登録されているアカウントがありません
+                    この会社に登録されているアカウントがありません
                   </div>
                 )}
               </div>
