@@ -12,7 +12,6 @@ import { createRemoteBackup } from "@/lib/supabase/backup";
 import { loadScheduleData } from "@/lib/scheduleStorage";
 import { signOut } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/client";
-import { isAdminEmail } from "@/lib/supabase/admin";
 import { useUserRole } from "@/lib/roles";
 import { logAudit, summarizeGenkaChanges } from "@/lib/auditLog";
 import type { GenkaSnapshot } from "@/lib/auditLog";
@@ -55,6 +54,7 @@ export default function Home() {
   const [loadError, setLoadError] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [orgLabel, setOrgLabel] = useState(SIDEBAR_ORG_LABEL);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedSuccessfully = useRef(false);
   const dataRef = useRef(data);
@@ -69,7 +69,7 @@ export default function Home() {
   const [showCsvExportModal, setShowCsvExportModal] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const lastSyncedRevisionRef = useRef<string | null>(null);
-  const { role } = useUserRole();
+  const { role, canAccessAdmin } = useUserRole();
   const lastAuditedSnapshotRef = useRef<GenkaSnapshot | null>(null);
   const viewRef = useRef(view);
   const csvModalRef = useRef(showCsvExportModal);
@@ -166,6 +166,11 @@ export default function Home() {
     createClient().auth.getSession().then(({ data: { session } }) => {
       setUserEmail(session?.user?.email ?? null);
     });
+    import("@/lib/tenant").then(({ fetchCurrentTenant }) =>
+      fetchCurrentTenant().then((t) => {
+        if (t?.companyName) setOrgLabel(t.companyName);
+      })
+    );
   }, []);
 
   useEffect(() => {
@@ -702,7 +707,7 @@ export default function Home() {
               marginBottom: "4px",
             }}
           >
-            {SIDEBAR_ORG_LABEL}
+            {orgLabel}
           </div>
           <div
             style={{
@@ -859,7 +864,7 @@ export default function Home() {
           >
             ⚙️ 設定・バックアップ
           </Link>
-          {isAdminEmail(userEmail ?? undefined) && (
+          {canAccessAdmin && (
             <Link
               href="/admin"
               style={{

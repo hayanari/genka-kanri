@@ -3,10 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { isAdminEmail } from "@/lib/supabase/admin";
 import { T } from "@/lib/constants";
 import AuthGuard from "@/components/AuthGuard";
-import { fetchAllRoles, saveUserRole, ROLE_LABELS } from "@/lib/roles";
+import { saveUserRole, ROLE_LABELS, clearRoleCache } from "@/lib/roles";
 import type { UserRole } from "@/lib/roles";
 
 type UserItem = {
@@ -14,33 +13,43 @@ type UserItem = {
   email: string;
   loginId: string;
   displayName: string;
+  role: UserRole;
   companyCode: string;
   companyName: string;
+  isPlatformOwner?: boolean;
   createdAt: string | null;
   lastSignInAt: string | null;
 };
 
 type CompanyItem = { company_code: string; name: string };
 
+type CallerInfo = {
+  isPlatformOwner: boolean;
+  companyCode: string | null;
+  canAccessAdmin: boolean;
+};
+
 export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<UserItem[]>([]);
   const [companies, setCompanies] = useState<CompanyItem[]>([]);
   const [companyFilter, setCompanyFilter] = useState("tokito");
+  const [caller, setCaller] = useState<CallerInfo | null>(null);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [roles, setRoles] = useState<Record<string, UserRole>>({});
   const [roleSaving, setRoleSaving] = useState<string | null>(null);
   const [newLoginId, setNewLoginId] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
+  const [newRole, setNewRole] = useState<UserRole>("editor");
   const [createCompanyCode, setCreateCompanyCode] = useState("tokito");
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState("");
   const [accessToken, setAccessToken] = useState<string | null>(null);
 
   const loadUsers = useCallback(async (token: string, company: string) => {
-    const q = company && company !== "all" ? `?company=${encodeURIComponent(company)}` : "";
+    const q =
+      company && company !== "all" ? `?company=${encodeURIComponent(company)}` : "?company=all";
     const res = await fetch(`/api/admin/users${q}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -48,7 +57,7 @@ export default function AdminPage() {
     if (!res.ok) throw new Error(data.error ?? "取得に失敗しました");
     setUsers(data.users ?? []);
     setCompanies(data.companies ?? []);
-    setRoles(await fetchAllRoles());
+    if (data.caller) setCaller(data.caller);
   }, []);
 
   useEffect(() => {
@@ -62,15 +71,31 @@ export default function AdminPage() {
         setLoading(false);
         return;
       }
-      if (!isAdminEmail(session.user.email)) {
-        setError("このページにアクセスする権限がありません");
+
+      const meRes = await fetch("/api/admin/me", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const me = await meRes.json();
+      if (!meRes.ok || !me.canAccessAdmin) {
+        setError("このページにアクセスする権限がありません（会社管理者またはシステムオーナーが必要です）");
         setLoading(false);
         return;
       }
 
+      setCaller({
+        isPlatformOwner: me.isPlatformOwner,
+        companyCode: me.companyCode,
+        canAccessAdmin: me.canAccessAdmin,
+      });
+      const initialCompany = me.isPlatformOwner
+        ? companyFilter
+        : me.companyCode || companyFilter;
+      setCompanyFilter(initialCompany);
+      setCreateCompanyCode(me.isPlatformOwner ? initialCompany : me.companyCode || "tokito");
       setAccessToken(session.access_token);
+
       try {
-        await loadUsers(session.access_token, companyFilter);
+        await loadUsers(session.access_token, initialCompany);
       } catch (e) {
         setError(e instanceof Error ? e.message : "通信エラーが発生しました");
       } finally {
@@ -78,17 +103,33 @@ export default function AdminPage() {
       }
     };
     run();
-  }, [companyFilter, loadUsers]);
+    // 初回のみ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const handleRoleChange = async (email: string, role: UserRole) => {
-    setRoleSaving(email);
-    const ok = await saveUserRole(email, role);
+  useEffect(() => {
+    if (!accessToken || loading) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await loadUsers(accessToken, companyFilter);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "取得に失敗しました");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyFilter, accessToken, loadUsers, loading]);
+
+  const handleRoleChange = async (u: UserItem, role: UserRole) => {
+    setRoleSaving(u.id);
+    const ok = await saveUserRole(u.id, role, u.companyCode);
     if (ok) {
-      setRoles((prev) => ({ ...prev, [email.toLowerCase()]: role }));
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, role } : x)));
+      clearRoleCache();
     } else {
-      alert(
-        "権限の保存に失敗しました。Supabase で supabase/features_upgrade.sql を実行済みか確認してください。"
-      );
+      alert("権限の保存に失敗しました。");
     }
     setRoleSaving(null);
   };
@@ -112,6 +153,7 @@ export default function AdminPage() {
           loginId: newLoginId,
           password: newPassword,
           displayName: newDisplayName || newLoginId,
+          role: newRole,
         }),
       });
       const data = await res.json();
@@ -166,6 +208,10 @@ export default function AdminPage() {
     }
   };
 
+  const roleOptions = (caller?.isPlatformOwner
+    ? (["viewer", "editor", "admin", "owner"] as UserRole[])
+    : (["viewer", "editor", "admin"] as UserRole[]));
+
   return (
     <AuthGuard>
       <div
@@ -178,7 +224,7 @@ export default function AdminPage() {
       >
         <div
           style={{
-            maxWidth: 960,
+            maxWidth: 1000,
             margin: "0 auto",
             background: T.s,
             border: `1px solid ${T.bd}`,
@@ -193,6 +239,7 @@ export default function AdminPage() {
               display: "flex",
               alignItems: "center",
               gap: 12,
+              flexWrap: "wrap",
             }}
           >
             <Link href="/" style={{ color: T.ts, textDecoration: "none", fontSize: 14 }}>
@@ -201,6 +248,34 @@ export default function AdminPage() {
             <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.tx }}>
               🔐 アカウント管理
             </h1>
+            {caller?.isPlatformOwner && (
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "#fff",
+                  background: "#7c3aed",
+                  borderRadius: 999,
+                  padding: "3px 10px",
+                }}
+              >
+                システムオーナー
+              </span>
+            )}
+            {!caller?.isPlatformOwner && caller?.companyCode && (
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: T.ac,
+                  background: T.al,
+                  borderRadius: 999,
+                  padding: "3px 10px",
+                }}
+              >
+                会社管理者（{caller.companyCode}）
+              </span>
+            )}
           </div>
 
           <div style={{ padding: 20 }}>
@@ -231,14 +306,15 @@ export default function AdminPage() {
                   }}
                 >
                   <div style={{ fontWeight: 700, marginBottom: 8, color: T.tx }}>
-                    ログインID付きユーザーを発行
+                    ユーザーを発行
                   </div>
                   <p style={{ fontSize: 12, color: T.ts, marginTop: 0 }}>
-                    発行後は「会社ID + ログインID + パスワード」でログインします。
+                    会社ごとに管理者がユーザーを発行します。システムオーナーのみ全社を操作できます。
                   </p>
-                  <div style={{ display: "grid", gap: 8, maxWidth: 360 }}>
+                  <div style={{ display: "grid", gap: 8, maxWidth: 380 }}>
                     <select
                       value={createCompanyCode}
+                      disabled={!caller?.isPlatformOwner}
                       onChange={(e) => setCreateCompanyCode(e.target.value)}
                       style={{
                         padding: "8px 10px",
@@ -287,6 +363,22 @@ export default function AdminPage() {
                         fontFamily: "inherit",
                       }}
                     />
+                    <select
+                      value={newRole}
+                      onChange={(e) => setNewRole(e.target.value as UserRole)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 6,
+                        border: `1px solid ${T.bd}`,
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {roleOptions.map((r) => (
+                        <option key={r} value={r}>
+                          {ROLE_LABELS[r]}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       onClick={handleCreateUser}
@@ -308,41 +400,40 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    marginBottom: 12,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <span style={{ fontSize: 13, color: T.ts }}>会社で絞り込み</span>
-                  <select
-                    value={companyFilter}
-                    onChange={(e) => {
-                      setLoading(true);
-                      setCompanyFilter(e.target.value);
-                    }}
+                {caller?.isPlatformOwner && (
+                  <div
                     style={{
-                      padding: "6px 10px",
-                      borderRadius: 6,
-                      border: `1px solid ${T.bd}`,
-                      fontFamily: "inherit",
-                      fontSize: 13,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      marginBottom: 12,
+                      flexWrap: "wrap",
                     }}
                   >
-                    <option value="all">すべて</option>
-                    {companies.map((c) => (
-                      <option key={c.company_code} value={c.company_code}>
-                        {c.name}（{c.company_code}）
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    <span style={{ fontSize: 13, color: T.ts }}>会社で絞り込み</span>
+                    <select
+                      value={companyFilter}
+                      onChange={(e) => setCompanyFilter(e.target.value)}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 6,
+                        border: `1px solid ${T.bd}`,
+                        fontFamily: "inherit",
+                        fontSize: 13,
+                      }}
+                    >
+                      <option value="all">すべて</option>
+                      {companies.map((c) => (
+                        <option key={c.company_code} value={c.company_code}>
+                          {c.name}（{c.company_code}）
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <p style={{ fontSize: 13, color: T.ts, marginBottom: 16 }}>
-                  所属会社ごとのアカウントです。統合前は全ユーザーが一覧に混ざっていましたが、会社で分けて表示します。
+                  会社管理者は自社ユーザーのみ操作できます。システムオーナーは全社を横断できます。
                 </p>
                 <table
                   style={{
@@ -379,21 +470,28 @@ export default function AdminPage() {
                           <div style={{ color: T.ts }}>{u.companyCode}</div>
                         </td>
                         <td style={{ padding: "12px 8px", color: T.tx }}>{u.loginId || "—"}</td>
-                        <td style={{ padding: "12px 8px", color: T.tx, fontSize: 12 }}>{u.email}</td>
+                        <td style={{ padding: "12px 8px", color: T.tx, fontSize: 12 }}>
+                          {u.email}
+                          {u.isPlatformOwner && (
+                            <div style={{ color: "#7c3aed", fontWeight: 600, marginTop: 2 }}>
+                              システムオーナー
+                            </div>
+                          )}
+                        </td>
                         <td style={{ padding: "12px 8px", color: T.ts, fontSize: 12 }}>
                           {formatDate(u.lastSignInAt)}
                         </td>
                         <td style={{ padding: "12px 8px" }}>
-                          {isAdminEmail(u.email) ? (
-                            <span style={{ fontSize: 12, fontWeight: 600, color: T.ac }}>
-                              管理者（固定）
+                          {u.isPlatformOwner ? (
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "#7c3aed" }}>
+                              （固定）
                             </span>
                           ) : (
                             <select
-                              value={roles[u.email.toLowerCase()] ?? "editor"}
-                              disabled={roleSaving === u.email}
+                              value={u.role || "editor"}
+                              disabled={roleSaving === u.id}
                               onChange={(e) =>
-                                handleRoleChange(u.email, e.target.value as UserRole)
+                                handleRoleChange(u, e.target.value as UserRole)
                               }
                               style={{
                                 padding: "6px 8px",
@@ -406,7 +504,7 @@ export default function AdminPage() {
                                 cursor: "pointer",
                               }}
                             >
-                              {(Object.keys(ROLE_LABELS) as UserRole[]).map((r) => (
+                              {roleOptions.map((r) => (
                                 <option key={r} value={r}>
                                   {ROLE_LABELS[r]}
                                 </option>
@@ -415,22 +513,24 @@ export default function AdminPage() {
                           )}
                         </td>
                         <td style={{ padding: "12px 8px" }}>
-                          <button
-                            onClick={() => handleDelete(u.id)}
-                            disabled={!!deleting}
-                            style={{
-                              padding: "6px 12px",
-                              fontSize: 12,
-                              background: T.dg + "18",
-                              color: T.dg,
-                              border: `1px solid ${T.dg}44`,
-                              borderRadius: 6,
-                              cursor: deleting ? "not-allowed" : "pointer",
-                              fontFamily: "inherit",
-                            }}
-                          >
-                            {deleting === u.id ? "削除中..." : "削除"}
-                          </button>
+                          {!u.isPlatformOwner && (
+                            <button
+                              onClick={() => handleDelete(u.id)}
+                              disabled={!!deleting}
+                              style={{
+                                padding: "6px 12px",
+                                fontSize: 12,
+                                background: T.dg + "18",
+                                color: T.dg,
+                                border: `1px solid ${T.dg}44`,
+                                borderRadius: 6,
+                                cursor: deleting ? "not-allowed" : "pointer",
+                                fontFamily: "inherit",
+                              }}
+                            >
+                              {deleting === u.id ? "削除中..." : "削除"}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}

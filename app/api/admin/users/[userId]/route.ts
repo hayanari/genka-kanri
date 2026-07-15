@@ -1,14 +1,16 @@
 /**
  * ユーザー削除 API
- * tokito@tokito-co.jp のみアクセス可
+ * システムオーナー or 自社会社管理者のみ。システムオーナー本人は削除不可。
  */
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/client";
 import {
   createAdminClient,
-  isAdminEmail,
   isServiceRoleConfigured,
 } from "@/lib/supabase/admin";
+import {
+  canManageCompany,
+  resolveCallerFromToken,
+} from "@/lib/permissions";
 
 export async function DELETE(
   request: NextRequest,
@@ -21,12 +23,11 @@ export async function DELETE(
       return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
     }
 
-    const supabase = createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
+    const caller = await resolveCallerFromToken(token);
+    if (!caller) {
       return NextResponse.json({ error: "認証に失敗しました" }, { status: 401 });
     }
-    if (!isAdminEmail(user.email)) {
+    if (!caller.canAccessAdmin) {
       return NextResponse.json({ error: "この操作を行う権限がありません" }, { status: 403 });
     }
 
@@ -34,23 +35,44 @@ export async function DELETE(
     if (!userId) {
       return NextResponse.json({ error: "ユーザーIDが必要です" }, { status: 400 });
     }
-
-    // 自分自身は削除不可
-    if (userId === user.id) {
+    if (userId === caller.userId) {
       return NextResponse.json({ error: "自分自身のアカウントは削除できません" }, { status: 400 });
     }
 
     if (!isServiceRoleConfigured()) {
       return NextResponse.json(
-        {
-          error:
-            "サーバーに SUPABASE_SERVICE_ROLE_KEY（Supabase の service_role）が設定されていません。Vercel の Environment Variables に追加し、再デプロイしてください。",
-        },
+        { error: "SUPABASE_SERVICE_ROLE_KEY が設定されていません。" },
         { status: 503 }
       );
     }
 
     const admin = createAdminClient();
+
+    const { data: targetOwner } = await admin
+      .from("platform_owners")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (targetOwner) {
+      return NextResponse.json(
+        { error: "システムオーナーは削除できません" },
+        { status: 403 }
+      );
+    }
+
+    const { data: membership } = await admin
+      .from("company_users")
+      .select("company_id, companies(company_code)")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const company = Array.isArray(membership?.companies)
+      ? membership?.companies[0]
+      : membership?.companies;
+    const code = company?.company_code;
+    if (!code || !canManageCompany(caller, code)) {
+      return NextResponse.json({ error: "他社のユーザーは削除できません" }, { status: 403 });
+    }
+
     const { error } = await admin.auth.admin.deleteUser(userId);
     if (error) {
       console.error("[admin/users delete]", error);

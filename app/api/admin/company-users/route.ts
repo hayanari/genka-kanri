@@ -1,12 +1,9 @@
 /**
- * 会社管理者向け: ログインID付きユーザーを発行
- * （現時点はシステム管理者メールのみ）
+ * 会社管理者 / システムオーナー向け: ログインID付きユーザーを発行
  */
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/client";
 import {
   createAdminClient,
-  isAdminEmail,
   isServiceRoleConfigured,
 } from "@/lib/supabase/admin";
 import {
@@ -14,6 +11,11 @@ import {
   normalizeCompanyCode,
   normalizeLoginId,
 } from "@/lib/tenant";
+import {
+  canManageCompany,
+  resolveCallerFromToken,
+  type CompanyRole,
+} from "@/lib/permissions";
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,15 +25,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
     }
 
-    const supabase = createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser(token);
-    if (authError || !user) {
+    const caller = await resolveCallerFromToken(token);
+    if (!caller) {
       return NextResponse.json({ error: "認証に失敗しました" }, { status: 401 });
     }
-    if (!isAdminEmail(user.email)) {
+    if (!caller.canAccessAdmin) {
       return NextResponse.json({ error: "この操作を行う権限がありません" }, { status: 403 });
     }
     if (!isServiceRoleConfigured()) {
@@ -42,18 +40,32 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const companyCode = normalizeCompanyCode(String(body.companyCode ?? "tokito"));
+    const companyCode = normalizeCompanyCode(
+      String(body.companyCode ?? caller.companyCode ?? "")
+    );
     const loginId = normalizeLoginId(String(body.loginId ?? ""));
     const password = String(body.password ?? "");
     const displayName = String(body.displayName ?? loginId).trim();
+    const role = (String(body.role ?? "editor") as CompanyRole) || "editor";
 
+    if (!companyCode) {
+      return NextResponse.json({ error: "会社IDが必要です" }, { status: 400 });
+    }
+    if (!canManageCompany(caller, companyCode)) {
+      return NextResponse.json({ error: "他社のユーザーは作成できません" }, { status: 403 });
+    }
     if (!loginId || loginId.includes("@") || password.length < 6) {
       return NextResponse.json(
         {
-          error:
-            "ログインID（@なし）と6文字以上のパスワードを指定してください",
+          error: "ログインID（@なし）と6文字以上のパスワードを指定してください",
         },
         { status: 400 }
+      );
+    }
+    if (role === "owner" && !caller.isPlatformOwner) {
+      return NextResponse.json(
+        { error: "会社オーナーの作成はシステムオーナーのみ可能です" },
+        { status: 403 }
       );
     }
 
@@ -95,6 +107,7 @@ export async function POST(request: NextRequest) {
         login_id: loginId,
         auth_email: authEmail,
         display_name: displayName,
+        role: ["viewer", "editor", "admin", "owner"].includes(role) ? role : "editor",
       },
       { onConflict: "user_id" }
     );
@@ -107,7 +120,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 空データ行を用意
     await admin.from("genka_kanri_data").upsert(
       {
         id: company.id,
@@ -123,6 +135,7 @@ export async function POST(request: NextRequest) {
         id: created.user.id,
         loginId,
         companyCode: company.company_code,
+        role,
       },
     });
   } catch (e) {

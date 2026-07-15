@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { T, SIDEBAR_ORG_LABEL } from "@/lib/constants";
 import { clearTenantCache } from "@/lib/tenant";
+import { clearRoleCache } from "@/lib/roles";
 import { Btn } from "@/components/ui/primitives";
 
 export default function LoginPage() {
@@ -121,6 +122,7 @@ export default function LoginPage() {
         return;
       }
       clearTenantCache();
+      clearRoleCache();
       router.push("/");
       router.refresh();
     } catch {

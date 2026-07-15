@@ -1,59 +1,118 @@
 "use client";
 
 // ================================================================
-// lib/roles.ts
-// ユーザー権限（viewer: 閲覧のみ / editor: 入力可 / admin: 管理者）
-// user_roles テーブルに行が無いユーザーは editor として扱う
+// 会社スコープの権限（viewer / editor / admin / owner）
+// システムオーナーは常に admin 相当として扱う
 // ================================================================
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { isAdminEmail } from "@/lib/supabase/admin";
+import { clearTenantCache } from "@/lib/tenant";
+import type { CompanyRole } from "@/lib/permissions";
+import { COMPANY_ROLE_LABELS } from "@/lib/permissions";
 
-export type UserRole = "viewer" | "editor" | "admin";
+export type UserRole = CompanyRole;
 
-export const ROLE_LABELS: Record<UserRole, string> = {
-  viewer: "閲覧のみ",
-  editor: "入力可",
-  admin: "管理者",
-};
+export const ROLE_LABELS = COMPANY_ROLE_LABELS;
 
 let cachedRole: UserRole | null = null;
 let cachedEmail: string | null = null;
+let cachedCanAccessAdmin: boolean | null = null;
+let cachedIsPlatformOwner: boolean | null = null;
+
+export type CurrentAccess = {
+  role: UserRole;
+  email: string | null;
+  canAccessAdmin: boolean;
+  isPlatformOwner: boolean;
+  companyCode: string | null;
+  companyName: string | null;
+};
+
+export async function fetchCurrentAccess(): Promise<CurrentAccess> {
+  if (cachedRole !== null && cachedCanAccessAdmin !== null) {
+    return {
+      role: cachedRole,
+      email: cachedEmail,
+      canAccessAdmin: cachedCanAccessAdmin,
+      isPlatformOwner: cachedIsPlatformOwner ?? false,
+      companyCode: null,
+      companyName: null,
+    };
+  }
+
+  const empty: CurrentAccess = {
+    role: "editor",
+    email: null,
+    canAccessAdmin: false,
+    isPlatformOwner: false,
+    companyCode: null,
+    companyName: null,
+  };
+
+  try {
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      cachedRole = "editor";
+      cachedCanAccessAdmin = false;
+      cachedIsPlatformOwner = false;
+      return empty;
+    }
+
+    const res = await fetch("/api/admin/me", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (!res.ok) {
+      // フォールバック: company_users から読む
+      const email = session.user.email?.toLowerCase() ?? null;
+      cachedEmail = email;
+      const { data: mem } = await supabase
+        .from("company_users")
+        .select("role, companies(company_code, name)")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+      const role = (mem?.role as UserRole) || "editor";
+      cachedRole = ["viewer", "editor", "admin", "owner"].includes(role) ? role : "editor";
+      cachedCanAccessAdmin = cachedRole === "admin" || cachedRole === "owner";
+      cachedIsPlatformOwner = false;
+      return {
+        role: cachedRole,
+        email,
+        canAccessAdmin: cachedCanAccessAdmin,
+        isPlatformOwner: false,
+        companyCode: null,
+        companyName: null,
+      };
+    }
+
+    const data = await res.json();
+    cachedEmail = data.email ?? null;
+    cachedRole = (data.companyRole as UserRole) || (data.isPlatformOwner ? "owner" : "editor");
+    if (data.isPlatformOwner) cachedRole = "owner";
+    cachedCanAccessAdmin = Boolean(data.canAccessAdmin);
+    cachedIsPlatformOwner = Boolean(data.isPlatformOwner);
+    return {
+      role: cachedRole!,
+      email: cachedEmail,
+      canAccessAdmin: cachedCanAccessAdmin!,
+      isPlatformOwner: cachedIsPlatformOwner!,
+      companyCode: data.companyCode ?? null,
+      companyName: data.companyName ?? null,
+    };
+  } catch {
+    cachedRole = "editor";
+    cachedCanAccessAdmin = false;
+    cachedIsPlatformOwner = false;
+    return empty;
+  }
+}
 
 /** 現在ログイン中ユーザーの権限を取得（モジュール内キャッシュあり） */
 export async function fetchCurrentRole(): Promise<{ role: UserRole; email: string | null }> {
-  if (cachedRole !== null) return { role: cachedRole, email: cachedEmail };
-  try {
-    const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    const email = session?.user?.email?.toLowerCase() ?? null;
-    cachedEmail = email;
-    if (!email) {
-      cachedRole = "editor";
-      return { role: cachedRole, email };
-    }
-    if (isAdminEmail(email)) {
-      cachedRole = "admin";
-      return { role: cachedRole, email };
-    }
-    const { data, error } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("email", email)
-      .maybeSingle();
-    // テーブル未作成や行なしの場合は editor（従来通り全員入力可）
-    if (error || !data?.role) {
-      cachedRole = "editor";
-    } else {
-      cachedRole = (["viewer", "editor", "admin"].includes(data.role)
-        ? data.role
-        : "editor") as UserRole;
-    }
-    return { role: cachedRole, email };
-  } catch {
-    cachedRole = "editor";
-    return { role: "editor", email: cachedEmail };
-  }
+  const a = await fetchCurrentAccess();
+  return { role: a.role, email: a.email };
 }
 
 /** 書き込み操作が許可されているか */
@@ -65,17 +124,30 @@ export async function canWrite(): Promise<boolean> {
 export function clearRoleCache() {
   cachedRole = null;
   cachedEmail = null;
+  cachedCanAccessAdmin = null;
+  cachedIsPlatformOwner = null;
+  clearTenantCache();
 }
 
-/** 全ユーザーの権限一覧（管理画面用） */
-export async function fetchAllRoles(): Promise<Record<string, UserRole>> {
+/** 指定会社の権限一覧（管理画面用） */
+export async function fetchCompanyRoles(
+  companyCode: string
+): Promise<Record<string, UserRole>> {
   try {
     const supabase = createClient();
-    const { data, error } = await supabase.from("user_roles").select("email, role");
-    if (error) return {};
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) return {};
+    const res = await fetch(
+      `/api/admin/users?company=${encodeURIComponent(companyCode)}`,
+      { headers: { Authorization: `Bearer ${session.access_token}` } }
+    );
+    if (!res.ok) return {};
+    const data = await res.json();
     const map: Record<string, UserRole> = {};
-    for (const r of data ?? []) {
-      map[(r.email as string).toLowerCase()] = r.role as UserRole;
+    for (const u of data.users ?? []) {
+      if (u.email && u.role) map[String(u.email).toLowerCase()] = u.role as UserRole;
     }
     return map;
   } catch {
@@ -83,21 +155,36 @@ export async function fetchAllRoles(): Promise<Record<string, UserRole>> {
   }
 }
 
-/** 権限を保存（管理画面用） */
-export async function saveUserRole(email: string, role: UserRole): Promise<boolean> {
+/** @deprecated fetchCompanyRoles を使用 */
+export async function fetchAllRoles(): Promise<Record<string, UserRole>> {
+  return fetchCompanyRoles("all");
+}
+
+/** 権限を保存（管理API経由） */
+export async function saveUserRole(
+  userId: string,
+  role: UserRole,
+  companyCode: string
+): Promise<boolean> {
   try {
     const supabase = createClient();
-    const { error } = await supabase
-      .from("user_roles")
-      .upsert(
-        { email: email.toLowerCase(), role, updated_at: new Date().toISOString() },
-        { onConflict: "email" }
-      );
-    if (error) {
-      console.error("[saveUserRole]", error);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) return false;
+    const res = await fetch("/api/admin/roles", {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ userId, role, companyCode }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      console.error("[saveUserRole]", data);
       return false;
     }
-    if (email.toLowerCase() === cachedEmail) cachedRole = role;
     return true;
   } catch (e) {
     console.error("[saveUserRole]", e);
@@ -106,15 +193,34 @@ export async function saveUserRole(email: string, role: UserRole): Promise<boole
 }
 
 /** React フック: 現在のユーザー権限 */
-export function useUserRole(): { role: UserRole | null; email: string | null } {
-  const [state, setState] = useState<{ role: UserRole | null; email: string | null }>({
+export function useUserRole(): {
+  role: UserRole | null;
+  email: string | null;
+  canAccessAdmin: boolean;
+  isPlatformOwner: boolean;
+} {
+  const [state, setState] = useState<{
+    role: UserRole | null;
+    email: string | null;
+    canAccessAdmin: boolean;
+    isPlatformOwner: boolean;
+  }>({
     role: null,
     email: null,
+    canAccessAdmin: false,
+    isPlatformOwner: false,
   });
   useEffect(() => {
     let mounted = true;
-    fetchCurrentRole().then((r) => {
-      if (mounted) setState(r);
+    fetchCurrentAccess().then((r) => {
+      if (mounted) {
+        setState({
+          role: r.role,
+          email: r.email,
+          canAccessAdmin: r.canAccessAdmin,
+          isPlatformOwner: r.isPlatformOwner,
+        });
+      }
     });
     return () => {
       mounted = false;
