@@ -14,10 +14,11 @@ import { genId } from "@/lib/constants";
 import { useUserRole } from "@/lib/roles";
 import {
   DEFAULT_MARK_DEFS,
-  FREE_MARK_STYLE,
   STICKY_COLORS,
+  CELL_COLOR_PRESETS,
   mergeMarkDefs,
   markDefFromList,
+  resolveCellColors,
 } from "@/types/crossSchedule";
 import type {
   CrossScheduleRow,
@@ -114,6 +115,7 @@ export default function CrossScheduleBoard() {
 
   const [pen, setPen] = useState<PenMode>({ kind: "detail" });
   const [nextSpanNo, setNextSpanNo] = useState(1);
+  const [paintColor, setPaintColor] = useState(CELL_COLOR_PRESETS[1]); // 青（予定っぽいデフォルト）
   const [stickyColor, setStickyColor] = useState<string>(STICKY_COLORS[0]);
   const [editing, setEditing] = useState<{ rowId: string; date: string } | null>(null);
   const [editingStickyId, setEditingStickyId] = useState<string | null>(null);
@@ -261,13 +263,25 @@ export default function CrossScheduleBoard() {
   );
 
   const applyCell = useCallback(
-    (rowId: string, date: string, patch: Partial<Pick<CrossScheduleCell, "mark" | "spanNo" | "note">>) => {
+    (
+      rowId: string,
+      date: string,
+      patch: Partial<Pick<CrossScheduleCell, "mark" | "spanNo" | "note" | "colorBg" | "colorFg">>
+    ) => {
       const key = cellKey(rowId, date);
       setCells((prev) => {
-        const cur = prev[key] ?? { rowId, date, mark: "", spanNo: "", note: "" };
+        const cur = prev[key] ?? {
+          rowId,
+          date,
+          mark: "",
+          spanNo: "",
+          note: "",
+          colorBg: "",
+          colorFg: "",
+        };
         const next: CrossScheduleCell = { ...cur, ...patch };
         const out = { ...prev };
-        if (!next.mark && !next.spanNo && !next.note) delete out[key];
+        if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
         else out[key] = next;
         void persistCell(next);
         return out;
@@ -303,7 +317,7 @@ export default function CrossScheduleBoard() {
         return;
       }
       if (pen.kind === "erase") {
-        applyCell(rowId, date, { mark: "", spanNo: "", note: "" });
+        applyCell(rowId, date, { mark: "", spanNo: "", note: "", colorBg: "", colorFg: "" });
         return;
       }
       if (pen.kind === "span") {
@@ -311,11 +325,30 @@ export default function CrossScheduleBoard() {
         setNextSpanNo((n) => n + 1);
         return;
       }
-      // マークスタンプ: 同じマークならトグルで外す
+      // マークスタンプ: 同じマークならトグルで外す。色は毎回いま選んでいる色を塗る
       const cur = cells[cellKey(rowId, date)];
-      applyCell(rowId, date, { mark: cur?.mark === pen.char ? "" : pen.char });
+      if (cur?.mark === pen.char) {
+        applyCell(rowId, date, { mark: "", colorBg: "", colorFg: "" });
+      } else {
+        applyCell(rowId, date, {
+          mark: pen.char,
+          colorBg: paintColor.bg,
+          colorFg: paintColor.fg,
+        });
+      }
     },
-    [readOnly, pen, nextSpanNo, cells, applyCell, stickyColor, stickies, reportSaved, reportError]
+    [
+      readOnly,
+      pen,
+      nextSpanNo,
+      cells,
+      applyCell,
+      stickyColor,
+      stickies,
+      paintColor,
+      reportSaved,
+      reportError,
+    ]
   );
 
   const persistSticky = useCallback(
@@ -548,7 +581,7 @@ export default function CrossScheduleBoard() {
       userSelect: "none",
     };
 
-    // 背景の優先順: マーク色 > 週末 > 工期外 > 白
+    // 背景の優先順: セル色（マーク等） > 週末 > 工期外 > 白
     let bg = "#fff";
     let fg = "#1a2535";
     const inKoki =
@@ -557,10 +590,10 @@ export default function CrossScheduleBoard() {
     if (!inKoki) bg = "#f1f3f5";
     if (d.dow === 0) bg = "#ffebee";
     if (d.dow === 6) bg = "#e8f1fb";
-    if (cell?.mark) {
-      const s = def ?? FREE_MARK_STYLE;
-      bg = s.bg;
-      fg = s.fg;
+    const painted = resolveCellColors(cell, markDefs);
+    if (painted) {
+      bg = painted.bg;
+      fg = painted.fg;
     }
     style.background = bg;
     style.color = fg;
@@ -718,15 +751,36 @@ export default function CrossScheduleBoard() {
                 active={pen.kind === "mark" && pen.char === m.char}
                 onClick={() => setPen({ kind: "mark", char: m.char })}
                 label={`${m.char} ${m.label}`}
-                bg={m.bg}
-                fg={m.fg}
-                title={`クリックでセルに「${m.char}」を付けます（もう一度クリックで外す）`}
+                title={`クリックでセルに「${m.char}」を付けます。色は右の「塗り色」で選べます`}
               />
             ))}
+            {(pen.kind === "mark" || pen.kind === "detail") && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 4 }}>
+                <span style={{ fontSize: 11, color: "#607d8b" }}>塗り色</span>
+                {CELL_COLOR_PRESETS.map((p) => (
+                  <button
+                    key={p.bg}
+                    type="button"
+                    aria-label={`塗り色 ${p.label}`}
+                    title={p.label}
+                    onClick={() => setPaintColor(p)}
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: 3,
+                      background: p.bg,
+                      border: paintColor.bg === p.bg ? "2px solid #1a2535" : "1px solid #b0bec5",
+                      cursor: "pointer",
+                      padding: 0,
+                    }}
+                  />
+                ))}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setShowMarkManager(true)}
-              title="マーク項目の追加・色の変更"
+              title="マーク項目の追加"
               style={{
                 padding: "4px 10px",
                 borderRadius: 4,
@@ -738,7 +792,7 @@ export default function CrossScheduleBoard() {
                 fontFamily: "inherit",
               }}
             >
-              ＋項目 / 色
+              ＋項目
             </button>
             <PenButton
               active={pen.kind === "span"}
@@ -970,12 +1024,27 @@ export default function CrossScheduleBoard() {
         <span style={{ fontWeight: 600 }}>凡例:</span>
         {markDefs.map((m) => (
           <span key={m.char} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-            <span style={{ width: 16, height: 16, borderRadius: 3, background: m.bg, color: m.fg, fontSize: 10, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+            <span
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 3,
+                background: "#fff",
+                color: "#1a2535",
+                border: "1px solid #b0bec5",
+                fontSize: 10,
+                fontWeight: 700,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
               {m.char}
             </span>
             {m.label}
           </span>
         ))}
+        <span style={{ fontSize: 10, color: "#90a4ae" }}>（色はセルごとに「塗り色」で指定）</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
           <span style={{ width: 16, height: 16, borderRadius: 3, border: "2px solid #c62828", boxSizing: "border-box" }} />
           工期末（案件の終了日）
@@ -1015,13 +1084,23 @@ export default function CrossScheduleBoard() {
                   <button
                     key={m.char}
                     type="button"
-                    onClick={() => applyCell(editing.rowId, editing.date, { mark: active ? "" : m.char })}
+                    onClick={() =>
+                      applyCell(editing.rowId, editing.date, {
+                        mark: active ? "" : m.char,
+                        colorBg: active ? "" : paintColor.bg,
+                        colorFg: active ? "" : paintColor.fg,
+                      })
+                    }
                     style={{
                       padding: "4px 8px",
                       borderRadius: 4,
                       border: active ? "2px solid #1a2535" : "1px solid #d0d8e4",
-                      background: m.bg,
-                      color: m.fg,
+                      background: active
+                        ? editingCell?.colorBg || paintColor.bg
+                        : "#fff",
+                      color: active
+                        ? editingCell?.colorFg || paintColor.fg
+                        : "#4a6280",
                       fontWeight: 700,
                       fontSize: 12,
                       cursor: "pointer",
@@ -1031,6 +1110,47 @@ export default function CrossScheduleBoard() {
                   </button>
                 );
               })}
+            </div>
+
+            <div style={{ fontSize: 11, color: "#607d8b", fontWeight: 600, marginBottom: 4 }}>セルの色</div>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+              {CELL_COLOR_PRESETS.map((p) => {
+                const active = (editingCell?.colorBg || paintColor.bg) === p.bg;
+                return (
+                  <button
+                    key={p.bg}
+                    type="button"
+                    title={p.label}
+                    onClick={() => {
+                      setPaintColor(p);
+                      if (editingCell?.mark || editingCell?.spanNo) {
+                        applyCell(editing.rowId, editing.date, {
+                          colorBg: p.bg,
+                          colorFg: p.fg,
+                        });
+                      }
+                    }}
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: 3,
+                      background: p.bg,
+                      border: active ? "2px solid #1a2535" : "1px solid #b0bec5",
+                      cursor: "pointer",
+                      padding: 0,
+                    }}
+                  />
+                );
+              })}
+              {editingCell?.colorBg && (
+                <button
+                  type="button"
+                  onClick={() => applyCell(editing.rowId, editing.date, { colorBg: "", colorFg: "" })}
+                  style={{ fontSize: 10, border: "1px solid #d0d8e4", background: "#fff", borderRadius: 4, padding: "3px 8px", cursor: "pointer", color: "#607d8b" }}
+                >
+                  色をクリア
+                </button>
+              )}
             </div>
 
             <label style={{ display: "block", fontSize: 11, color: "#607d8b", fontWeight: 600, marginBottom: 4 }}>
@@ -1058,7 +1178,13 @@ export default function CrossScheduleBoard() {
               <button
                 type="button"
                 onClick={() => {
-                  applyCell(editing.rowId, editing.date, { mark: "", spanNo: "", note: "" });
+                  applyCell(editing.rowId, editing.date, {
+                    mark: "",
+                    spanNo: "",
+                    note: "",
+                    colorBg: "",
+                    colorFg: "",
+                  });
                   setEditing(null);
                 }}
                 style={{ padding: "6px 12px", borderRadius: 4, border: "1px solid #ef9a9a", background: "#ffebee", color: "#c62828", cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}

@@ -46,7 +46,7 @@ export async function loadCrossScheduleCells(
   const companyId = await requireCompanyId()
   const { data, error } = await supabase
     .from("cross_schedule_cells")
-    .select("row_id, date, mark, span_no, note")
+    .select("row_id, date, mark, span_no, note, color_bg, color_fg")
     .eq("company_id", companyId)
     .gte("date", startDate)
     .lte("date", endDate)
@@ -57,6 +57,8 @@ export async function loadCrossScheduleCells(
     mark: String(c.mark ?? ""),
     spanNo: String(c.span_no ?? ""),
     note: String(c.note ?? ""),
+    colorBg: String((c as { color_bg?: string }).color_bg ?? ""),
+    colorFg: String((c as { color_fg?: string }).color_fg ?? ""),
   }))
 }
 
@@ -90,12 +92,12 @@ export async function deleteCrossScheduleRow(rowId: string): Promise<void> {
   if (error) throw error
 }
 
-/** セルを保存。mark・spanNo・note がすべて空なら行×日付のセルを削除する */
+/** セルを保存。内容がすべて空なら行×日付のセルを削除する */
 export async function saveCrossScheduleCell(cell: CrossScheduleCell): Promise<void> {
   await assertWritable()
   const supabase = createClient()
   const companyId = await requireCompanyId()
-  const isEmpty = !cell.mark && !cell.spanNo && !cell.note
+  const isEmpty = !cell.mark && !cell.spanNo && !cell.note && !cell.colorBg
   if (isEmpty) {
     const { error } = await supabase
       .from("cross_schedule_cells")
@@ -114,6 +116,8 @@ export async function saveCrossScheduleCell(cell: CrossScheduleCell): Promise<vo
       mark: cell.mark,
       span_no: cell.spanNo,
       note: cell.note,
+      color_bg: cell.colorBg ?? "",
+      color_fg: cell.colorFg ?? "",
     },
     { onConflict: "row_id,date" }
   )

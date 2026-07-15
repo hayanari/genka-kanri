@@ -22,6 +22,10 @@ export type CrossScheduleCell = {
   spanNo: string
   /** 注記（ツールチップ表示） */
   note: string
+  /** セル個別の背景色（空ならフォールバック） */
+  colorBg: string
+  /** セル個別の文字色 */
+  colorFg: string
 }
 
 export type MarkDef = {
@@ -104,5 +108,37 @@ export function markDef(mark: string): MarkDef | null {
   return markDefFromList(mark, DEFAULT_MARK_DEFS)
 }
 
-/** マーク未登録の自由文字用の色 */
+/** マーク未登録・色未指定のときのフォールバック */
 export const FREE_MARK_STYLE = { bg: "#fff9c4", fg: "#5d4037" }
+
+/** セルに塗るときの色プリセット（マーク名とは独立） */
+export const CELL_COLOR_PRESETS: { bg: string; fg: string; label: string }[] = [
+  { bg: "#c8e6c9", fg: "#1b5e20", label: "緑" },
+  { bg: "#bbdefb", fg: "#0d47a1", label: "青" },
+  { bg: "#ffe0b2", fg: "#e65100", label: "橙" },
+  { bg: "#b3e5fc", fg: "#01579b", label: "水色" },
+  { bg: "#eceff1", fg: "#546e7a", label: "灰" },
+  { bg: "#d1c4e9", fg: "#4527a0", label: "紫" },
+  { bg: "#f0f4c3", fg: "#827717", label: "黄緑" },
+  { bg: "#b2dfdb", fg: "#00695c", label: "青緑" },
+  { bg: "#f8bbd0", fg: "#880e4f", label: "桃" },
+  { bg: "#ffcdd2", fg: "#b71c1c", label: "赤" },
+  { bg: "#fff9c4", fg: "#5d4037", label: "黄" },
+  { bg: "#d7ccc8", fg: "#4e342e", label: "茶" },
+]
+
+/** セル表示色を解決（セル個別色 > マーク既定 > フォールバック） */
+export function resolveCellColors(
+  cell: Pick<CrossScheduleCell, "mark" | "colorBg" | "colorFg"> | null | undefined,
+  marks: MarkDef[]
+): { bg: string; fg: string } | null {
+  if (!cell?.mark && !cell?.colorBg) return null
+  if (cell.colorBg) {
+    return { bg: cell.colorBg, fg: cell.colorFg || FREE_MARK_STYLE.fg }
+  }
+  if (cell.mark) {
+    const def = markDefFromList(cell.mark, marks)
+    return def ? { bg: def.bg, fg: def.fg } : FREE_MARK_STYLE
+  }
+  return null
+}
