@@ -37,6 +37,7 @@ export default function AdminPage() {
   const [caller, setCaller] = useState<CallerInfo | null>(null);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [resettingPw, setResettingPw] = useState<string | null>(null);
   const [roleSaving, setRoleSaving] = useState<string | null>(null);
   const [newLoginId, setNewLoginId] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -196,6 +197,46 @@ export default function AdminPage() {
       alert("通信エラーが発生しました");
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const handleResetPassword = async (u: UserItem) => {
+    if (!accessToken) return;
+    if (u.isPlatformOwner && !caller?.isPlatformOwner) {
+      alert("システムオーナーのパスワードは変更できません");
+      return;
+    }
+    const label = u.loginId || u.email || u.id;
+    const password = window.prompt(
+      `${label} の新しいパスワードを入力してください（6文字以上）`
+    );
+    if (password === null) return;
+    if (password.length < 6) {
+      alert("パスワードは6文字以上で入力してください");
+      return;
+    }
+    if (!confirm(`${label} のパスワードを再設定しますか？`)) return;
+
+    setResettingPw(u.id);
+    try {
+      const res = await fetch(`/api/admin/users/${u.id}/password`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error ?? "パスワードの再設定に失敗しました");
+        return;
+      }
+      alert("パスワードを再設定しました。本人に新しいパスワードを伝えてください。");
+    } catch {
+      alert("通信エラーが発生しました");
+    } finally {
+      setResettingPw(null);
     }
   };
 
@@ -459,7 +500,7 @@ export default function AdminPage() {
                       <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: T.ts }}>
                         権限
                       </th>
-                      <th style={{ width: 80 }} />
+                      <th style={{ width: 160 }} />
                     </tr>
                   </thead>
                   <tbody>
@@ -513,24 +554,46 @@ export default function AdminPage() {
                           )}
                         </td>
                         <td style={{ padding: "12px 8px" }}>
-                          {!u.isPlatformOwner && (
-                            <button
-                              onClick={() => handleDelete(u.id)}
-                              disabled={!!deleting}
-                              style={{
-                                padding: "6px 12px",
-                                fontSize: 12,
-                                background: T.dg + "18",
-                                color: T.dg,
-                                border: `1px solid ${T.dg}44`,
-                                borderRadius: 6,
-                                cursor: deleting ? "not-allowed" : "pointer",
-                                fontFamily: "inherit",
-                              }}
-                            >
-                              {deleting === u.id ? "削除中..." : "削除"}
-                            </button>
-                          )}
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {(caller?.isPlatformOwner || !u.isPlatformOwner) && (
+                              <button
+                                type="button"
+                                onClick={() => handleResetPassword(u)}
+                                disabled={!!resettingPw}
+                                style={{
+                                  padding: "6px 10px",
+                                  fontSize: 12,
+                                  background: T.al,
+                                  color: T.ac,
+                                  border: `1px solid ${T.bd}`,
+                                  borderRadius: 6,
+                                  cursor: resettingPw ? "not-allowed" : "pointer",
+                                  fontFamily: "inherit",
+                                }}
+                              >
+                                {resettingPw === u.id ? "設定中..." : "PW再設定"}
+                              </button>
+                            )}
+                            {!u.isPlatformOwner && (
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(u.id)}
+                                disabled={!!deleting}
+                                style={{
+                                  padding: "6px 10px",
+                                  fontSize: 12,
+                                  background: T.dg + "18",
+                                  color: T.dg,
+                                  border: `1px solid ${T.dg}44`,
+                                  borderRadius: 6,
+                                  cursor: deleting ? "not-allowed" : "pointer",
+                                  fontFamily: "inherit",
+                                }}
+                              >
+                                {deleting === u.id ? "削除中..." : "削除"}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
