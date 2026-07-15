@@ -22,7 +22,7 @@ import { mergeGenkaData } from "../mergeData";
 import type { GenkaDataSet } from "../mergeData";
 import { DEFAULT_COMPANY_ID, getCompanyDataId } from "../tenant";
 
-/** データ消失を防ぐ: 空の projects は保存しない。車両・工程マスタは空配列も意図した状態として保存する */
+/** 保存前の正規化。空配列も「全件削除した」意図した状態としてそのまま保存する（プリセットで置き換えない） */
 function sanitizeBeforeSave(data: {
   projects: Project[];
   costs: Cost[];
@@ -33,8 +33,7 @@ function sanitizeBeforeSave(data: {
   equipmentRequests?: EquipmentRequest[];
 }) {
   const empty = createEmptyData();
-  const projects =
-    Array.isArray(data.projects) && data.projects.length > 0 ? data.projects : empty.projects;
+  const projects = Array.isArray(data.projects) ? data.projects : empty.projects;
   const vehicles = Array.isArray(data.vehicles) ? data.vehicles : empty.vehicles;
   const processMasters = Array.isArray(data.processMasters) ? data.processMasters : empty.processMasters;
   const bidSchedules = Array.isArray(data.bidSchedules) ? data.bidSchedules : [];
@@ -159,15 +158,7 @@ async function fetchRemoteData(): Promise<LoadedData | null> {
       equipmentRequests?: EquipmentRequest[];
     } | null;
 
-    if (
-      !stored?.projects?.length &&
-      !stored?.costs?.length &&
-      !stored?.quantities?.length &&
-      !stored?.bidSchedules?.length &&
-      !(stored?.equipmentRequests && stored.equipmentRequests.length > 0)
-    ) {
-      return createEmptyData();
-    }
+    if (!stored) return createEmptyData();
 
     const vehicles: Vehicle[] =
       stored.vehicles === undefined || stored.vehicles === null
