@@ -725,24 +725,12 @@ export default function Home() {
               fontSize: "11px",
               fontWeight: 700,
               color: T.tx,
-              letterSpacing: "0.02em",
-              marginBottom: "2px",
+              letterSpacing: "0.04em",
+              marginBottom: "6px",
             }}
           >
             {orgLabel}
           </div>
-          {orgCode ? (
-            <div
-              style={{
-                fontSize: "10px",
-                color: T.ts,
-                marginBottom: "6px",
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              }}
-            >
-              会社ID: {orgCode}
-            </div>
-          ) : null}
           <div
             style={{
               fontSize: "16px",

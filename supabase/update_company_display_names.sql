@@ -2,7 +2,7 @@
 -- companies.name が画面左上に出ます
 
 UPDATE companies
-SET name = '時任'
+SET name = 'TOKITO CORP'
 WHERE company_code = 'tokito';
 
 UPDATE companies
