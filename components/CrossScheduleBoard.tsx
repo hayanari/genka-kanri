@@ -12,14 +12,31 @@ import type { Project } from "@/lib/utils";
 import { loadData } from "@/lib/supabase/data";
 import { genId } from "@/lib/constants";
 import { useUserRole } from "@/lib/roles";
-import { MARK_DEFS, markDef, FREE_MARK_STYLE } from "@/types/crossSchedule";
-import type { CrossScheduleRow, CrossScheduleCell } from "@/types/crossSchedule";
+import {
+  DEFAULT_MARK_DEFS,
+  FREE_MARK_STYLE,
+  STICKY_COLORS,
+  mergeMarkDefs,
+  markDefFromList,
+} from "@/types/crossSchedule";
+import type {
+  CrossScheduleRow,
+  CrossScheduleCell,
+  CrossScheduleSticky,
+  MarkDef,
+} from "@/types/crossSchedule";
 import {
   loadCrossScheduleRows,
   loadCrossScheduleCells,
+  loadCrossScheduleMarks,
+  loadCrossScheduleStickies,
   upsertCrossScheduleRow,
   deleteCrossScheduleRow,
   saveCrossScheduleCell,
+  upsertCrossScheduleMark,
+  deleteCrossScheduleMark,
+  upsertCrossScheduleSticky,
+  deleteCrossScheduleSticky,
   CROSS_VIEWER_FORBIDDEN_MSG,
 } from "@/lib/crossScheduleStorage";
 
@@ -61,8 +78,13 @@ const todayStr = () => {
   return ymd(t.getFullYear(), t.getMonth(), t.getDate());
 };
 
-/** 入力モード: 詳細エディタ / 各マークのスタンプ / スパン番号 / 消しゴム */
-type PenMode = { kind: "detail" } | { kind: "mark"; char: string } | { kind: "span" } | { kind: "erase" };
+/** 入力モード: 詳細 / マーク / スパン / 消しゴム / 付箋 */
+type PenMode =
+  | { kind: "detail" }
+  | { kind: "mark"; char: string }
+  | { kind: "span" }
+  | { kind: "erase" }
+  | { kind: "sticky" };
 
 const cellKey = (rowId: string, date: string) => `${rowId}|${date}`;
 
@@ -79,6 +101,8 @@ export default function CrossScheduleBoard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [rows, setRows] = useState<CrossScheduleRow[]>([]);
   const [cells, setCells] = useState<Record<string, CrossScheduleCell>>({});
+  const [customMarks, setCustomMarks] = useState<MarkDef[]>([]);
+  const [stickies, setStickies] = useState<CrossScheduleSticky[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -90,7 +114,10 @@ export default function CrossScheduleBoard() {
 
   const [pen, setPen] = useState<PenMode>({ kind: "detail" });
   const [nextSpanNo, setNextSpanNo] = useState(1);
+  const [stickyColor, setStickyColor] = useState<string>(STICKY_COLORS[0]);
   const [editing, setEditing] = useState<{ rowId: string; date: string } | null>(null);
+  const [editingStickyId, setEditingStickyId] = useState<string | null>(null);
+  const [showMarkManager, setShowMarkManager] = useState(false);
   const [addProjectId, setAddProjectId] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
 
@@ -99,21 +126,38 @@ export default function CrossScheduleBoard() {
   const pdfAreaRef = useRef<HTMLDivElement>(null);
   const today = todayStr();
 
+  const markDefs = useMemo(() => mergeMarkDefs(customMarks), [customMarks]);
+  const stickiesByCell = useMemo(() => {
+    const m = new Map<string, CrossScheduleSticky[]>();
+    for (const s of stickies) {
+      const k = cellKey(s.rowId, s.date);
+      const list = m.get(k) ?? [];
+      list.push(s);
+      m.set(k, list);
+    }
+    return m;
+  }, [stickies]);
+
   const days = useMemo(() => buildDays(year, month, rangeMonths), [year, month, rangeMonths]);
   const rangeStart = days[0]?.date ?? "";
   const rangeEnd = days[days.length - 1]?.date ?? "";
 
-  // ── 初期ロード（案件・行）────────────────────────────────────────
+  // ── 初期ロード（案件・行・マーク）────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       setLoadError(null);
       try {
-        const [d, r] = await Promise.all([loadData(), loadCrossScheduleRows()]);
+        const [d, r, marks] = await Promise.all([
+          loadData(),
+          loadCrossScheduleRows(),
+          loadCrossScheduleMarks().catch(() => [] as MarkDef[]),
+        ]);
         if (cancelled) return;
         setProjects((d?.projects ?? []).filter((p) => !p.deleted));
         setRows(r);
+        setCustomMarks(marks);
       } catch (e) {
         console.error("[CrossSchedule] load", e);
         if (!cancelled)
@@ -129,17 +173,21 @@ export default function CrossScheduleBoard() {
     };
   }, []);
 
-  // ── 表示範囲のセルを読み込み ─────────────────────────────────────
+  // ── 表示範囲のセル・付箋を読み込み ────────────────────────────────
   useEffect(() => {
     if (!rangeStart || !rangeEnd) return;
     let cancelled = false;
     (async () => {
       try {
-        const list = await loadCrossScheduleCells(rangeStart, rangeEnd);
+        const [list, stickyList] = await Promise.all([
+          loadCrossScheduleCells(rangeStart, rangeEnd),
+          loadCrossScheduleStickies(rangeStart, rangeEnd).catch(() => [] as CrossScheduleSticky[]),
+        ]);
         if (cancelled) return;
         const map: Record<string, CrossScheduleCell> = {};
         for (const c of list) map[cellKey(c.rowId, c.date)] = c;
         setCells(map);
+        setStickies(stickyList);
       } catch (e) {
         console.error("[CrossSchedule] load cells", e);
       }
@@ -235,6 +283,25 @@ export default function CrossScheduleBoard() {
         setEditing({ rowId, date });
         return;
       }
+      if (pen.kind === "sticky") {
+        const sticky: CrossScheduleSticky = {
+          id: genId(),
+          rowId,
+          date,
+          body: "",
+          color: stickyColor,
+          offsetX: 8,
+          offsetY: 8,
+          zIndex: stickies.reduce((m, s) => Math.max(m, s.zIndex), 0) + 1,
+        };
+        setStickies((prev) => [...prev, sticky]);
+        setEditingStickyId(sticky.id);
+        setSaveState("saving");
+        void upsertCrossScheduleSticky(sticky)
+          .then(reportSaved)
+          .catch(reportError);
+        return;
+      }
       if (pen.kind === "erase") {
         applyCell(rowId, date, { mark: "", spanNo: "", note: "" });
         return;
@@ -248,7 +315,85 @@ export default function CrossScheduleBoard() {
       const cur = cells[cellKey(rowId, date)];
       applyCell(rowId, date, { mark: cur?.mark === pen.char ? "" : pen.char });
     },
-    [readOnly, pen, nextSpanNo, cells, applyCell]
+    [readOnly, pen, nextSpanNo, cells, applyCell, stickyColor, stickies, reportSaved, reportError]
+  );
+
+  const persistSticky = useCallback(
+    async (sticky: CrossScheduleSticky) => {
+      setSaveState("saving");
+      try {
+        await upsertCrossScheduleSticky(sticky);
+        reportSaved();
+      } catch (e) {
+        reportError(e);
+      }
+    },
+    [reportSaved, reportError]
+  );
+
+  const updateSticky = useCallback(
+    (id: string, patch: Partial<CrossScheduleSticky>, persist = true) => {
+      setStickies((prev) => {
+        const next = prev.map((s) => (s.id === id ? { ...s, ...patch } : s));
+        const updated = next.find((s) => s.id === id);
+        if (persist && updated) void persistSticky(updated);
+        return next;
+      });
+    },
+    [persistSticky]
+  );
+
+  const removeSticky = useCallback(
+    async (id: string) => {
+      const backup = stickies;
+      setStickies((prev) => prev.filter((s) => s.id !== id));
+      if (editingStickyId === id) setEditingStickyId(null);
+      setSaveState("saving");
+      try {
+        await deleteCrossScheduleSticky(id);
+        reportSaved();
+      } catch (e) {
+        setStickies(backup);
+        reportError(e);
+      }
+    },
+    [stickies, editingStickyId, reportSaved, reportError]
+  );
+
+  const saveMark = useCallback(
+    async (mark: MarkDef & { id: string }) => {
+      setSaveState("saving");
+      try {
+        await upsertCrossScheduleMark(mark);
+        setCustomMarks((prev) => {
+          const i = prev.findIndex((m) => m.id === mark.id);
+          if (i >= 0) {
+            const next = [...prev];
+            next[i] = { ...mark, custom: true };
+            return next;
+          }
+          return [...prev, { ...mark, custom: true }];
+        });
+        reportSaved();
+      } catch (e) {
+        reportError(e);
+      }
+    },
+    [reportSaved, reportError]
+  );
+
+  const removeMark = useCallback(
+    async (markId: string) => {
+      setSaveState("saving");
+      try {
+        await deleteCrossScheduleMark(markId);
+        setCustomMarks((prev) => prev.filter((m) => m.id !== markId));
+        reportSaved();
+      } catch (e) {
+        reportError(e);
+      }
+    },
+    [reportSaved, reportError]
   );
 
   // ── 行操作 ───────────────────────────────────────────────────────
@@ -384,7 +529,8 @@ export default function CrossScheduleBoard() {
   // ── セル描画 ─────────────────────────────────────────────────────
   const renderDayCell = (row: CrossScheduleRow, d: DayCol, project: Project | null) => {
     const cell = cells[cellKey(row.id, d.date)];
-    const def = cell?.mark ? markDef(cell.mark) : null;
+    const def = cell?.mark ? markDefFromList(cell.mark, markDefs) : null;
+    const cellStickies = stickiesByCell.get(cellKey(row.id, d.date)) ?? [];
     const style: React.CSSProperties = {
       width: DAY_W,
       minWidth: DAY_W,
@@ -396,6 +542,7 @@ export default function CrossScheduleBoard() {
       fontWeight: 700,
       cursor: readOnly ? "default" : "pointer",
       position: "relative",
+      overflow: "visible",
       borderRight: `1px solid ${d.day === new Date(d.year, d.monthIndex + 1, 0).getDate() ? "#90a4ae" : "#e0e6ed"}`,
       borderBottom: "1px solid #e0e6ed",
       userSelect: "none",
@@ -425,6 +572,7 @@ export default function CrossScheduleBoard() {
     if (cell?.spanNo) tipParts.push(`スパン ${cell.spanNo}`);
     if (cell?.mark) tipParts.push(def ? `${def.char}（${def.label}）` : cell.mark);
     if (cell?.note) tipParts.push(cell.note);
+    if (cellStickies.length) tipParts.push(`付箋 ${cellStickies.length}件`);
     if (project?.endDate && d.date === project.endDate) tipParts.push("工期末");
     const title = tipParts.length ? `${d.date}\n${tipParts.join("\n")}` : d.date;
 
@@ -444,6 +592,17 @@ export default function CrossScheduleBoard() {
             }}
           />
         ) : null}
+        {cellStickies.map((s) => (
+          <StickyNoteView
+            key={s.id}
+            sticky={s}
+            readOnly={readOnly}
+            selected={editingStickyId === s.id}
+            onSelect={() => setEditingStickyId(s.id)}
+            onChange={(patch, persist) => updateSticky(s.id, patch, persist)}
+            onRemove={() => void removeSticky(s.id)}
+          />
+        ))}
       </td>
     );
   };
@@ -553,7 +712,7 @@ export default function CrossScheduleBoard() {
               label="詳細"
               title="クリックしたセルの編集画面を開きます（番号・マーク・注記）"
             />
-            {MARK_DEFS.map((m) => (
+            {markDefs.map((m) => (
               <PenButton
                 key={m.char}
                 active={pen.kind === "mark" && pen.char === m.char}
@@ -564,6 +723,23 @@ export default function CrossScheduleBoard() {
                 title={`クリックでセルに「${m.char}」を付けます（もう一度クリックで外す）`}
               />
             ))}
+            <button
+              type="button"
+              onClick={() => setShowMarkManager(true)}
+              title="マーク項目の追加・色の変更"
+              style={{
+                padding: "4px 10px",
+                borderRadius: 4,
+                border: "1px dashed #90a4ae",
+                background: "#fff",
+                color: "#4a6280",
+                cursor: "pointer",
+                fontSize: 11,
+                fontFamily: "inherit",
+              }}
+            >
+              ＋項目 / 色
+            </button>
             <PenButton
               active={pen.kind === "span"}
               onClick={() => setPen({ kind: "span" })}
@@ -583,10 +759,39 @@ export default function CrossScheduleBoard() {
               </label>
             )}
             <PenButton
+              active={pen.kind === "sticky"}
+              onClick={() => setPen({ kind: "sticky" })}
+              label="付箋"
+              title="クリックしたセルに付箋メモを貼ります。ドラッグで移動できます"
+              bg="#fff59d"
+              fg="#5d4037"
+            />
+            {pen.kind === "sticky" && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                {STICKY_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-label={`付箋色 ${c}`}
+                    onClick={() => setStickyColor(c)}
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: 3,
+                      background: c,
+                      border: stickyColor === c ? "2px solid #1a2535" : "1px solid #b0bec5",
+                      cursor: "pointer",
+                      padding: 0,
+                    }}
+                  />
+                ))}
+              </span>
+            )}
+            <PenButton
               active={pen.kind === "erase"}
               onClick={() => setPen({ kind: "erase" })}
               label="消す"
-              title="クリックしたセルの入力をすべて消します"
+              title="クリックしたセルのマーク・番号・注記を消します（付箋は消えません）"
             />
           </div>
         )}
@@ -628,7 +833,11 @@ export default function CrossScheduleBoard() {
       </div>
 
       {/* ── 本体テーブル ── */}
-      <div ref={pdfAreaRef} style={{ background: "#fff", borderRadius: 8, border: "1px solid #d0d8e4", overflow: "auto", maxHeight: "calc(100vh - 210px)" }}>
+      <div
+        ref={pdfAreaRef}
+        onClick={() => setEditingStickyId(null)}
+        style={{ background: "#fff", borderRadius: 8, border: "1px solid #d0d8e4", overflow: "auto", maxHeight: "calc(100vh - 210px)" }}
+      >
         <table style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: LEFT_TOTAL + days.length * DAY_W }}>
           <thead>
             {/* 月ヘッダー */}
@@ -759,7 +968,7 @@ export default function CrossScheduleBoard() {
       {/* ── 凡例 ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 8, fontSize: 11, color: "#4a6280" }}>
         <span style={{ fontWeight: 600 }}>凡例:</span>
-        {MARK_DEFS.map((m) => (
+        {markDefs.map((m) => (
           <span key={m.char} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
             <span style={{ width: 16, height: 16, borderRadius: 3, background: m.bg, color: m.fg, fontSize: 10, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
               {m.char}
@@ -774,6 +983,10 @@ export default function CrossScheduleBoard() {
         <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
           <span style={{ width: 0, height: 0, borderTop: "8px solid #c62828", borderLeft: "8px solid transparent" }} />
           注記あり（セルにカーソルで表示）
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+          <span style={{ width: 16, height: 12, borderRadius: 2, background: "#fff59d", border: "1px solid #f0c040", boxShadow: "1px 1px 0 rgba(0,0,0,.08)" }} />
+          付箋メモ
         </span>
       </div>
 
@@ -796,7 +1009,7 @@ export default function CrossScheduleBoard() {
 
             <div style={{ fontSize: 11, color: "#607d8b", fontWeight: 600, marginBottom: 4 }}>マーク</div>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 10 }}>
-              {MARK_DEFS.map((m) => {
+              {markDefs.map((m) => {
                 const active = editingCell?.mark === m.char;
                 return (
                   <button
@@ -863,6 +1076,16 @@ export default function CrossScheduleBoard() {
           </div>
         </div>
       )}
+
+      {showMarkManager && !readOnly && (
+        <MarkManagerModal
+          markDefs={markDefs}
+          customMarks={customMarks}
+          onClose={() => setShowMarkManager(false)}
+          onSave={saveMark}
+          onDelete={removeMark}
+        />
+      )}
     </div>
   );
 }
@@ -924,5 +1147,392 @@ function PenButton({
     >
       {label}
     </button>
+  );
+}
+
+/** セル上の付箋（ドラッグで移動・テキスト編集） */
+function StickyNoteView({
+  sticky,
+  readOnly,
+  selected,
+  onSelect,
+  onChange,
+  onRemove,
+}: {
+  sticky: CrossScheduleSticky;
+  readOnly: boolean;
+  selected: boolean;
+  onSelect: () => void;
+  onChange: (patch: Partial<CrossScheduleSticky>, persist?: boolean) => void;
+  onRemove: () => void;
+}) {
+  const dragRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
+  const [draft, setDraft] = useState(sticky.body);
+  useEffect(() => setDraft(sticky.body), [sticky.body]);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (readOnly) return;
+    e.stopPropagation();
+    onSelect();
+    const target = e.target as HTMLElement;
+    if (target.tagName === "TEXTAREA" || target.tagName === "BUTTON" || target.closest("button")) return;
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      ox: sticky.offsetX,
+      oy: sticky.offsetY,
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    e.stopPropagation();
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    onChange(
+      {
+        offsetX: Math.round(dragRef.current.ox + dx),
+        offsetY: Math.round(dragRef.current.oy + dy),
+      },
+      false
+    );
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    e.stopPropagation();
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    const next = {
+      offsetX: Math.round(dragRef.current.ox + dx),
+      offsetY: Math.round(dragRef.current.oy + dy),
+    };
+    dragRef.current = null;
+    onChange(next, true);
+  };
+
+  return (
+    <div
+      className="cross-sticky"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      style={{
+        position: "absolute",
+        left: sticky.offsetX,
+        top: sticky.offsetY,
+        zIndex: 20 + sticky.zIndex + (selected ? 50 : 0),
+        width: selected ? 140 : 72,
+        minHeight: selected ? 72 : 28,
+        padding: selected ? 6 : "4px 5px",
+        background: sticky.color,
+        border: selected ? "1.5px solid #5d4037" : "1px solid rgba(0,0,0,.15)",
+        borderRadius: 2,
+        boxShadow: "2px 2px 4px rgba(0,0,0,.12)",
+        cursor: readOnly ? "default" : "grab",
+        fontSize: 10,
+        color: "#3e2723",
+        lineHeight: 1.3,
+        textAlign: "left",
+        fontWeight: 400,
+        whiteSpace: selected ? "normal" : "nowrap",
+        overflow: selected ? "visible" : "hidden",
+        textOverflow: "ellipsis",
+      }}
+      title={sticky.body || "（空の付箋）"}
+    >
+      {selected && !readOnly ? (
+        <>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => onChange({ body: draft }, true)}
+            placeholder="メモを入力…"
+            rows={3}
+            style={{
+              width: "100%",
+              border: "none",
+              outline: "none",
+              resize: "none",
+              background: "transparent",
+              fontFamily: "inherit",
+              fontSize: 11,
+              color: "#3e2723",
+              boxSizing: "border-box",
+            }}
+            autoFocus
+          />
+          <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 4 }}>
+            {STICKY_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => onChange({ color: c }, true)}
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 2,
+                  background: c,
+                  border: sticky.color === c ? "1.5px solid #1a2535" : "1px solid #999",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              />
+            ))}
+            <button
+              type="button"
+              onClick={onRemove}
+              style={{
+                marginLeft: "auto",
+                border: "none",
+                background: "transparent",
+                color: "#c62828",
+                cursor: "pointer",
+                fontSize: 10,
+                padding: 0,
+              }}
+            >
+              削除
+            </button>
+          </div>
+        </>
+      ) : (
+        <span>{sticky.body || "…"}</span>
+      )}
+    </div>
+  );
+}
+
+const MARK_COLOR_PRESETS = [
+  { bg: "#c8e6c9", fg: "#1b5e20" },
+  { bg: "#bbdefb", fg: "#0d47a1" },
+  { bg: "#ffe0b2", fg: "#e65100" },
+  { bg: "#b3e5fc", fg: "#01579b" },
+  { bg: "#eceff1", fg: "#546e7a" },
+  { bg: "#d1c4e9", fg: "#4527a0" },
+  { bg: "#f0f4c3", fg: "#827717" },
+  { bg: "#b2dfdb", fg: "#00695c" },
+  { bg: "#f8bbd0", fg: "#880e4f" },
+  { bg: "#ffcdd2", fg: "#b71c1c" },
+  { bg: "#fff9c4", fg: "#5d4037" },
+  { bg: "#d7ccc8", fg: "#4e342e" },
+];
+
+function MarkManagerModal({
+  markDefs,
+  customMarks,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  markDefs: MarkDef[];
+  customMarks: MarkDef[];
+  onClose: () => void;
+  onSave: (mark: MarkDef & { id: string }) => Promise<void>;
+  onDelete: (markId: string) => Promise<void>;
+}) {
+  const [char, setChar] = useState("");
+  const [label, setLabel] = useState("");
+  const [bg, setBg] = useState("#fff9c4");
+  const [fg, setFg] = useState("#5d4037");
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const startEdit = (m: MarkDef) => {
+    if (!m.id) {
+      // 既定マークをカスタム化して上書き
+      setEditingId(null);
+      setChar(m.char);
+      setLabel(m.label);
+      setBg(m.bg);
+      setFg(m.fg);
+      return;
+    }
+    setEditingId(m.id);
+    setChar(m.char);
+    setLabel(m.label);
+    setBg(m.bg);
+    setFg(m.fg);
+  };
+
+  const handleSave = async () => {
+    const c = char.trim().slice(0, 2);
+    if (!c) {
+      alert("表示文字を入力してください（1〜2文字）");
+      return;
+    }
+    const id = editingId ?? genId();
+    const sortOrder =
+      customMarks.find((m) => m.id === id)?.sortOrder ??
+      DEFAULT_MARK_DEFS.length + customMarks.length;
+    await onSave({
+      id,
+      char: c,
+      label: label.trim() || c,
+      bg,
+      fg,
+      sortOrder,
+      custom: true,
+    });
+    setEditingId(null);
+    setChar("");
+    setLabel("");
+    setBg("#fff9c4");
+    setFg("#5d4037");
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.35)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "#fff", borderRadius: 10, padding: 18, width: 440, maxWidth: "94vw", maxHeight: "85vh", overflow: "auto", boxShadow: "0 8px 30px rgba(0,0,0,.18)" }}
+      >
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>マーク項目・色の編集</div>
+        <p style={{ fontSize: 11, color: "#607d8b", margin: "0 0 12px" }}>
+          新しい項目を追加したり、色を変えたりできます。既定項目をクリックして色を変えて保存すると、会社用の上書きとして残ります。
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+          {markDefs.map((m) => (
+            <div
+              key={m.char + (m.id ?? "")}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", border: "1px solid #e8ecf2", borderRadius: 6 }}
+            >
+              <span
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 4,
+                  background: m.bg,
+                  color: m.fg,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 700,
+                  fontSize: 13,
+                }}
+              >
+                {m.char}
+              </span>
+              <span style={{ flex: 1, fontSize: 12 }}>
+                {m.label}
+                {m.custom ? (
+                  <span style={{ marginLeft: 6, fontSize: 10, color: "#1565c0" }}>カスタム</span>
+                ) : (
+                  <span style={{ marginLeft: 6, fontSize: 10, color: "#90a4ae" }}>既定</span>
+                )}
+              </span>
+              <button type="button" onClick={() => startEdit(m)} style={{ ...navBtn, fontSize: 11, padding: "3px 8px" }}>
+                色・編集
+              </button>
+              {m.id && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`「${m.char} ${m.label}」を削除しますか？`)) void onDelete(m.id!);
+                  }}
+                  style={{ border: "none", background: "transparent", color: "#c62828", cursor: "pointer", fontSize: 11 }}
+                >
+                  削除
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ borderTop: "1px solid #e8ecf2", paddingTop: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+            {editingId ? "項目を更新" : "新しい項目を追加 / 既定を上書き"}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+            <label style={{ fontSize: 11, color: "#607d8b" }}>
+              文字
+              <input
+                value={char}
+                onChange={(e) => setChar(e.target.value.slice(0, 2))}
+                maxLength={2}
+                placeholder="例: 移"
+                style={{ display: "block", width: 64, marginTop: 3, padding: "5px 6px", borderRadius: 4, border: "1px solid #d0d8e4", fontFamily: "inherit" }}
+              />
+            </label>
+            <label style={{ fontSize: 11, color: "#607d8b", flex: 1, minWidth: 120 }}>
+              名称
+              <input
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="例: 移設"
+                style={{ display: "block", width: "100%", marginTop: 3, padding: "5px 6px", borderRadius: 4, border: "1px solid #d0d8e4", fontFamily: "inherit", boxSizing: "border-box" }}
+              />
+            </label>
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 4,
+                background: bg,
+                color: fg,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 700,
+                border: "1px solid #d0d8e4",
+                alignSelf: "flex-end",
+              }}
+            >
+              {char || "?"}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: "#607d8b", marginBottom: 4 }}>色のプリセット</div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+            {MARK_COLOR_PRESETS.map((p) => (
+              <button
+                key={p.bg}
+                type="button"
+                onClick={() => {
+                  setBg(p.bg);
+                  setFg(p.fg);
+                }}
+                style={{
+                  width: 28,
+                  height: 22,
+                  borderRadius: 3,
+                  background: p.bg,
+                  border: bg === p.bg ? "2px solid #1a2535" : "1px solid #b0bec5",
+                  cursor: "pointer",
+                }}
+              />
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <label style={{ fontSize: 11, color: "#607d8b" }}>
+              背景
+              <input type="color" value={bg} onChange={(e) => setBg(e.target.value)} style={{ display: "block", marginTop: 3, width: 48, height: 28, border: "none", padding: 0, background: "transparent" }} />
+            </label>
+            <label style={{ fontSize: 11, color: "#607d8b" }}>
+              文字色
+              <input type="color" value={fg} onChange={(e) => setFg(e.target.value)} style={{ display: "block", marginTop: 3, width: 48, height: 28, border: "none", padding: 0, background: "transparent" }} />
+            </label>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button type="button" onClick={onClose} style={navBtn}>
+              閉じる
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              style={{ ...navBtn, border: "1px solid #1565c0", background: "#e3f2fd", color: "#1565c0", fontWeight: 700 }}
+            >
+              保存
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -4,7 +4,12 @@
 // ================================================================
 import { createClient } from "@/lib/supabase/client"
 import { requireCompanyId } from "@/lib/tenant"
-import type { CrossScheduleRow, CrossScheduleCell } from "@/types/crossSchedule"
+import type {
+  CrossScheduleRow,
+  CrossScheduleCell,
+  CrossScheduleSticky,
+  MarkDef,
+} from "@/types/crossSchedule"
 
 export const CROSS_VIEWER_FORBIDDEN_MSG =
   "閲覧専用の権限のため保存できません。管理者に変更権限を依頼してください。"
@@ -72,7 +77,7 @@ export async function upsertCrossScheduleRow(row: CrossScheduleRow): Promise<voi
   if (error) throw error
 }
 
-/** 行を削除（セルは ON DELETE CASCADE で消える） */
+/** 行を削除（セル・付箋は ON DELETE CASCADE で消える） */
 export async function deleteCrossScheduleRow(rowId: string): Promise<void> {
   await assertWritable()
   const supabase = createClient()
@@ -112,5 +117,118 @@ export async function saveCrossScheduleCell(cell: CrossScheduleCell): Promise<vo
     },
     { onConflict: "row_id,date" }
   )
+  if (error) throw error
+}
+
+// ── カスタムマーク ─────────────────────────────────────────────────
+
+export async function loadCrossScheduleMarks(): Promise<MarkDef[]> {
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { data, error } = await supabase
+    .from("cross_schedule_marks")
+    .select("id, char, label, bg, fg, sort_order")
+    .eq("company_id", companyId)
+    .order("sort_order")
+  if (error) throw error
+  return (data ?? []).map((m) => ({
+    id: String(m.id),
+    char: String(m.char),
+    label: String(m.label ?? ""),
+    bg: String(m.bg ?? "#fff9c4"),
+    fg: String(m.fg ?? "#5d4037"),
+    sortOrder: Number(m.sort_order ?? 0),
+    custom: true,
+  }))
+}
+
+export async function upsertCrossScheduleMark(mark: MarkDef & { id: string }): Promise<void> {
+  await assertWritable()
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { error } = await supabase.from("cross_schedule_marks").upsert(
+    {
+      id: mark.id,
+      company_id: companyId,
+      char: mark.char,
+      label: mark.label,
+      bg: mark.bg,
+      fg: mark.fg,
+      sort_order: mark.sortOrder ?? 0,
+    },
+    { onConflict: "id" }
+  )
+  if (error) throw error
+}
+
+export async function deleteCrossScheduleMark(markId: string): Promise<void> {
+  await assertWritable()
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { error } = await supabase
+    .from("cross_schedule_marks")
+    .delete()
+    .eq("company_id", companyId)
+    .eq("id", markId)
+  if (error) throw error
+}
+
+// ── 付箋 ───────────────────────────────────────────────────────────
+
+export async function loadCrossScheduleStickies(
+  startDate: string,
+  endDate: string
+): Promise<CrossScheduleSticky[]> {
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { data, error } = await supabase
+    .from("cross_schedule_stickies")
+    .select("id, row_id, date, body, color, offset_x, offset_y, z_index")
+    .eq("company_id", companyId)
+    .gte("date", startDate)
+    .lte("date", endDate)
+  if (error) throw error
+  return (data ?? []).map((s) => ({
+    id: String(s.id),
+    rowId: String(s.row_id),
+    date: String(s.date).slice(0, 10),
+    body: String(s.body ?? ""),
+    color: String(s.color ?? "#fff59d"),
+    offsetX: Number(s.offset_x ?? 10),
+    offsetY: Number(s.offset_y ?? 10),
+    zIndex: Number(s.z_index ?? 1),
+  }))
+}
+
+export async function upsertCrossScheduleSticky(sticky: CrossScheduleSticky): Promise<void> {
+  await assertWritable()
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { error } = await supabase.from("cross_schedule_stickies").upsert(
+    {
+      id: sticky.id,
+      company_id: companyId,
+      row_id: sticky.rowId,
+      date: sticky.date,
+      body: sticky.body,
+      color: sticky.color,
+      offset_x: sticky.offsetX,
+      offset_y: sticky.offsetY,
+      z_index: sticky.zIndex,
+    },
+    { onConflict: "id" }
+  )
+  if (error) throw error
+}
+
+export async function deleteCrossScheduleSticky(stickyId: string): Promise<void> {
+  await assertWritable()
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { error } = await supabase
+    .from("cross_schedule_stickies")
+    .delete()
+    .eq("company_id", companyId)
+    .eq("id", stickyId)
   if (error) throw error
 }

@@ -25,6 +25,8 @@ export type CrossScheduleCell = {
 }
 
 export type MarkDef = {
+  /** DB id。既定マークは undefined */
+  id?: string
   /** セルに表示する文字（DB上のキーでもある） */
   char: string
   label: string
@@ -32,10 +34,37 @@ export type MarkDef = {
   bg: string
   /** 文字色 */
   fg: string
+  sortOrder?: number
+  /** 会社が追加・編集したマーク */
+  custom?: boolean
 }
 
-/** エクセル運用で使われていたマーク一覧（第1弾は固定セット） */
-export const MARK_DEFS: MarkDef[] = [
+/** セル上の付箋メモ */
+export type CrossScheduleSticky = {
+  id: string
+  rowId: string
+  date: string
+  body: string
+  /** 付箋の紙色 */
+  color: string
+  /** セル左上からの相対位置(px) */
+  offsetX: number
+  offsetY: number
+  zIndex: number
+}
+
+export const STICKY_COLORS = [
+  "#fff59d",
+  "#ffcc80",
+  "#ef9a9a",
+  "#ce93d8",
+  "#90caf9",
+  "#a5d6a7",
+  "#f5f5f5",
+] as const
+
+/** エクセル運用で使われていた既定マーク */
+export const DEFAULT_MARK_DEFS: MarkDef[] = [
   { char: "完", label: "完了", bg: "#c8e6c9", fg: "#1b5e20" },
   { char: "予", label: "予定", bg: "#bbdefb", fg: "#0d47a1" },
   { char: "仕", label: "仕上", bg: "#ffe0b2", fg: "#e65100" },
@@ -48,9 +77,31 @@ export const MARK_DEFS: MarkDef[] = [
   { char: "検", label: "検査", bg: "#ffcdd2", fg: "#b71c1c" },
 ]
 
-export function markDef(mark: string): MarkDef | null {
+/** @deprecated 互換用。DEFAULT_MARK_DEFS と同じ */
+export const MARK_DEFS = DEFAULT_MARK_DEFS
+
+/** 既定 + 会社カスタムをマージ（同じ char はカスタム優先） */
+export function mergeMarkDefs(custom: MarkDef[]): MarkDef[] {
+  const byChar = new Map<string, MarkDef>()
+  for (const m of DEFAULT_MARK_DEFS) byChar.set(m.char, { ...m })
+  for (const m of custom) {
+    byChar.set(m.char, { ...m, custom: true })
+  }
+  return [...byChar.values()].sort((a, b) => {
+    const ao = a.sortOrder ?? 999
+    const bo = b.sortOrder ?? 999
+    if (ao !== bo) return ao - bo
+    return a.char.localeCompare(b.char, "ja")
+  })
+}
+
+export function markDefFromList(mark: string, marks: MarkDef[]): MarkDef | null {
   if (!mark) return null
-  return MARK_DEFS.find((m) => m.char === mark) ?? null
+  return marks.find((m) => m.char === mark) ?? null
+}
+
+export function markDef(mark: string): MarkDef | null {
+  return markDefFromList(mark, DEFAULT_MARK_DEFS)
 }
 
 /** マーク未登録の自由文字用の色 */
