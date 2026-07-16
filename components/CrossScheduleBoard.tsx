@@ -34,6 +34,7 @@ import {
   upsertCrossScheduleRow,
   deleteCrossScheduleRow,
   saveCrossScheduleCell,
+  saveCrossScheduleCells,
   upsertCrossScheduleMark,
   deleteCrossScheduleMark,
   upsertCrossScheduleSticky,
@@ -89,6 +90,32 @@ type PenMode =
 
 const cellKey = (rowId: string, date: string) => `${rowId}|${date}`;
 
+type GridPos = { ri: number; di: number };
+
+type ClipCell = {
+  mark: string;
+  spanNo: string;
+  note: string;
+  colorBg: string;
+  colorFg: string;
+};
+
+type ClipPayload = {
+  h: number;
+  w: number;
+  /** 行優先。空セルは null */
+  grid: (ClipCell | null)[][];
+};
+
+function rectRange(a: GridPos, b: GridPos) {
+  return {
+    r0: Math.min(a.ri, b.ri),
+    r1: Math.max(a.ri, b.ri),
+    d0: Math.min(a.di, b.di),
+    d1: Math.max(a.di, b.di),
+  };
+}
+
 const DAY_W = 26;
 const LEFT_COLS = [
   { key: "name", label: "工事名", width: 150 },
@@ -122,10 +149,21 @@ export default function CrossScheduleBoard() {
   const [showMarkManager, setShowMarkManager] = useState(false);
   const [addProjectId, setAddProjectId] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
+  /** 選択範囲（Excel風）— selA=アンカー, selB=対角 */
+  const [selA, setSelA] = useState<GridPos | null>(null);
+  const [selB, setSelB] = useState<GridPos | null>(null);
+  const [clipNotice, setClipNotice] = useState<string | null>(null);
 
   const { role } = useUserRole();
   const readOnly = role === "viewer";
   const pdfAreaRef = useRef<HTMLDivElement>(null);
+  const clipboardRef = useRef<ClipPayload | null>(null);
+  const dragSelRef = useRef<{
+    active: boolean;
+    start: GridPos;
+    end: GridPos;
+    moved: boolean;
+  } | null>(null);
   const today = todayStr();
 
   const markDefs = useMemo(() => mergeMarkDefs(customMarks), [customMarks]);
@@ -229,6 +267,37 @@ export default function CrossScheduleBoard() {
     }));
   }, [rows, projectById]);
 
+  /** 表の行順（選択・コピペの座標系） */
+  const flatRows = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
+
+  const selectedTargets = useMemo(() => {
+    if (!selA || !selB) return [] as { rowId: string; date: string; ri: number; di: number }[];
+    const { r0, r1, d0, d1 } = rectRange(selA, selB);
+    const out: { rowId: string; date: string; ri: number; di: number }[] = [];
+    for (let ri = r0; ri <= r1; ri++) {
+      const row = flatRows[ri];
+      if (!row) continue;
+      for (let di = d0; di <= d1; di++) {
+        const day = days[di];
+        if (!day) continue;
+        out.push({ rowId: row.id, date: day.date, ri, di });
+      }
+    }
+    return out;
+  }, [selA, selB, flatRows, days]);
+
+  const selectedCount = selectedTargets.length;
+  const selectedKeySet = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of selectedTargets) s.add(cellKey(t.rowId, t.date));
+    return s;
+  }, [selectedTargets]);
+  const rowIndexById = useMemo(() => {
+    const m = new Map<string, number>();
+    flatRows.forEach((r, i) => m.set(r.id, i));
+    return m;
+  }, [flatRows]);
+
   const projectsNotOnBoard = useMemo(() => {
     const onBoard = new Set(rows.map((r) => r.projectId));
     return projects
@@ -262,6 +331,32 @@ export default function CrossScheduleBoard() {
     [reportSaved, reportError]
   );
 
+  const persistCells = useCallback(
+    async (list: CrossScheduleCell[]) => {
+      setSaveState("saving");
+      try {
+        await saveCrossScheduleCells(list);
+        reportSaved();
+      } catch (e) {
+        reportError(e);
+      }
+    },
+    [reportSaved, reportError]
+  );
+
+  const emptyCell = useCallback(
+    (rowId: string, date: string): CrossScheduleCell => ({
+      rowId,
+      date,
+      mark: "",
+      spanNo: "",
+      note: "",
+      colorBg: "",
+      colorFg: "",
+    }),
+    []
+  );
+
   const applyCell = useCallback(
     (
       rowId: string,
@@ -270,15 +365,7 @@ export default function CrossScheduleBoard() {
     ) => {
       const key = cellKey(rowId, date);
       setCells((prev) => {
-        const cur = prev[key] ?? {
-          rowId,
-          date,
-          mark: "",
-          spanNo: "",
-          note: "",
-          colorBg: "",
-          colorFg: "",
-        };
+        const cur = prev[key] ?? emptyCell(rowId, date);
         const next: CrossScheduleCell = { ...cur, ...patch };
         const out = { ...prev };
         if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
@@ -287,21 +374,200 @@ export default function CrossScheduleBoard() {
         return out;
       });
     },
-    [persistCell]
+    [persistCell, emptyCell]
   );
 
-  const handleCellClick = useCallback(
-    (rowId: string, date: string) => {
-      if (readOnly) return;
-      if (pen.kind === "detail") {
-        setEditing({ rowId, date });
+  const applyCellsPatch = useCallback(
+    (
+      targets: { rowId: string; date: string }[],
+      patchFor: (cur: CrossScheduleCell) => Partial<CrossScheduleCell>
+    ) => {
+      if (targets.length === 0) return;
+      const nextList: CrossScheduleCell[] = [];
+      setCells((prev) => {
+        const out = { ...prev };
+        for (const t of targets) {
+          const key = cellKey(t.rowId, t.date);
+          const cur = prev[key] ?? emptyCell(t.rowId, t.date);
+          const next: CrossScheduleCell = { ...cur, ...patchFor(cur) };
+          if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
+          else out[key] = next;
+          nextList.push(next);
+        }
+        return out;
+      });
+      void persistCells(nextList);
+    },
+    [emptyCell, persistCells]
+  );
+
+  const fillSelectionWithPen = useCallback(
+    (targets: { rowId: string; date: string }[], mode: PenMode = pen) => {
+      if (readOnly || targets.length === 0) return;
+      if (mode.kind === "erase") {
+        applyCellsPatch(targets, () => ({
+          mark: "",
+          spanNo: "",
+          note: "",
+          colorBg: "",
+          colorFg: "",
+        }));
         return;
       }
-      if (pen.kind === "sticky") {
+      if (mode.kind === "span") {
+        const n = String(nextSpanNo);
+        applyCellsPatch(targets, () => ({ spanNo: n }));
+        setNextSpanNo((x) => x + 1);
+        return;
+      }
+      if (mode.kind === "mark") {
+        applyCellsPatch(targets, (cur) => {
+          if (targets.length === 1 && cur.mark === mode.char) {
+            return { mark: "", colorBg: "", colorFg: "" };
+          }
+          return {
+            mark: mode.char,
+            colorBg: paintColor.bg,
+            colorFg: paintColor.fg,
+          };
+        });
+      }
+    },
+    [readOnly, pen, nextSpanNo, paintColor, applyCellsPatch]
+  );
+
+  const copySelection = useCallback(() => {
+    if (!selA || !selB || selectedTargets.length === 0) return;
+    const { r0, r1, d0, d1 } = rectRange(selA, selB);
+    const h = r1 - r0 + 1;
+    const w = d1 - d0 + 1;
+    const grid: (ClipCell | null)[][] = [];
+    for (let ri = r0; ri <= r1; ri++) {
+      const row: (ClipCell | null)[] = [];
+      for (let di = d0; di <= d1; di++) {
+        const fr = flatRows[ri];
+        const day = days[di];
+        if (!fr || !day) {
+          row.push(null);
+          continue;
+        }
+        const c = cells[cellKey(fr.id, day.date)];
+        if (!c || (!c.mark && !c.spanNo && !c.note && !c.colorBg)) {
+          row.push(null);
+        } else {
+          row.push({
+            mark: c.mark,
+            spanNo: c.spanNo,
+            note: c.note,
+            colorBg: c.colorBg,
+            colorFg: c.colorFg,
+          });
+        }
+      }
+      grid.push(row);
+    }
+    clipboardRef.current = { h, w, grid };
+    setClipNotice(`${h}×${w} セルをコピーしました`);
+    window.setTimeout(() => setClipNotice(null), 2000);
+  }, [selA, selB, selectedTargets, flatRows, days, cells]);
+
+  const pasteClipboard = useCallback(() => {
+    if (readOnly) return;
+    const clip = clipboardRef.current;
+    if (!clip) {
+      setClipNotice("コピーしたデータがありません");
+      window.setTimeout(() => setClipNotice(null), 2000);
+      return;
+    }
+    const origin = selA && selB ? { ri: Math.min(selA.ri, selB.ri), di: Math.min(selA.di, selB.di) } : selA;
+    if (!origin) return;
+    const targets: { rowId: string; date: string }[] = [];
+    const values: ClipCell[] = [];
+    for (let i = 0; i < clip.h; i++) {
+      for (let j = 0; j < clip.w; j++) {
+        const ri = origin.ri + i;
+        const di = origin.di + j;
+        const fr = flatRows[ri];
+        const day = days[di];
+        if (!fr || !day) continue;
+        const src = clip.grid[i]?.[j] ?? null;
+        targets.push({ rowId: fr.id, date: day.date });
+        values.push(
+          src ?? { mark: "", spanNo: "", note: "", colorBg: "", colorFg: "" }
+        );
+      }
+    }
+    if (targets.length === 0) return;
+    const nextList: CrossScheduleCell[] = [];
+    setCells((prev) => {
+      const out = { ...prev };
+      targets.forEach((t, idx) => {
+        const v = values[idx];
+        const next: CrossScheduleCell = {
+          rowId: t.rowId,
+          date: t.date,
+          mark: v.mark,
+          spanNo: v.spanNo,
+          note: v.note,
+          colorBg: v.colorBg,
+          colorFg: v.colorFg,
+        };
+        const key = cellKey(t.rowId, t.date);
+        if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
+        else out[key] = next;
+        nextList.push(next);
+      });
+      return out;
+    });
+    void persistCells(nextList);
+    setSelA(origin);
+    setSelB({
+      ri: Math.min(flatRows.length - 1, origin.ri + clip.h - 1),
+      di: Math.min(days.length - 1, origin.di + clip.w - 1),
+    });
+    setClipNotice(`${targets.length} セルに貼り付けました`);
+    window.setTimeout(() => setClipNotice(null), 2000);
+  }, [readOnly, selA, selB, flatRows, days, persistCells]);
+
+  const clearSelectionCells = useCallback(() => {
+    if (readOnly || selectedTargets.length === 0) return;
+    applyCellsPatch(selectedTargets, () => ({
+      mark: "",
+      spanNo: "",
+      note: "",
+      colorBg: "",
+      colorFg: "",
+    }));
+  }, [readOnly, selectedTargets, applyCellsPatch]);
+
+  const finishPointerSelect = useCallback(() => {
+    const drag = dragSelRef.current;
+    if (!drag?.active) return;
+    const start = drag.start;
+    const end = drag.end;
+    const moved = drag.moved;
+    dragSelRef.current = null;
+    setSelA(start);
+    setSelB(end);
+    if (readOnly) return;
+
+    const targets: { rowId: string; date: string }[] = [];
+    const { r0, r1, d0, d1 } = rectRange(start, end);
+    for (let ri = r0; ri <= r1; ri++) {
+      for (let di = d0; di <= d1; di++) {
+        const row = flatRows[ri];
+        const day = days[di];
+        if (row && day) targets.push({ rowId: row.id, date: day.date });
+      }
+    }
+
+    if (pen.kind === "sticky") {
+      if (!moved && targets[0]) {
+        const t = targets[0];
         const sticky: CrossScheduleSticky = {
           id: genId(),
-          rowId,
-          date,
+          rowId: t.rowId,
+          date: t.date,
           body: "",
           color: stickyColor,
           offsetX: 8,
@@ -311,45 +577,120 @@ export default function CrossScheduleBoard() {
         setStickies((prev) => [...prev, sticky]);
         setEditingStickyId(sticky.id);
         setSaveState("saving");
-        void upsertCrossScheduleSticky(sticky)
-          .then(reportSaved)
-          .catch(reportError);
+        void upsertCrossScheduleSticky(sticky).then(reportSaved).catch(reportError);
+      }
+      return;
+    }
+
+    if (pen.kind === "mark" || pen.kind === "span" || pen.kind === "erase") {
+      fillSelectionWithPen(targets);
+    }
+  }, [
+    readOnly,
+    pen,
+    flatRows,
+    days,
+    stickyColor,
+    stickies,
+    fillSelectionWithPen,
+    reportSaved,
+    reportError,
+  ]);
+
+  useEffect(() => {
+    const onUp = () => finishPointerSelect();
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, [finishPointerSelect]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (editing || showMarkManager || editingStickyId) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        copySelection();
         return;
       }
-      if (pen.kind === "erase") {
-        applyCell(rowId, date, { mark: "", spanNo: "", note: "", colorBg: "", colorFg: "" });
+      if (mod && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        pasteClipboard();
         return;
       }
-      if (pen.kind === "span") {
-        applyCell(rowId, date, { spanNo: String(nextSpanNo) });
-        setNextSpanNo((n) => n + 1);
+      if ((e.key === "Delete" || e.key === "Backspace") && !readOnly) {
+        e.preventDefault();
+        clearSelectionCells();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    editing,
+    showMarkManager,
+    editingStickyId,
+    copySelection,
+    pasteClipboard,
+    clearSelectionCells,
+    readOnly,
+  ]);
+
+  const onCellMouseDown = useCallback(
+    (ri: number, di: number, e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      setEditingStickyId(null);
+      const pos = { ri, di };
+      if (e.shiftKey && selA) {
+        setSelB(pos);
+        dragSelRef.current = null;
         return;
       }
-      // マークスタンプ: 同じマークならトグルで外す。色は毎回いま選んでいる色を塗る
-      const cur = cells[cellKey(rowId, date)];
-      if (cur?.mark === pen.char) {
-        applyCell(rowId, date, { mark: "", colorBg: "", colorFg: "" });
-      } else {
-        applyCell(rowId, date, {
-          mark: pen.char,
-          colorBg: paintColor.bg,
-          colorFg: paintColor.fg,
-        });
-      }
+      setSelA(pos);
+      setSelB(pos);
+      dragSelRef.current = { active: true, start: pos, end: pos, moved: false };
     },
-    [
-      readOnly,
-      pen,
-      nextSpanNo,
-      cells,
-      applyCell,
-      stickyColor,
-      stickies,
-      paintColor,
-      reportSaved,
-      reportError,
-    ]
+    [selA]
   );
+
+  const onCellMouseEnter = useCallback((ri: number, di: number) => {
+    const drag = dragSelRef.current;
+    if (!drag?.active) return;
+    const pos = { ri, di };
+    if (ri !== drag.start.ri || di !== drag.start.di) drag.moved = true;
+    drag.end = pos;
+    setSelB(pos);
+  }, []);
+
+  const onCellDoubleClick = useCallback(
+    (rowId: string, date: string) => {
+      if (readOnly) return;
+      setEditing({ rowId, date });
+    },
+    [readOnly]
+  );
+
+  const selectMarkPen = useCallback(
+    (char: string) => {
+      const mode: PenMode = { kind: "mark", char };
+      setPen(mode);
+      if (selectedCount >= 2) fillSelectionWithPen(selectedTargets, mode);
+    },
+    [selectedCount, selectedTargets, fillSelectionWithPen]
+  );
+
+  const selectErasePen = useCallback(() => {
+    const mode: PenMode = { kind: "erase" };
+    setPen(mode);
+    if (selectedCount >= 2) fillSelectionWithPen(selectedTargets, mode);
+  }, [selectedCount, selectedTargets, fillSelectionWithPen]);
+
+  const selectSpanPen = useCallback(() => {
+    const mode: PenMode = { kind: "span" };
+    setPen(mode);
+    if (selectedCount >= 2) fillSelectionWithPen(selectedTargets, mode);
+  }, [selectedCount, selectedTargets, fillSelectionWithPen]);
 
   const persistSticky = useCallback(
     async (sticky: CrossScheduleSticky) => {
@@ -560,10 +901,17 @@ export default function CrossScheduleBoard() {
   );
 
   // ── セル描画 ─────────────────────────────────────────────────────
-  const renderDayCell = (row: CrossScheduleRow, d: DayCol, project: Project | null) => {
+  const renderDayCell = (
+    row: CrossScheduleRow,
+    d: DayCol,
+    project: Project | null,
+    ri: number,
+    di: number
+  ) => {
     const cell = cells[cellKey(row.id, d.date)];
     const def = cell?.mark ? markDefFromList(cell.mark, markDefs) : null;
     const cellStickies = stickiesByCell.get(cellKey(row.id, d.date)) ?? [];
+    const selected = selectedKeySet.has(cellKey(row.id, d.date));
     const style: React.CSSProperties = {
       width: DAY_W,
       minWidth: DAY_W,
@@ -573,7 +921,7 @@ export default function CrossScheduleBoard() {
       textAlign: "center",
       fontSize: 11,
       fontWeight: 700,
-      cursor: readOnly ? "default" : "pointer",
+      cursor: readOnly ? "default" : "cell",
       position: "relative",
       overflow: "visible",
       borderRight: `1px solid ${d.day === new Date(d.year, d.monthIndex + 1, 0).getDate() ? "#90a4ae" : "#e0e6ed"}`,
@@ -597,7 +945,12 @@ export default function CrossScheduleBoard() {
     }
     style.background = bg;
     style.color = fg;
-    if (d.date === today) style.boxShadow = "inset 0 0 0 2px #f59e0b";
+    if (selected) {
+      style.outline = "2px solid #1565c0";
+      style.outlineOffset = -2;
+      style.zIndex = 1;
+    }
+    if (d.date === today) style.boxShadow = selected ? undefined : "inset 0 0 0 2px #f59e0b";
     if (project?.endDate && d.date === project.endDate) style.borderRight = "2px solid #c62828";
 
     const text = cell?.spanNo || cell?.mark || "";
@@ -610,7 +963,14 @@ export default function CrossScheduleBoard() {
     const title = tipParts.length ? `${d.date}\n${tipParts.join("\n")}` : d.date;
 
     return (
-      <td key={d.date} style={style} title={title} onClick={() => handleCellClick(row.id, d.date)}>
+      <td
+        key={d.date}
+        style={style}
+        title={title}
+        onMouseDown={(e) => onCellMouseDown(ri, di, e)}
+        onMouseEnter={() => onCellMouseEnter(ri, di)}
+        onDoubleClick={() => onCellDoubleClick(row.id, d.date)}
+      >
         {text}
         {cell?.note ? (
           <span
@@ -742,16 +1102,16 @@ export default function CrossScheduleBoard() {
             <PenButton
               active={pen.kind === "detail"}
               onClick={() => setPen({ kind: "detail" })}
-              label="詳細"
-              title="クリックしたセルの編集画面を開きます（番号・マーク・注記）"
+              label="選択"
+              title="ドラッグ／Shift+クリックで範囲選択。ダブルクリックで詳細編集。Ctrl+C / Ctrl+V でコピペ"
             />
             {markDefs.map((m) => (
               <PenButton
                 key={m.char}
                 active={pen.kind === "mark" && pen.char === m.char}
-                onClick={() => setPen({ kind: "mark", char: m.char })}
+                onClick={() => selectMarkPen(m.char)}
                 label={`${m.char} ${m.label}`}
-                title={`クリックでセルに「${m.char}」を付けます。色は右の「塗り色」で選べます`}
+                title={`ドラッグ／クリックで「${m.char}」を塗ります。複数選択中なら一気に塗ります`}
               />
             ))}
             {(pen.kind === "mark" || pen.kind === "detail") && (
@@ -763,7 +1123,16 @@ export default function CrossScheduleBoard() {
                     type="button"
                     aria-label={`塗り色 ${p.label}`}
                     title={p.label}
-                    onClick={() => setPaintColor(p)}
+                    onClick={() => {
+                      setPaintColor(p);
+                      if (selectedCount >= 1 && pen.kind === "mark") {
+                        applyCellsPatch(selectedTargets, () => ({
+                          mark: pen.char,
+                          colorBg: p.bg,
+                          colorFg: p.fg,
+                        }));
+                      }
+                    }}
                     style={{
                       width: 18,
                       height: 18,
@@ -796,9 +1165,9 @@ export default function CrossScheduleBoard() {
             </button>
             <PenButton
               active={pen.kind === "span"}
-              onClick={() => setPen({ kind: "span" })}
+              onClick={selectSpanPen}
               label="番号"
-              title="クリックしたセルにスパン番号を入れ、番号を自動で進めます"
+              title="選択範囲／ドラッグした範囲にスパン番号を入れます"
             />
             {pen.kind === "span" && (
               <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#607d8b" }}>
@@ -843,10 +1212,37 @@ export default function CrossScheduleBoard() {
             )}
             <PenButton
               active={pen.kind === "erase"}
-              onClick={() => setPen({ kind: "erase" })}
+              onClick={selectErasePen}
               label="消す"
-              title="クリックしたセルのマーク・番号・注記を消します（付箋は消えません）"
+              title="選択範囲／ドラッグした範囲のマーク・番号・注記を消します"
             />
+            <span style={{ fontSize: 11, color: "#90a4ae" }}>|</span>
+            <button
+              type="button"
+              onClick={copySelection}
+              disabled={selectedCount === 0}
+              style={{ ...navBtn, opacity: selectedCount ? 1 : 0.5 }}
+              title="Ctrl+C"
+            >
+              コピー
+            </button>
+            <button
+              type="button"
+              onClick={pasteClipboard}
+              style={navBtn}
+              title="Ctrl+V（選択の左上から貼り付け）"
+            >
+              貼り付け
+            </button>
+            {selectedCount > 0 && (
+              <span style={{ fontSize: 11, color: "#1565c0", fontWeight: 600 }}>
+                {selectedCount}セル選択中
+              </span>
+            )}
+            {clipNotice && <span style={{ fontSize: 11, color: "#2e7d32" }}>{clipNotice}</span>}
+            <span style={{ fontSize: 10, color: "#90a4ae", width: "100%" }}>
+              ドラッグで範囲選択／Shift+クリックで拡張／Ctrl+C・Vでコピペ／Deleteで消去／ダブルクリックで詳細
+            </span>
           </div>
         )}
 
@@ -1011,7 +1407,9 @@ export default function CrossScheduleBoard() {
                       )}
                     </div>
                   </td>
-                  {days.map((d) => renderDayCell(row, d, g.project))}
+                  {days.map((d, di) =>
+                    renderDayCell(row, d, g.project, rowIndexById.get(row.id) ?? 0, di)
+                  )}
                 </tr>
               ))
             )}

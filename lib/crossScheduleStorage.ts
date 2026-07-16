@@ -94,34 +94,49 @@ export async function deleteCrossScheduleRow(rowId: string): Promise<void> {
 
 /** セルを保存。内容がすべて空なら行×日付のセルを削除する */
 export async function saveCrossScheduleCell(cell: CrossScheduleCell): Promise<void> {
+  await saveCrossScheduleCells([cell])
+}
+
+/** 複数セルを一括保存（コピペ・範囲塗り用） */
+export async function saveCrossScheduleCells(cells: CrossScheduleCell[]): Promise<void> {
+  if (cells.length === 0) return
   await assertWritable()
   const supabase = createClient()
   const companyId = await requireCompanyId()
-  const isEmpty = !cell.mark && !cell.spanNo && !cell.note && !cell.colorBg
-  if (isEmpty) {
-    const { error } = await supabase
-      .from("cross_schedule_cells")
-      .delete()
-      .eq("company_id", companyId)
-      .eq("row_id", cell.rowId)
-      .eq("date", cell.date)
-    if (error) throw error
-    return
+
+  const toDelete = cells.filter((c) => !c.mark && !c.spanNo && !c.note && !c.colorBg)
+  const toUpsert = cells.filter((c) => c.mark || c.spanNo || c.note || c.colorBg)
+
+  if (toDelete.length > 0) {
+    // 行ごとにまとめて削除（ PostgREST の複合キー一括削除が難しいので並列）
+    await Promise.all(
+      toDelete.map((c) =>
+        supabase
+          .from("cross_schedule_cells")
+          .delete()
+          .eq("company_id", companyId)
+          .eq("row_id", c.rowId)
+          .eq("date", c.date)
+      )
+    )
   }
-  const { error } = await supabase.from("cross_schedule_cells").upsert(
-    {
-      row_id: cell.rowId,
-      date: cell.date,
-      company_id: companyId,
-      mark: cell.mark,
-      span_no: cell.spanNo,
-      note: cell.note,
-      color_bg: cell.colorBg ?? "",
-      color_fg: cell.colorFg ?? "",
-    },
-    { onConflict: "row_id,date" }
-  )
-  if (error) throw error
+
+  if (toUpsert.length > 0) {
+    const { error } = await supabase.from("cross_schedule_cells").upsert(
+      toUpsert.map((c) => ({
+        row_id: c.rowId,
+        date: c.date,
+        company_id: companyId,
+        mark: c.mark,
+        span_no: c.spanNo,
+        note: c.note,
+        color_bg: c.colorBg ?? "",
+        color_fg: c.colorFg ?? "",
+      })),
+      { onConflict: "row_id,date" }
+    )
+    if (error) throw error
+  }
 }
 
 // ── カスタムマーク ─────────────────────────────────────────────────
