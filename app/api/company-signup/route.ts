@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient, isServiceRoleConfigured } from "@/lib/supabase/admin";
 import { normalizeCompanyCode } from "@/lib/tenant";
 
-const OWNER_EMAIL = "tokito@tokito-co.jp";
+const OWNER_EMAIL = "hayanari316@gmail.com";
 
 export async function POST(request: NextRequest) {
   try {

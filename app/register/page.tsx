@@ -53,7 +53,7 @@ export default function RegisterPage() {
       setMessage(
         `承認依頼を受け付けました。審査結果は ${contactEmail} に連絡します。` +
           (data.mailOk
-            ? `\nシステムオーナー（${data.ownerEmail ?? "tokito@tokito-co.jp"}）へ通知メールも送信しました。`
+            ? `\nシステムオーナー（${data.ownerEmail ?? "hayanari316@gmail.com"}）へ通知メールも送信しました。`
             : `\n※通知メールの送信に失敗しました（申込自体は保存済み）。管理画面で確認できます。`)
       );
       setCompanyCode("");
@@ -88,8 +88,8 @@ export default function RegisterPage() {
         </div>
         <p style={{ marginTop: 0, color: T.ts, fontSize: 13, lineHeight: 1.6 }}>
           必要事項を入力して承認依頼を送信してください。申込内容は
-          <a href="mailto:tokito@tokito-co.jp" style={{ color: T.ac, marginLeft: 4 }}>
-            tokito@tokito-co.jp
+          <a href="mailto:hayanari316@gmail.com" style={{ color: T.ac, marginLeft: 4 }}>
+            hayanari316@gmail.com
           </a>
           に通知され、承認後に会社オーナー（ログインID: admin）が自動作成されます。
         </p>
