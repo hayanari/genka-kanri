@@ -41,7 +41,7 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
   }
 
   const empty: CurrentAccess = {
-    role: "editor",
+    role: "viewer",
     email: null,
     canAccessAdmin: false,
     isPlatformOwner: false,
@@ -55,7 +55,7 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session?.access_token) {
-      cachedRole = "editor";
+      cachedRole = "viewer";
       cachedCanAccessAdmin = false;
       cachedIsPlatformOwner = false;
       return empty;
@@ -103,7 +103,7 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
 
     const data = await res.json();
     cachedEmail = data.email ?? null;
-    cachedRole = (data.companyRole as UserRole) || (data.isPlatformOwner ? "owner" : "editor");
+    cachedRole = (data.companyRole as UserRole) || (data.isPlatformOwner ? "owner" : "viewer");
     if (data.isPlatformOwner) cachedRole = "owner";
     cachedCanAccessAdmin = Boolean(data.canAccessAdmin);
     cachedIsPlatformOwner = Boolean(data.isPlatformOwner);
