@@ -52,6 +52,7 @@ export default function Home() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [orgLabel, setOrgLabel] = useState("…");
+  const companyIdRef = useRef<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedSuccessfully = useRef(false);
   const dataRef = useRef(data);
@@ -163,6 +164,7 @@ export default function Home() {
       try {
         const { fetchCurrentTenant } = await import("@/lib/tenant");
         const t = await fetchCurrentTenant();
+        if (t?.companyId) companyIdRef.current = t.companyId;
         if (t?.companyName) setOrgLabel(t.companyName);
       } catch {
         /* ignore */
@@ -192,10 +194,13 @@ export default function Home() {
           setLoadError(true);
         } else {
           setData(loaded);
-          saveLocalBackup({
-            ...loaded,
-            schedule: schedule ?? { workers: [], schedules: [], dayMemos: {} },
-          });
+          saveLocalBackup(
+            {
+              ...loaded,
+              schedule: schedule ?? { workers: [], schedules: [], dayMemos: {} },
+            },
+            companyIdRef.current
+          );
           hasLoadedSuccessfully.current = true;
           setLoadError(false);
           lastSyncedRevisionRef.current = await fetchGenkaDataRevision();
@@ -279,11 +284,12 @@ export default function Home() {
         saveTimeoutRef.current = null;
       }
       const d = dataRef.current;
-      saveLocalBackup({ ...d, schedule: undefined });
+      saveLocalBackup({ ...d, schedule: undefined }, companyIdRef.current);
       // base（最後に同期した状態）も保存し、復元時にサーバー最新とマージできるようにする
       saveDataPendingSync(
         d,
-        lastAuditedSnapshotRef.current as unknown as Parameters<typeof saveDataPendingSync>[1]
+        lastAuditedSnapshotRef.current as unknown as Parameters<typeof saveDataPendingSync>[1],
+        companyIdRef.current
       );
     };
     window.addEventListener("beforeunload", handler);

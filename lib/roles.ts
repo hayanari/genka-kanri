@@ -65,7 +65,7 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
       headers: { Authorization: `Bearer ${session.access_token}` },
     });
     if (!res.ok) {
-      // フォールバック: company_users から読む
+      // フォールバック: company_users から読む（未所属は viewer）
       const email = session.user.email?.toLowerCase() ?? null;
       cachedEmail = email;
       const { data: mem } = await supabase
@@ -73,17 +73,31 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
         .select("role, companies(company_code, name)")
         .eq("user_id", session.user.id)
         .maybeSingle();
-      const role = (mem?.role as UserRole) || "editor";
-      cachedRole = ["viewer", "editor", "admin", "owner"].includes(role) ? role : "editor";
+      if (!mem) {
+        cachedRole = "viewer";
+        cachedCanAccessAdmin = false;
+        cachedIsPlatformOwner = false;
+        return {
+          role: "viewer",
+          email,
+          canAccessAdmin: false,
+          isPlatformOwner: false,
+          companyCode: null,
+          companyName: null,
+        };
+      }
+      const role = (mem?.role as UserRole) || "viewer";
+      cachedRole = ["viewer", "editor", "admin", "owner"].includes(role) ? role : "viewer";
       cachedCanAccessAdmin = cachedRole === "admin" || cachedRole === "owner";
       cachedIsPlatformOwner = false;
+      const company = Array.isArray(mem.companies) ? mem.companies[0] : mem.companies;
       return {
         role: cachedRole,
         email,
         canAccessAdmin: cachedCanAccessAdmin,
         isPlatformOwner: false,
-        companyCode: null,
-        companyName: null,
+        companyCode: company?.company_code ?? null,
+        companyName: company?.name ?? null,
       };
     }
 
@@ -102,7 +116,7 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
       companyName: data.companyName ?? null,
     };
   } catch {
-    cachedRole = "editor";
+    cachedRole = "viewer";
     cachedCanAccessAdmin = false;
     cachedIsPlatformOwner = false;
     return empty;
@@ -117,8 +131,9 @@ export async function fetchCurrentRole(): Promise<{ role: UserRole; email: strin
 
 /** 書き込み操作が許可されているか */
 export async function canWrite(): Promise<boolean> {
-  const { role } = await fetchCurrentRole();
-  return role !== "viewer";
+  const a = await fetchCurrentAccess();
+  if (!a.companyCode && !a.isPlatformOwner) return false;
+  return a.role !== "viewer";
 }
 
 export function clearRoleCache() {

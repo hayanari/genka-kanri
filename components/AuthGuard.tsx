@@ -3,35 +3,89 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { clearTenantCache, fetchCurrentTenant } from "@/lib/tenant";
+import { clearRoleCache } from "@/lib/roles";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
+  const [ok, setOk] = useState(false);
+  const [message, setMessage] = useState("読み込み中...");
 
   useEffect(() => {
-    const supabase = createClient();
-    supabase.auth
-      .getSession()
-      .then(({ data: { session } }) => {
-        setAuthenticated(!!session?.user);
-      })
-      .catch(() => setAuthenticated(false))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const supabase = createClient();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.user) {
+          if (!cancelled) {
+            setOk(false);
+            setLoading(false);
+          }
+          return;
+        }
+        const tenant = await fetchCurrentTenant();
+        if (!tenant) {
+          // 所属なし: セッションを切ってログインへ
+          clearTenantCache();
+          clearRoleCache();
+          await supabase.auth.signOut();
+          if (!cancelled) {
+            setMessage("会社に所属していないアカウントです。管理者に連絡してください。");
+            setOk(false);
+            setLoading(false);
+          }
+          return;
+        }
+        if (!cancelled) {
+          setOk(true);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setOk(false);
+          setLoading(false);
+        }
+      }
+    };
+    void run();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthenticated(!!session?.user);
+    const supabase = createClient();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session?.user) {
+        clearTenantCache();
+        setOk(false);
+      } else {
+        void fetchCurrentTenant().then((t) => {
+          if (!t) {
+            clearTenantCache();
+            clearRoleCache();
+            void supabase.auth.signOut();
+            setOk(false);
+          } else {
+            setOk(true);
+          }
+        });
+      }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     if (loading) return;
-    if (!authenticated) {
+    if (!ok) {
       router.replace("/login");
     }
-  }, [loading, authenticated, router]);
+  }, [loading, ok, router]);
 
   if (loading) {
     return (
@@ -46,13 +100,13 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
           fontSize: "14px",
         }}
       >
-        読み込み中...
+        {message}
       </div>
     );
   }
 
-  if (!authenticated) {
-    return null; // Will redirect
+  if (!ok) {
+    return null;
   }
 
   return <>{children}</>;

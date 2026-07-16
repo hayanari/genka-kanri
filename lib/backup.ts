@@ -11,12 +11,22 @@ import type {
 } from "./utils";
 import type { ScheduleData } from "@/types/schedule";
 
-const BACKUP_KEY = "genka_kanri_backup";
-const BACKUP_TIMESTAMP_KEY = "genka_kanri_backup_at";
+const BACKUP_KEY_PREFIX = "genka_kanri_backup";
+const BACKUP_TIMESTAMP_KEY_PREFIX = "genka_kanri_backup_at";
 const LAST_REMOTE_COUNT_KEY = "genka_kanri_last_remote_count";
 const LAST_REMOTE_BACKUP_AT_KEY = "genka_kanri_last_remote_backup_at";
-const DATA_PENDING_KEY = "genka_kanri_data_pending";
+const DATA_PENDING_KEY_PREFIX = "genka_kanri_data_pending";
 const PENDING_TTL_MS = 15_000; // 15秒以内のバックアップのみ復元
+
+function backupKey(companyId?: string | null): string {
+  return companyId ? `${BACKUP_KEY_PREFIX}:${companyId}` : BACKUP_KEY_PREFIX;
+}
+function backupTsKey(companyId?: string | null): string {
+  return companyId ? `${BACKUP_TIMESTAMP_KEY_PREFIX}:${companyId}` : BACKUP_TIMESTAMP_KEY_PREFIX;
+}
+function pendingKey(companyId?: string | null): string {
+  return companyId ? `${DATA_PENDING_KEY_PREFIX}:${companyId}` : DATA_PENDING_KEY_PREFIX;
+}
 
 export type BackupData = {
   projects: Project[];
@@ -39,8 +49,8 @@ function isValidBackup(raw: unknown): raw is BackupData {
   );
 }
 
-/** localStorage にバックアップを保存 */
-export function saveLocalBackup(data: BackupData): void {
+/** localStorage にバックアップを保存（会社単位） */
+export function saveLocalBackup(data: BackupData, companyId?: string | null): void {
   try {
     const payload = JSON.stringify({
       projects: data.projects,
@@ -50,9 +60,10 @@ export function saveLocalBackup(data: BackupData): void {
       processMasters: data.processMasters ?? [],
       bidSchedules: data.bidSchedules ?? [],
       schedule: data.schedule ?? { workers: [], schedules: [], dayMemos: {} },
+      companyId: companyId ?? null,
     });
-    localStorage.setItem(BACKUP_KEY, payload);
-    localStorage.setItem(BACKUP_TIMESTAMP_KEY, new Date().toISOString());
+    localStorage.setItem(backupKey(companyId), payload);
+    localStorage.setItem(backupTsKey(companyId), new Date().toISOString());
   } catch (e) {
     console.warn("[backup] saveLocalBackup failed:", e);
   }
@@ -65,10 +76,11 @@ export function saveLocalBackup(data: BackupData): void {
  */
 export function saveDataPendingSync(
   data: Omit<BackupData, "schedule">,
-  base?: Omit<BackupData, "schedule"> | null
+  base?: Omit<BackupData, "schedule"> | null,
+  companyId?: string | null
 ): void {
   try {
-    sessionStorage.setItem(DATA_PENDING_KEY, JSON.stringify({
+    sessionStorage.setItem(pendingKey(companyId), JSON.stringify({
       projects: data.projects,
       costs: data.costs,
       quantities: data.quantities,
@@ -76,6 +88,7 @@ export function saveDataPendingSync(
       processMasters: data.processMasters ?? [],
       bidSchedules: data.bidSchedules ?? [],
       base: base ?? null,
+      companyId: companyId ?? null,
       ts: Date.now(),
     }));
   } catch {}
@@ -86,9 +99,11 @@ export type PendingData = Omit<BackupData, "schedule"> & {
 };
 
 /** 直近で保存された未確定データがあれば返す（リロード直後の復元用） */
-export function loadDataPending(): { data: PendingData; base: PendingData | null } | null {
+export function loadDataPending(companyId?: string | null): { data: PendingData; base: PendingData | null } | null {
   try {
-    const raw = sessionStorage.getItem(DATA_PENDING_KEY);
+    const raw =
+      sessionStorage.getItem(pendingKey(companyId)) ??
+      (!companyId ? null : sessionStorage.getItem(pendingKey(null)));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       projects?: unknown[];
@@ -98,14 +113,26 @@ export function loadDataPending(): { data: PendingData; base: PendingData | null
       processMasters?: unknown[];
       bidSchedules?: unknown[];
       base?: Record<string, unknown> | null;
+      companyId?: string | null;
       ts?: number;
     };
     if (!parsed?.ts || Date.now() - parsed.ts > PENDING_TTL_MS) {
-      try { sessionStorage.removeItem(DATA_PENDING_KEY); } catch {}
+      try {
+        sessionStorage.removeItem(pendingKey(companyId));
+      } catch {}
+      return null;
+    }
+    // 会社IDが食い違う pending は捨てる
+    if (companyId && parsed.companyId && parsed.companyId !== companyId) {
+      try {
+        sessionStorage.removeItem(pendingKey(companyId));
+      } catch {}
       return null;
     }
     if (!Array.isArray(parsed.projects) || !Array.isArray(parsed.costs) || !Array.isArray(parsed.quantities)) {
-      try { sessionStorage.removeItem(DATA_PENDING_KEY); } catch {}
+      try {
+        sessionStorage.removeItem(pendingKey(companyId));
+      } catch {}
       return null;
     }
     const toPending = (o: Record<string, unknown>): PendingData => ({
@@ -126,19 +153,23 @@ export function loadDataPending(): { data: PendingData; base: PendingData | null
 }
 
 /** pending データをクリア（保存成功後に呼ぶ） */
-export function clearDataPending(): void {
+export function clearDataPending(companyId?: string | null): void {
   try {
-    sessionStorage.removeItem(DATA_PENDING_KEY);
+    sessionStorage.removeItem(pendingKey(companyId));
+    if (companyId) sessionStorage.removeItem(pendingKey(null));
   } catch {}
 }
 
 /** localStorage からバックアップを読み込み */
-export function loadLocalBackup(): BackupData | null {
+export function loadLocalBackup(companyId?: string | null): BackupData | null {
   try {
-    const raw = localStorage.getItem(BACKUP_KEY);
+    const raw =
+      localStorage.getItem(backupKey(companyId)) ??
+      (!companyId ? localStorage.getItem(backupKey(null)) : null);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
+    const parsed = JSON.parse(raw) as BackupData & { companyId?: string | null };
     if (!isValidBackup(parsed)) return null;
+    if (companyId && parsed.companyId && parsed.companyId !== companyId) return null;
     return parsed as BackupData;
   } catch {
     return null;
@@ -146,9 +177,9 @@ export function loadLocalBackup(): BackupData | null {
 }
 
 /** バックアップの日時を取得 */
-export function getBackupTimestamp(): string | null {
+export function getBackupTimestamp(companyId?: string | null): string | null {
   try {
-    return localStorage.getItem(BACKUP_TIMESTAMP_KEY);
+    return localStorage.getItem(backupTsKey(companyId));
   } catch {
     return null;
   }

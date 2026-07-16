@@ -116,21 +116,56 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 初回レガシーログイン成功時に company_users を自動紐付け
+    // レガシー初回のみ: まだどの会社にも所属していない場合だけ紐付け
+    // 既存所属の付け替えは禁止（他社データへの横断を防ぐ）
     if (!member && company.allow_legacy_email_login) {
-      await admin.from("company_users").upsert(
-        {
+      const { data: existingMembership } = await admin
+        .from("company_users")
+        .select("company_id, companies(company_code)")
+        .eq("user_id", signInData.user.id)
+        .maybeSingle();
+
+      if (existingMembership?.company_id && existingMembership.company_id !== company.id) {
+        const existingCompany = Array.isArray(existingMembership.companies)
+          ? existingMembership.companies[0]
+          : existingMembership.companies;
+        return NextResponse.json(
+          {
+            error:
+              `このアカウントは既に別の会社（${existingCompany?.company_code ?? "不明"}）に所属しています。` +
+              `所属変更はシステムオーナーへ依頼してください。`,
+          },
+          { status: 403 }
+        );
+      }
+
+      if (!existingMembership) {
+        const { error: linkError } = await admin.from("company_users").insert({
           company_id: company.id,
           user_id: signInData.user.id,
-          login_id: loginId.includes("@")
-            ? loginId.split("@")[0]
-            : loginId,
+          login_id: loginId.includes("@") ? loginId.split("@")[0] : loginId,
           auth_email: signInData.user.email ?? authEmail,
           display_name:
             signInData.user.user_metadata?.name ??
             (signInData.user.email ?? loginId).split("@")[0],
-        },
-        { onConflict: "user_id" }
+        });
+        if (linkError) {
+          console.error("[auth/login] link", linkError);
+        }
+      }
+    }
+
+    // 最終確認: ログイン先会社に所属していること
+    const { data: confirmed } = await admin
+      .from("company_users")
+      .select("id")
+      .eq("user_id", signInData.user.id)
+      .eq("company_id", company.id)
+      .maybeSingle();
+    if (!confirmed) {
+      return NextResponse.json(
+        { error: "この会社へのログイン権限がありません" },
+        { status: 403 }
       );
     }
 

@@ -21,6 +21,19 @@ import { mergeGenkaData } from "../mergeData";
 import type { GenkaDataSet } from "../mergeData";
 import { DEFAULT_COMPANY_ID, getCompanyDataId } from "../tenant";
 
+export class NoTenantError extends Error {
+  constructor() {
+    super("会社に所属していません");
+    this.name = "NoTenantError";
+  }
+}
+
+async function requireDataCompanyId(): Promise<string> {
+  const dataId = await getCompanyDataId();
+  if (!dataId) throw new NoTenantError();
+  return dataId;
+}
+
 /** 保存前の正規化。空配列も「全件削除した」意図した状態としてそのまま保存する（プリセットで置き換えない） */
 function sanitizeBeforeSave(data: {
   projects: Project[];
@@ -49,7 +62,7 @@ function sanitizeBeforeSave(data: {
 export async function fetchGenkaDataRevision(): Promise<string | null> {
   try {
     const supabase = createClient();
-    const dataId = await getCompanyDataId();
+    const dataId = await requireDataCompanyId();
     const { data, error } = await supabase
       .from("genka_kanri_data")
       .select("updated_at")
@@ -59,6 +72,7 @@ export async function fetchGenkaDataRevision(): Promise<string | null> {
     const ts = data?.updated_at;
     return typeof ts === "string" ? ts : null;
   } catch (e) {
+    if (e instanceof NoTenantError) return null;
     console.error("[fetchGenkaDataRevision]", e);
     return null;
   }
@@ -84,7 +98,12 @@ const pendingToSet = (p: PendingData): GenkaDataSet => ({
 
 export async function loadData(): Promise<LoadedData | null> {
   try {
-    const pendingRes = loadDataPending();
+    const companyId = await getCompanyDataId();
+    if (!companyId) {
+      console.warn("[loadData] no tenant");
+      return null;
+    }
+    const pendingRes = loadDataPending(companyId);
     if (pendingRes) {
       // リロード直前の未保存データを復元。
       // base（最後に同期した状態）があれば、サーバー最新と三方マージして
@@ -106,7 +125,7 @@ export async function loadData(): Promise<LoadedData | null> {
       }
       const result = await saveData(payload, { force: true });
       if (result.ok) {
-        clearDataPending();
+        clearDataPending(companyId);
         return payload as LoadedData;
       }
     }
@@ -122,14 +141,14 @@ export async function loadData(): Promise<LoadedData | null> {
 async function fetchRemoteData(): Promise<LoadedData | null> {
   try {
     const supabase = createClient();
-    const dataId = await getCompanyDataId();
+    const dataId = await requireDataCompanyId();
     let { data, error } = await supabase
       .from("genka_kanri_data")
       .select("data")
       .eq("id", dataId)
       .maybeSingle();
 
-    // 移行直後: 自社行がまだ無く default だけある場合
+    // 移行直後: tokito のみ default 行フォールバック
     if (!data && dataId === DEFAULT_COMPANY_ID) {
       const fallback = await supabase
         .from("genka_kanri_data")
@@ -191,14 +210,18 @@ async function fetchRemoteData(): Promise<LoadedData | null> {
     setLastRemoteCount(result.projects.length, result.costs.length, result.quantities.length);
     return result;
   } catch (e) {
+    if (e instanceof NoTenantError) {
+      console.warn("[fetchRemoteData] no tenant");
+      return null;
+    }
     console.error("[fetchRemoteData] Error:", e);
     return null;
   }
 }
 
 /** loadData が失敗した際の localStorage フォールバック */
-export function loadFromLocalBackup(): BackupData | null {
-  return loadLocalBackup();
+export function loadFromLocalBackup(companyId?: string | null): BackupData | null {
+  return loadLocalBackup(companyId);
 }
 
 export type SaveResult =
@@ -238,7 +261,7 @@ export async function saveData(
     }
 
     const supabase = createClient();
-    const dataId = await getCompanyDataId();
+    const dataId = await requireDataCompanyId();
     const payload = {
       projects: backupPayload.projects,
       costs: backupPayload.costs,
@@ -260,7 +283,7 @@ export async function saveData(
         );
 
       if (!error) {
-        saveLocalBackup(backupPayload);
+        saveLocalBackup(backupPayload, dataId);
         setLastRemoteCount(
           sanitized.projects.length,
           sanitized.costs.length,
@@ -275,9 +298,12 @@ export async function saveData(
     }
 
     console.error("[saveData] Supabase error after retries:", lastError);
-    saveLocalBackup(backupPayload);
+    saveLocalBackup(backupPayload, dataId);
     return { ok: false, reason: "error" };
   } catch (e) {
+    if (e instanceof NoTenantError) {
+      return { ok: false, reason: "forbidden" };
+    }
     console.error("[saveData] Error:", e);
     saveLocalBackup({
       projects: data.projects,

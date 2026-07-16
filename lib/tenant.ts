@@ -3,6 +3,13 @@
 export const DEFAULT_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 export const DEFAULT_COMPANY_CODE = "tokito";
 
+export class TenantRequiredError extends Error {
+  constructor(message = "会社に所属していないため操作できません") {
+    super(message);
+    this.name = "TenantRequiredError";
+  }
+}
+
 /** 新規ユーザー用の内部メール（画面には出さない） */
 export function buildAuthEmail(companyCode: string, loginId: string): string {
   const code = companyCode.trim().toLowerCase();
@@ -18,7 +25,7 @@ export function normalizeLoginId(loginId: string): string {
   return loginId.trim().toLowerCase();
 }
 
-type TenantCache = {
+export type TenantCache = {
   companyId: string;
   companyCode: string;
   companyName: string;
@@ -33,6 +40,10 @@ export function clearTenantCache(): void {
   cachedUserId = null;
 }
 
+/**
+ * ログイン中ユーザーの所属会社を返す。
+ * 未所属は null（他社フォールバックはしない）。
+ */
 export async function fetchCurrentTenant(): Promise<TenantCache | null> {
   const { createClient } = await import("./supabase/client");
   const supabase = createClient();
@@ -52,27 +63,19 @@ export async function fetchCurrentTenant(): Promise<TenantCache | null> {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (error || !data) {
-    // 既存運用互換: 未紐付けは tokito に落とす（他社混入リスクあり）。
-    // 無効化する場合は DISABLE_LEGACY_TENANT_FALLBACK=1
-    if (process.env.DISABLE_LEGACY_TENANT_FALLBACK === "1") {
-      console.warn("[tenant] company_users 未紐付け（フォールバック無効）", user.id);
-      clearTenantCache();
-      return null;
-    }
-    console.warn("[tenant] company_users 未紐付け → tokito フォールバック", user.id);
-    cachedUserId = user.id;
-    cachedTenant = {
-      companyId: DEFAULT_COMPANY_ID,
-      companyCode: DEFAULT_COMPANY_CODE,
-      companyName: "未設定の会社",
-      loginId: user.email?.split("@")[0] ?? "user",
-    };
-    return cachedTenant;
+  if (error || !data?.company_id) {
+    console.warn("[tenant] company_users 未紐付け", user.id, error?.message);
+    clearTenantCache();
+    return null;
   }
 
   const company = Array.isArray(data.companies) ? data.companies[0] : data.companies;
-  const code = String(company?.company_code ?? DEFAULT_COMPANY_CODE);
+  const code = String(company?.company_code ?? "").trim();
+  if (!code) {
+    console.warn("[tenant] companies 行がありません", data.company_id);
+    clearTenantCache();
+    return null;
+  }
   const name = String(company?.name ?? "").trim() || code;
   cachedUserId = user.id;
   cachedTenant = {
@@ -84,11 +87,15 @@ export async function fetchCurrentTenant(): Promise<TenantCache | null> {
   return cachedTenant;
 }
 
-export async function getCompanyDataId(): Promise<string> {
+/** 自社データ行ID。未所属は null */
+export async function getCompanyDataId(): Promise<string | null> {
   const tenant = await fetchCurrentTenant();
-  return tenant?.companyId ?? DEFAULT_COMPANY_ID;
+  return tenant?.companyId ?? null;
 }
 
+/** 自社 company_id。未所属は throw */
 export async function requireCompanyId(): Promise<string> {
-  return getCompanyDataId();
+  const id = await getCompanyDataId();
+  if (!id) throw new TenantRequiredError();
+  return id;
 }
