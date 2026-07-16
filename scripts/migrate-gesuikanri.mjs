@@ -93,12 +93,15 @@ async function migrateGenkaData() {
     .order("updated_at", { ascending: false });
   if (error) throw error;
 
-  const preferred =
-    (data ?? []).find((r) => r.id === "default") ||
-    (data ?? []).find((r) => r.id === GESUI_COMPANY_ID) ||
-    (data ?? [])[0];
+  const scored = (data ?? []).map((r) => {
+    const d = (r.data || {}) as { projects?: unknown[] };
+    const projects = Array.isArray(d.projects) ? d.projects.length : 0;
+    return { row: r, projects };
+  });
+  scored.sort((a, b) => b.projects - a.projects);
+  const preferred = scored[0]?.row;
 
-  if (!preferred) {
+  if (!preferred || (scored[0]?.projects ?? 0) === 0) {
     console.warn("  ソースに genka_kanri_data がありません。空のままにします。");
     return;
   }
@@ -112,7 +115,7 @@ async function migrateGenkaData() {
     { onConflict: "id" }
   );
   if (upErr) throw upErr;
-  console.log(`  copied from id=${preferred.id}`);
+  console.log(`  copied from id=${preferred.id} (projects=${scored[0].projects})`);
 }
 
 async function replaceCompanyTable(table, mapRow, options = {}) {

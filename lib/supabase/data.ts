@@ -109,19 +109,25 @@ export async function loadData(): Promise<LoadedData | null> {
       // base（最後に同期した状態）があれば、サーバー最新と三方マージして
       // 他の端末の変更を消さないようにする
       let payload: GenkaDataSet = pendingToSet(pendingRes.data);
-      if (pendingRes.base) {
-        try {
-          const remote = await fetchRemoteData();
-          if (remote) {
-            payload = mergeGenkaData(
-              pendingToSet(pendingRes.base),
-              payload,
-              remote as GenkaDataSet
-            );
-          }
-        } catch {
-          // リモート取得に失敗した場合は pending をそのまま保存
-        }
+      let remote: LoadedData | null = null;
+      try {
+        remote = await fetchRemoteData();
+      } catch {
+        remote = null;
+      }
+      // 空の pending で既存データを潰さない
+      const pendingEmpty = (payload.projects?.length ?? 0) === 0;
+      const remoteHas = (remote?.projects?.length ?? 0) > 0;
+      if (pendingEmpty && remoteHas) {
+        clearDataPending(companyId);
+        return remote;
+      }
+      if (pendingRes.base && remote) {
+        payload = mergeGenkaData(
+          pendingToSet(pendingRes.base),
+          payload,
+          remote as GenkaDataSet
+        );
       }
       const result = await saveData(payload, { force: true });
       if (result.ok) {
@@ -207,7 +213,7 @@ async function fetchRemoteData(): Promise<LoadedData | null> {
       processMasters: Array.isArray(processMasters) && processMasters.length > 0 ? processMasters : DEFAULT_PROCESS_MASTERS,
       bidSchedules,
     };
-    setLastRemoteCount(result.projects.length, result.costs.length, result.quantities.length);
+    setLastRemoteCount(result.projects.length, result.costs.length, result.quantities.length, dataId);
     return result;
   } catch (e) {
     if (e instanceof NoTenantError) {
@@ -255,13 +261,34 @@ export async function saveData(
       bidSchedules: sanitized.bidSchedules,
     };
 
-    if (!options?.force && isDangerousOverwrite(backupPayload)) {
+    const supabase = createClient();
+    const dataId = await requireDataCompanyId();
+
+    if (!options?.force && isDangerousOverwrite(backupPayload, dataId)) {
       console.warn("[saveData] ガード: 空データでの上書きをブロック");
       return { ok: false, reason: "guard" };
     }
 
-    const supabase = createClient();
-    const dataId = await requireDataCompanyId();
+    // サーバー側でも防御: 既存に案件があるのに空で潰さない（force でも）
+    {
+      const { data: existing } = await supabase
+        .from("genka_kanri_data")
+        .select("data")
+        .eq("id", dataId)
+        .maybeSingle();
+      const existingProjects = Array.isArray((existing?.data as { projects?: unknown[] } | null)?.projects)
+        ? ((existing?.data as { projects: unknown[] }).projects.length)
+        : 0;
+      const nextProjects = backupPayload.projects.length;
+      if (existingProjects >= 5 && nextProjects === 0) {
+        console.warn("[saveData] ガード: サーバー既存データを空で上書きしようとしたためブロック", {
+          dataId,
+          existingProjects,
+        });
+        return { ok: false, reason: "guard" };
+      }
+    }
+
     const payload = {
       projects: backupPayload.projects,
       costs: backupPayload.costs,
@@ -287,7 +314,8 @@ export async function saveData(
         setLastRemoteCount(
           sanitized.projects.length,
           sanitized.costs.length,
-          sanitized.quantities.length
+          sanitized.quantities.length,
+          dataId
         );
         return { ok: true };
       }

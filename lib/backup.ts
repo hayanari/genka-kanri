@@ -101,9 +101,8 @@ export type PendingData = Omit<BackupData, "schedule"> & {
 /** 直近で保存された未確定データがあれば返す（リロード直後の復元用） */
 export function loadDataPending(companyId?: string | null): { data: PendingData; base: PendingData | null } | null {
   try {
-    const raw =
-      sessionStorage.getItem(pendingKey(companyId)) ??
-      (!companyId ? null : sessionStorage.getItem(pendingKey(null)));
+    // 会社スコープ必須。他社・旧キーへのフォールバックはしない（誤上書き防止）
+    const raw = sessionStorage.getItem(pendingKey(companyId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       projects?: unknown[];
@@ -122,8 +121,8 @@ export function loadDataPending(companyId?: string | null): { data: PendingData;
       } catch {}
       return null;
     }
-    // 会社IDが食い違う pending は捨てる
-    if (companyId && parsed.companyId && parsed.companyId !== companyId) {
+    // 会社IDが食い違う / 未記録の pending は捨てる
+    if (companyId && parsed.companyId !== companyId) {
       try {
         sessionStorage.removeItem(pendingKey(companyId));
       } catch {}
@@ -163,13 +162,11 @@ export function clearDataPending(companyId?: string | null): void {
 /** localStorage からバックアップを読み込み */
 export function loadLocalBackup(companyId?: string | null): BackupData | null {
   try {
-    const raw =
-      localStorage.getItem(backupKey(companyId)) ??
-      (!companyId ? localStorage.getItem(backupKey(null)) : null);
+    const raw = localStorage.getItem(backupKey(companyId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as BackupData & { companyId?: string | null };
     if (!isValidBackup(parsed)) return null;
-    if (companyId && parsed.companyId && parsed.companyId !== companyId) return null;
+    if (companyId && parsed.companyId !== companyId) return null;
     return parsed as BackupData;
   } catch {
     return null;
@@ -185,20 +182,31 @@ export function getBackupTimestamp(companyId?: string | null): string | null {
   }
 }
 
+function remoteCountKey(companyId?: string | null): string {
+  return companyId ? `${LAST_REMOTE_COUNT_KEY}:${companyId}` : LAST_REMOTE_COUNT_KEY;
+}
+
 /** リモート（Supabase）から読み込んだ件数を記録（空データ上書き防止に使用） */
-export function setLastRemoteCount(projects: number, costs: number, quantities: number): void {
+export function setLastRemoteCount(
+  projects: number,
+  costs: number,
+  quantities: number,
+  companyId?: string | null
+): void {
   try {
     localStorage.setItem(
-      LAST_REMOTE_COUNT_KEY,
+      remoteCountKey(companyId),
       JSON.stringify({ projects, costs, quantities })
     );
   } catch {}
 }
 
 /** 前回のリモート件数を取得 */
-export function getLastRemoteCount(): { projects: number; costs: number; quantities: number } | null {
+export function getLastRemoteCount(
+  companyId?: string | null
+): { projects: number; costs: number; quantities: number } | null {
   try {
-    const raw = localStorage.getItem(LAST_REMOTE_COUNT_KEY);
+    const raw = localStorage.getItem(remoteCountKey(companyId));
     if (!raw) return null;
     const { projects, costs, quantities } = JSON.parse(raw) as {
       projects: number;
@@ -236,8 +244,11 @@ export function shouldRunDailyBackup(): boolean {
 }
 
 /** 空データでの上書きを検出（ガード） */
-export function isDangerousOverwrite(data: BackupData): boolean {
-  const prev = getLastRemoteCount();
+export function isDangerousOverwrite(
+  data: BackupData,
+  companyId?: string | null
+): boolean {
+  const prev = getLastRemoteCount(companyId);
   if (!prev) return false;
   const pCount = data.projects?.length ?? 0;
   const cCount = data.costs?.length ?? 0;
