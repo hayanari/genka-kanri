@@ -107,6 +107,12 @@ type ClipPayload = {
   grid: (ClipCell | null)[][];
 };
 
+type UndoEntry = {
+  /** key → 変更前のセル（null = もともと空） */
+  before: Record<string, CrossScheduleCell | null>;
+  ts: number;
+};
+
 function rectRange(a: GridPos, b: GridPos) {
   return {
     r0: Math.min(a.ri, b.ri),
@@ -158,6 +164,11 @@ export default function CrossScheduleBoard() {
   const readOnly = role === "viewer";
   const pdfAreaRef = useRef<HTMLDivElement>(null);
   const clipboardRef = useRef<ClipPayload | null>(null);
+  const undoStackRef = useRef<UndoEntry[]>([]);
+  const undoingRef = useRef(false);
+  const cellsRef = useRef(cells);
+  cellsRef.current = cells;
+  const [undoDepth, setUndoDepth] = useState(0);
   const dragSelRef = useRef<{
     active: boolean;
     start: GridPos;
@@ -227,7 +238,10 @@ export default function CrossScheduleBoard() {
         const map: Record<string, CrossScheduleCell> = {};
         for (const c of list) map[cellKey(c.rowId, c.date)] = c;
         setCells(map);
+        cellsRef.current = map;
         setStickies(stickyList);
+        undoStackRef.current = [];
+        setUndoDepth(0);
       } catch (e) {
         console.error("[CrossSchedule] load cells", e);
       }
@@ -357,6 +371,39 @@ export default function CrossScheduleBoard() {
     []
   );
 
+  const cloneCell = useCallback((c: CrossScheduleCell | undefined | null): CrossScheduleCell | null => {
+    if (!c) return null;
+    return { ...c };
+  }, []);
+
+  const pushUndo = useCallback(
+    (prev: Record<string, CrossScheduleCell>, keys: string[]) => {
+      if (undoingRef.current || keys.length === 0) return;
+      const before: Record<string, CrossScheduleCell | null> = {};
+      for (const k of keys) before[k] = cloneCell(prev[k] ?? null);
+
+      const stack = undoStackRef.current;
+      const last = stack[stack.length - 1];
+      const now = Date.now();
+      // 詳細編集の連続入力は同じセルなら1操作にまとめる
+      if (
+        last &&
+        now - last.ts < 1000 &&
+        keys.length === 1 &&
+        Object.keys(last.before).length === 1 &&
+        keys[0] in last.before
+      ) {
+        last.ts = now;
+        return;
+      }
+
+      stack.push({ before, ts: now });
+      if (stack.length > 80) stack.shift();
+      setUndoDepth(stack.length);
+    },
+    [cloneCell]
+  );
+
   const applyCell = useCallback(
     (
       rowId: string,
@@ -364,17 +411,18 @@ export default function CrossScheduleBoard() {
       patch: Partial<Pick<CrossScheduleCell, "mark" | "spanNo" | "note" | "colorBg" | "colorFg">>
     ) => {
       const key = cellKey(rowId, date);
-      setCells((prev) => {
-        const cur = prev[key] ?? emptyCell(rowId, date);
-        const next: CrossScheduleCell = { ...cur, ...patch };
-        const out = { ...prev };
-        if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
-        else out[key] = next;
-        void persistCell(next);
-        return out;
-      });
+      const prev = cellsRef.current;
+      pushUndo(prev, [key]);
+      const cur = prev[key] ?? emptyCell(rowId, date);
+      const next: CrossScheduleCell = { ...cur, ...patch };
+      const out = { ...prev };
+      if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
+      else out[key] = next;
+      cellsRef.current = out;
+      setCells(out);
+      void persistCell(next);
     },
-    [persistCell, emptyCell]
+    [persistCell, emptyCell, pushUndo]
   );
 
   const applyCellsPatch = useCallback(
@@ -383,23 +431,59 @@ export default function CrossScheduleBoard() {
       patchFor: (cur: CrossScheduleCell) => Partial<CrossScheduleCell>
     ) => {
       if (targets.length === 0) return;
+      const prev = cellsRef.current;
+      const keys = targets.map((t) => cellKey(t.rowId, t.date));
+      pushUndo(prev, keys);
+      const out = { ...prev };
       const nextList: CrossScheduleCell[] = [];
-      setCells((prev) => {
-        const out = { ...prev };
-        for (const t of targets) {
-          const key = cellKey(t.rowId, t.date);
-          const cur = prev[key] ?? emptyCell(t.rowId, t.date);
-          const next: CrossScheduleCell = { ...cur, ...patchFor(cur) };
-          if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
-          else out[key] = next;
-          nextList.push(next);
-        }
-        return out;
-      });
+      for (const t of targets) {
+        const key = cellKey(t.rowId, t.date);
+        const cur = prev[key] ?? emptyCell(t.rowId, t.date);
+        const next: CrossScheduleCell = { ...cur, ...patchFor(cur) };
+        if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
+        else out[key] = next;
+        nextList.push(next);
+      }
+      cellsRef.current = out;
+      setCells(out);
       void persistCells(nextList);
     },
-    [emptyCell, persistCells]
+    [emptyCell, persistCells, pushUndo]
   );
+
+  const undoLast = useCallback(() => {
+    if (readOnly) return;
+    const entry = undoStackRef.current.pop();
+    setUndoDepth(undoStackRef.current.length);
+    if (!entry) {
+      setClipNotice("戻せる操作がありません");
+      window.setTimeout(() => setClipNotice(null), 1500);
+      return;
+    }
+    undoingRef.current = true;
+    const prev = cellsRef.current;
+    const out = { ...prev };
+    const restored: CrossScheduleCell[] = [];
+    for (const [key, before] of Object.entries(entry.before)) {
+      const sep = key.indexOf("|");
+      const rowId = key.slice(0, sep);
+      const date = key.slice(sep + 1);
+      if (before === null) {
+        delete out[key];
+        restored.push(emptyCell(rowId, date));
+      } else {
+        out[key] = { ...before };
+        restored.push({ ...before });
+      }
+    }
+    cellsRef.current = out;
+    setCells(out);
+    void persistCells(restored).finally(() => {
+      undoingRef.current = false;
+    });
+    setClipNotice("元に戻しました");
+    window.setTimeout(() => setClipNotice(null), 1500);
+  }, [readOnly, emptyCell, persistCells]);
 
   const fillSelectionWithPen = useCallback(
     (targets: { rowId: string; date: string }[], mode: PenMode = pen) => {
@@ -498,27 +582,31 @@ export default function CrossScheduleBoard() {
       }
     }
     if (targets.length === 0) return;
+    const prev = cellsRef.current;
+    pushUndo(
+      prev,
+      targets.map((t) => cellKey(t.rowId, t.date))
+    );
+    const out = { ...prev };
     const nextList: CrossScheduleCell[] = [];
-    setCells((prev) => {
-      const out = { ...prev };
-      targets.forEach((t, idx) => {
-        const v = values[idx];
-        const next: CrossScheduleCell = {
-          rowId: t.rowId,
-          date: t.date,
-          mark: v.mark,
-          spanNo: v.spanNo,
-          note: v.note,
-          colorBg: v.colorBg,
-          colorFg: v.colorFg,
-        };
-        const key = cellKey(t.rowId, t.date);
-        if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
-        else out[key] = next;
-        nextList.push(next);
-      });
-      return out;
+    targets.forEach((t, idx) => {
+      const v = values[idx];
+      const next: CrossScheduleCell = {
+        rowId: t.rowId,
+        date: t.date,
+        mark: v.mark,
+        spanNo: v.spanNo,
+        note: v.note,
+        colorBg: v.colorBg,
+        colorFg: v.colorFg,
+      };
+      const key = cellKey(t.rowId, t.date);
+      if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
+      else out[key] = next;
+      nextList.push(next);
     });
+    cellsRef.current = out;
+    setCells(out);
     void persistCells(nextList);
     setSelA(origin);
     setSelB({
@@ -527,7 +615,7 @@ export default function CrossScheduleBoard() {
     });
     setClipNotice(`${targets.length} セルに貼り付けました`);
     window.setTimeout(() => setClipNotice(null), 2000);
-  }, [readOnly, selA, selB, flatRows, days, persistCells]);
+  }, [readOnly, selA, selB, flatRows, days, persistCells, pushUndo]);
 
   const clearSelectionCells = useCallback(() => {
     if (readOnly || selectedTargets.length === 0) return;
@@ -606,9 +694,19 @@ export default function CrossScheduleBoard() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      if (editing || showMarkManager || editingStickyId) return;
+      const inField = !!(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable));
       const mod = e.ctrlKey || e.metaKey;
+
+      // Ctrl+Z は詳細モーダル中でも効かせる（注記入力中は除外）
+      if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        if (inField && editing) return;
+        e.preventDefault();
+        undoLast();
+        return;
+      }
+
+      if (inField) return;
+      if (editing || showMarkManager || editingStickyId) return;
       if (mod && e.key.toLowerCase() === "c") {
         e.preventDefault();
         copySelection();
@@ -633,6 +731,7 @@ export default function CrossScheduleBoard() {
     copySelection,
     pasteClipboard,
     clearSelectionCells,
+    undoLast,
     readOnly,
   ]);
 
@@ -1234,6 +1333,15 @@ export default function CrossScheduleBoard() {
             >
               貼り付け
             </button>
+            <button
+              type="button"
+              onClick={undoLast}
+              disabled={undoDepth === 0}
+              style={{ ...navBtn, opacity: undoDepth ? 1 : 0.5 }}
+              title="Ctrl+Z"
+            >
+              元に戻す
+            </button>
             {selectedCount > 0 && (
               <span style={{ fontSize: 11, color: "#1565c0", fontWeight: 600 }}>
                 {selectedCount}セル選択中
@@ -1241,7 +1349,7 @@ export default function CrossScheduleBoard() {
             )}
             {clipNotice && <span style={{ fontSize: 11, color: "#2e7d32" }}>{clipNotice}</span>}
             <span style={{ fontSize: 10, color: "#90a4ae", width: "100%" }}>
-              ドラッグで範囲選択／Shift+クリックで拡張／Ctrl+C・Vでコピペ／Deleteで消去／ダブルクリックで詳細
+              ドラッグで範囲選択／Shift+クリックで拡張／Ctrl+C・Vでコピペ／Ctrl+Zで戻す／Deleteで消去／ダブルクリックで詳細
             </span>
           </div>
         )}
