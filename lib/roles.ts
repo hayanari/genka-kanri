@@ -14,13 +14,10 @@ export type UserRole = CompanyRole;
 
 export const ROLE_LABELS = COMPANY_ROLE_LABELS;
 
-let cachedRole: UserRole | null = null;
-let cachedEmail: string | null = null;
-let cachedCanAccessAdmin: boolean | null = null;
-let cachedIsPlatformOwner: boolean | null = null;
-let cachedCompanyCode: string | null = null;
-let cachedCompanyName: string | null = null;
-let cachedAt = 0;
+let cachedAccess: {
+  value: CurrentAccess;
+  at: number;
+} | null = null;
 
 export type CurrentAccess = {
   role: UserRole;
@@ -31,34 +28,25 @@ export type CurrentAccess = {
   companyName: string | null;
 };
 
-function rememberAccess(access: CurrentAccess): CurrentAccess {
-  cachedRole = access.role;
-  cachedEmail = access.email;
-  cachedCanAccessAdmin = access.canAccessAdmin;
-  cachedIsPlatformOwner = access.isPlatformOwner;
-  cachedCompanyCode = access.companyCode;
-  cachedCompanyName = access.companyName;
-  cachedAt = Date.now();
+const CACHE_TTL_MS = 3_000;
+
+function rememberAccess(access: CurrentAccess, persist: boolean): CurrentAccess {
+  if (persist) {
+    cachedAccess = { value: access, at: Date.now() };
+  }
   return access;
 }
 
-export async function fetchCurrentAccess(): Promise<CurrentAccess> {
-  // 権限は変更されうるため、短いメモリキャッシュのみ
+export async function fetchCurrentAccess(options?: {
+  force?: boolean;
+}): Promise<CurrentAccess> {
   const now = Date.now();
   if (
-    cachedRole !== null &&
-    cachedCanAccessAdmin !== null &&
-    cachedAt > 0 &&
-    now - cachedAt < 5_000
+    !options?.force &&
+    cachedAccess &&
+    now - cachedAccess.at < CACHE_TTL_MS
   ) {
-    return {
-      role: cachedRole,
-      email: cachedEmail,
-      canAccessAdmin: cachedCanAccessAdmin,
-      isPlatformOwner: cachedIsPlatformOwner ?? false,
-      companyCode: cachedCompanyCode,
-      companyName: cachedCompanyName,
-    };
+    return cachedAccess.value;
   }
 
   const empty: CurrentAccess = {
@@ -76,14 +64,15 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session?.access_token) {
-      return rememberAccess(empty);
+      // 未ログインはキャッシュしない（直後のログイン判定を汚さない）
+      return empty;
     }
 
     const res = await fetch("/api/admin/me", {
       headers: { Authorization: `Bearer ${session.access_token}` },
+      cache: "no-store",
     });
     if (!res.ok) {
-      // フォールバック: company_users から読む（未所属は viewer）
       const email = session.user.email?.toLowerCase() ?? null;
       const { data: mem } = await supabase
         .from("company_users")
@@ -91,28 +80,34 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
         .eq("user_id", session.user.id)
         .maybeSingle();
       if (!mem) {
-        return rememberAccess({
-          role: "viewer",
-          email,
-          canAccessAdmin: false,
-          isPlatformOwner: false,
-          companyCode: null,
-          companyName: null,
-        });
+        return rememberAccess(
+          {
+            role: "viewer",
+            email,
+            canAccessAdmin: false,
+            isPlatformOwner: false,
+            companyCode: null,
+            companyName: null,
+          },
+          true
+        );
       }
       const role = (mem?.role as UserRole) || "viewer";
       const normalized = ["viewer", "editor", "admin", "owner"].includes(role)
         ? role
         : "viewer";
       const company = Array.isArray(mem.companies) ? mem.companies[0] : mem.companies;
-      return rememberAccess({
-        role: normalized,
-        email,
-        canAccessAdmin: normalized === "admin" || normalized === "owner",
-        isPlatformOwner: false,
-        companyCode: company?.company_code ?? null,
-        companyName: company?.name ?? null,
-      });
+      return rememberAccess(
+        {
+          role: normalized,
+          email,
+          canAccessAdmin: normalized === "admin" || normalized === "owner",
+          isPlatformOwner: false,
+          companyCode: company?.company_code ?? null,
+          companyName: company?.name ?? null,
+        },
+        true
+      );
     }
 
     const data = await res.json();
@@ -122,20 +117,23 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
         ? companyRole
         : null) || (data.isPlatformOwner ? "owner" : "viewer");
     if (data.isPlatformOwner && role === "viewer") role = "owner";
-    return rememberAccess({
-      role,
-      email: data.email ?? null,
-      canAccessAdmin: Boolean(data.canAccessAdmin),
-      isPlatformOwner: Boolean(data.isPlatformOwner),
-      companyCode: data.companyCode ?? null,
-      companyName: data.companyName ?? null,
-    });
+    return rememberAccess(
+      {
+        role,
+        email: data.email ?? null,
+        canAccessAdmin: Boolean(data.canAccessAdmin),
+        isPlatformOwner: Boolean(data.isPlatformOwner),
+        companyCode: data.companyCode ?? null,
+        companyName: data.companyName ?? null,
+      },
+      true
+    );
   } catch {
-    return rememberAccess(empty);
+    return empty;
   }
 }
 
-/** 現在ログイン中ユーザーの権限を取得（モジュール内キャッシュあり） */
+/** 現在ログイン中ユーザーの権限を取得 */
 export async function fetchCurrentRole(): Promise<{ role: UserRole; email: string | null }> {
   const a = await fetchCurrentAccess();
   return { role: a.role, email: a.email };
@@ -143,21 +141,14 @@ export async function fetchCurrentRole(): Promise<{ role: UserRole; email: strin
 
 /** 書き込み操作が許可されているか */
 export async function canWrite(): Promise<boolean> {
-  const a = await fetchCurrentAccess();
-  if (a.role === "viewer") return false;
+  // 保存直前は必ず最新を取り直す（キャッシュ由来の誤判定を防ぐ）
+  const a = await fetchCurrentAccess({ force: true });
   if (a.isPlatformOwner) return true;
-  // 会社所属がある入力可以上のみ保存可
-  return Boolean(a.companyCode);
+  return a.role === "editor" || a.role === "admin" || a.role === "owner";
 }
 
 export function clearRoleCache() {
-  cachedRole = null;
-  cachedEmail = null;
-  cachedCanAccessAdmin = null;
-  cachedIsPlatformOwner = null;
-  cachedCompanyCode = null;
-  cachedCompanyName = null;
-  cachedAt = 0;
+  cachedAccess = null;
   clearTenantCache();
 }
 
@@ -245,18 +236,40 @@ export function useUserRole(): {
   });
   useEffect(() => {
     let mounted = true;
-    fetchCurrentAccess().then((r) => {
-      if (mounted) {
-        setState({
-          role: r.role,
-          email: r.email,
-          canAccessAdmin: r.canAccessAdmin,
-          isPlatformOwner: r.isPlatformOwner,
-        });
+    const apply = (r: CurrentAccess) => {
+      if (!mounted) return;
+      setState({
+        role: r.role,
+        email: r.email,
+        canAccessAdmin: r.canAccessAdmin,
+        isPlatformOwner: r.isPlatformOwner,
+      });
+    };
+
+    const load = async (force = false) => {
+      const r = await fetchCurrentAccess({ force });
+      // セッション未準備で viewer になった場合は再試行
+      if (!r.email && r.role === "viewer") {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        apply(await fetchCurrentAccess({ force: true }));
+        return;
       }
+      apply(r);
+    };
+
+    void load(true);
+
+    const supabase = createClient();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      clearRoleCache();
+      void load(true);
     });
+
     return () => {
       mounted = false;
+      subscription.unsubscribe();
     };
   }, []);
   return state;
