@@ -324,6 +324,48 @@ export default function AdminPage() {
     }
   };
 
+  const [deletingCompany, setDeletingCompany] = useState<string | null>(null);
+
+  const handleDeleteCompany = async (c: CompanyItem) => {
+    if (!accessToken || !caller?.isPlatformOwner) return;
+    if (c.company_code === "tokito") {
+      alert("基幹会社（tokito）は削除できません");
+      return;
+    }
+    const typed = window.prompt(
+      `会社「${c.name}」（${c.company_code}）を完全に削除します。\n` +
+        `ユーザー・案件・スケジュール等も消えます。取り消せません。\n\n` +
+        `削除するには会社ID「${c.company_code}」を入力してください。`
+    );
+    if (typed === null) return;
+    if (typed.trim().toLowerCase() !== c.company_code.toLowerCase()) {
+      alert("会社IDが一致しません。削除を中止しました。");
+      return;
+    }
+    if (!confirm(`本当に「${c.name}」を削除しますか？`)) return;
+
+    setDeletingCompany(c.company_code);
+    try {
+      const res = await fetch(`/api/admin/companies/${encodeURIComponent(c.company_code)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "削除に失敗しました");
+      setCompanies((prev) => prev.filter((x) => x.company_code !== c.company_code));
+      if (companyFilter === c.company_code) setCompanyFilter("all");
+      if (createCompanyCode === c.company_code) {
+        setCreateCompanyCode("tokito");
+      }
+      await loadUsers(accessToken, companyFilter === c.company_code ? "all" : companyFilter);
+      alert(`削除しました（ユーザー ${data.deletedUsers ?? 0} 件）`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "削除に失敗しました");
+    } finally {
+      setDeletingCompany(null);
+    }
+  };
+
   return (
     <AuthGuard>
       <div
@@ -484,6 +526,63 @@ export default function AdminPage() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {caller?.isPlatformOwner && (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontWeight: 800, color: T.tx, marginBottom: 8 }}>会社一覧・削除</div>
+                    <div style={{ fontSize: 12, color: T.ts, marginBottom: 12 }}>
+                      会社を削除すると、所属ユーザーと会社データもまとめて消えます。基幹会社（tokito）は削除できません。
+                    </div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {companies.map((c) => (
+                        <div
+                          key={c.company_code}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 12,
+                            padding: "12px 14px",
+                            border: `1px solid ${T.bd}`,
+                            borderRadius: 10,
+                            background: T.bg,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 700, color: T.tx }}>{c.name}</div>
+                            <div style={{ fontSize: 12, color: T.ts }}>{c.company_code}</div>
+                          </div>
+                          {c.company_code === "tokito" ? (
+                            <span style={{ fontSize: 12, color: T.ts }}>削除不可</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteCompany(c)}
+                              disabled={!!deletingCompany}
+                              style={{
+                                padding: "7px 12px",
+                                borderRadius: 8,
+                                border: `1px solid ${T.dg}44`,
+                                background: T.dg + "18",
+                                color: T.dg,
+                                cursor: deletingCompany ? "not-allowed" : "pointer",
+                                fontWeight: 700,
+                                fontFamily: "inherit",
+                                fontSize: 12,
+                              }}
+                            >
+                              {deletingCompany === c.company_code ? "削除中..." : "この会社を削除"}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      {companies.length === 0 && (
+                        <div style={{ fontSize: 13, color: T.ts }}>会社がありません</div>
+                      )}
                     </div>
                   </div>
                 )}
