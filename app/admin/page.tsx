@@ -253,6 +253,65 @@ export default function AdminPage() {
     ? (["viewer", "editor", "admin", "owner"] as UserRole[])
     : (["viewer", "editor", "admin"] as UserRole[]));
 
+  const [signupsLoading, setSignupsLoading] = useState(false);
+  const [signups, setSignups] = useState<
+    {
+      id: string;
+      company_code: string;
+      company_name: string;
+      address: string;
+      phone: string;
+      contact_email: string;
+      owner_name: string;
+      owner_login_id?: string;
+      status: string;
+      review_note: string | null;
+      created_at: string;
+    }[]
+  >([]);
+
+  const loadSignups = useCallback(async () => {
+    if (!accessToken) return;
+    setSignupsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/company-signups?status=pending`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "取得に失敗しました");
+      setSignups(data.requests ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "取得に失敗しました");
+    } finally {
+      setSignupsLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (caller?.isPlatformOwner) void loadSignups();
+  }, [caller?.isPlatformOwner, loadSignups]);
+
+  const handleSignupAction = async (requestId: string, action: "approve" | "reject") => {
+    if (!accessToken) return;
+    const reviewNote = window.prompt(action === "reject" ? "却下理由（任意）" : "承認コメント（任意）") ?? "";
+    try {
+      const res = await fetch(`/api/admin/company-signups`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ requestId, action, reviewNote }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "処理に失敗しました");
+      await loadSignups();
+      alert("処理しました");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "処理に失敗しました");
+    }
+  };
+
   return (
     <AuthGuard>
       <div
@@ -337,6 +396,86 @@ export default function AdminPage() {
             )}
             {!loading && !error && (
               <div>
+                {caller?.isPlatformOwner && (
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontWeight: 800, color: T.tx, marginBottom: 8 }}>企業登録申請（承認待ち）</div>
+                    <div style={{ fontSize: 12, color: T.ts, marginBottom: 12 }}>
+                      企業IDと連絡先を受け取り、オーナー（ログインID: admin）を自動作成して承認します。
+                    </div>
+
+                    <div style={{ display: "grid", gap: 12 }}>
+                      {signupsLoading && <div style={{ fontSize: 13, color: T.ts }}>読み込み中...</div>}
+                      {signups.length === 0 && !signupsLoading && (
+                        <div style={{ padding: 14, border: `1px solid ${T.bd}`, borderRadius: 10, color: T.ts, fontSize: 13 }}>
+                          承認待ちの申請はありません
+                        </div>
+                      )}
+                      {signups.map((r) => (
+                        <div
+                          key={r.id}
+                          style={{
+                            padding: 14,
+                            border: `1px solid ${T.bd}`,
+                            borderRadius: 12,
+                            background: T.bg,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                            <div>
+                              <div style={{ fontWeight: 800, color: T.tx }}>
+                                {r.company_name}（{r.company_code}）
+                              </div>
+                              <div style={{ fontSize: 12, color: T.ts, marginTop: 4 }}>
+                                オーナー: {r.owner_name} / 連絡先: {r.contact_email}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <button
+                                type="button"
+                                onClick={() => void handleSignupAction(r.id, "approve")}
+                                style={{
+                                  padding: "8px 10px",
+                                  borderRadius: 8,
+                                  border: "none",
+                                  background: "#16a34a",
+                                  color: "#fff",
+                                  cursor: "pointer",
+                                  fontWeight: 700,
+                                  fontFamily: "inherit",
+                                }}
+                              >
+                                承認
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleSignupAction(r.id, "reject")}
+                                style={{
+                                  padding: "8px 10px",
+                                  borderRadius: 8,
+                                  border: "1px solid #dc2626",
+                                  background: "#fef2f2",
+                                  color: "#dc2626",
+                                  cursor: "pointer",
+                                  fontWeight: 700,
+                                  fontFamily: "inherit",
+                                }}
+                              >
+                                却下
+                              </button>
+                            </div>
+                          </div>
+
+                          <div style={{ marginTop: 10, fontSize: 12, color: T.ts, whiteSpace: "pre-line" }}>
+                            住所: {r.address}
+                            {"\n"}
+                            電話: {r.phone}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div
                   style={{
                     marginBottom: 24,

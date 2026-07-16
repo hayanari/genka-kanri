@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { T } from "@/lib/constants";
 import { clearTenantCache } from "@/lib/tenant";
@@ -239,6 +240,12 @@ export default function LoginPage() {
           新規アカウントは管理者が発行します。自社（会社ID: tokito）の既存ユーザーは、ログインIDに
           従来のメールアドレス（例: tokito@tokito-co.jp）を入れてログインできます。
         </p>
+
+        <div style={{ marginTop: 12, textAlign: "center", fontSize: 12 }}>
+          <Link href="/register" style={{ color: T.ac, textDecoration: "none" }}>
+            企業登録申込はこちら
+          </Link>
+        </div>
       </div>
     </div>
   );
