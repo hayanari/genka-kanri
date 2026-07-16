@@ -119,6 +119,7 @@ export async function GET(request: NextRequest) {
       caller: {
         isPlatformOwner: caller.isPlatformOwner,
         companyCode: caller.companyCode,
+        companyRole: caller.companyRole,
         canAccessAdmin: caller.canAccessAdmin,
       },
     });

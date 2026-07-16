@@ -18,6 +18,7 @@ let cachedRole: UserRole | null = null;
 let cachedEmail: string | null = null;
 let cachedCanAccessAdmin: boolean | null = null;
 let cachedIsPlatformOwner: boolean | null = null;
+let cachedAt = 0;
 
 export type CurrentAccess = {
   role: UserRole;
@@ -29,7 +30,15 @@ export type CurrentAccess = {
 };
 
 export async function fetchCurrentAccess(): Promise<CurrentAccess> {
-  if (cachedRole !== null && cachedCanAccessAdmin !== null) {
+  // 権限は変更されうるため、セッション中の長期キャッシュは使わない
+  // （同一ティック内の連打だけ短いメモリキャッシュで抑える）
+  const now = Date.now();
+  if (
+    cachedRole !== null &&
+    cachedCanAccessAdmin !== null &&
+    cachedAt > 0 &&
+    now - cachedAt < 5_000
+  ) {
     return {
       role: cachedRole,
       email: cachedEmail,
@@ -77,6 +86,7 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
         cachedRole = "viewer";
         cachedCanAccessAdmin = false;
         cachedIsPlatformOwner = false;
+        cachedAt = Date.now();
         return {
           role: "viewer",
           email,
@@ -90,6 +100,7 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
       cachedRole = ["viewer", "editor", "admin", "owner"].includes(role) ? role : "viewer";
       cachedCanAccessAdmin = cachedRole === "admin" || cachedRole === "owner";
       cachedIsPlatformOwner = false;
+      cachedAt = Date.now();
       const company = Array.isArray(mem.companies) ? mem.companies[0] : mem.companies;
       return {
         role: cachedRole,
@@ -103,10 +114,17 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
 
     const data = await res.json();
     cachedEmail = data.email ?? null;
-    cachedRole = (data.companyRole as UserRole) || (data.isPlatformOwner ? "owner" : "viewer");
-    if (data.isPlatformOwner) cachedRole = "owner";
+    // システムオーナーは操作権限上 owner 相当。表示用の会社ロールは companyRole を優先
+    const companyRole = (data.companyRole as UserRole) || null;
+    cachedRole =
+      (companyRole && ["viewer", "editor", "admin", "owner"].includes(companyRole)
+        ? companyRole
+        : null) ||
+      (data.isPlatformOwner ? "owner" : "viewer");
+    if (data.isPlatformOwner && cachedRole === "viewer") cachedRole = "owner";
     cachedCanAccessAdmin = Boolean(data.canAccessAdmin);
     cachedIsPlatformOwner = Boolean(data.isPlatformOwner);
+    cachedAt = Date.now();
     return {
       role: cachedRole!,
       email: cachedEmail,
@@ -119,6 +137,7 @@ export async function fetchCurrentAccess(): Promise<CurrentAccess> {
     cachedRole = "viewer";
     cachedCanAccessAdmin = false;
     cachedIsPlatformOwner = false;
+    cachedAt = Date.now();
     return empty;
   }
 }
@@ -141,6 +160,7 @@ export function clearRoleCache() {
   cachedEmail = null;
   cachedCanAccessAdmin = null;
   cachedIsPlatformOwner = null;
+  cachedAt = 0;
   clearTenantCache();
 }
 
@@ -175,18 +195,18 @@ export async function fetchAllRoles(): Promise<Record<string, UserRole>> {
   return fetchCompanyRoles("all");
 }
 
-/** 権限を保存（管理API経由） */
+/** 権限を保存（管理API経由）。失敗時は理由を返す */
 export async function saveUserRole(
   userId: string,
   role: UserRole,
   companyCode: string
-): Promise<boolean> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const supabase = createClient();
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    if (!session?.access_token) return false;
+    if (!session?.access_token) return { ok: false, error: "ログインが必要です" };
     const res = await fetch("/api/admin/roles", {
       method: "PATCH",
       headers: {
@@ -195,15 +215,16 @@ export async function saveUserRole(
       },
       body: JSON.stringify({ userId, role, companyCode }),
     });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       console.error("[saveUserRole]", data);
-      return false;
+      return { ok: false, error: data.error || "権限の保存に失敗しました" };
     }
-    return true;
+    clearRoleCache();
+    return { ok: true };
   } catch (e) {
     console.error("[saveUserRole]", e);
-    return false;
+    return { ok: false, error: e instanceof Error ? e.message : "通信エラー" };
   }
 }
 

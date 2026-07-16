@@ -26,6 +26,7 @@ type CompanyItem = { company_code: string; name: string };
 type CallerInfo = {
   isPlatformOwner: boolean;
   companyCode: string | null;
+  companyRole?: string | null;
   canAccessAdmin: boolean;
 };
 
@@ -86,6 +87,7 @@ export default function AdminPage() {
       setCaller({
         isPlatformOwner: me.isPlatformOwner,
         companyCode: me.companyCode,
+        companyRole: me.companyRole,
         canAccessAdmin: me.canAccessAdmin,
       });
       const initialCompany = me.isPlatformOwner
@@ -125,12 +127,26 @@ export default function AdminPage() {
 
   const handleRoleChange = async (u: UserItem, role: UserRole) => {
     setRoleSaving(u.id);
-    const ok = await saveUserRole(u.id, role, u.companyCode);
-    if (ok) {
+    const result = await saveUserRole(u.id, role, u.companyCode);
+    if (result.ok) {
       setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, role } : x)));
       clearRoleCache();
+      if (accessToken) {
+        try {
+          await loadUsers(accessToken, companyFilter);
+        } catch {
+          /* 一覧再取得失敗でもローカル更新は維持 */
+        }
+      }
     } else {
-      alert("権限の保存に失敗しました。");
+      alert(result.error || "権限の保存に失敗しました。");
+      if (accessToken) {
+        try {
+          await loadUsers(accessToken, companyFilter);
+        } catch {
+          /* ignore */
+        }
+      }
     }
     setRoleSaving(null);
   };
@@ -249,9 +265,11 @@ export default function AdminPage() {
     }
   };
 
-  const roleOptions = (caller?.isPlatformOwner
-    ? (["viewer", "editor", "admin", "owner"] as UserRole[])
-    : (["viewer", "editor", "admin"] as UserRole[]));
+  const roleOptions = (
+    caller?.isPlatformOwner || caller?.companyRole === "owner"
+      ? (["viewer", "editor", "admin", "owner"] as UserRole[])
+      : (["viewer", "editor", "admin"] as UserRole[])
+  );
 
   const [signupsLoading, setSignupsLoading] = useState(false);
   const [signups, setSignups] = useState<
@@ -773,11 +791,12 @@ export default function AdminPage() {
                           {formatDate(u.lastSignInAt)}
                         </td>
                         <td style={{ padding: "12px 8px" }}>
-                          {u.isPlatformOwner ? (
-                            <span style={{ fontSize: 12, fontWeight: 600, color: "#7c3aed" }}>
-                              （固定）
-                            </span>
-                          ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {u.isPlatformOwner && (
+                              <span style={{ fontSize: 11, fontWeight: 600, color: "#7c3aed" }}>
+                                システムオーナー
+                              </span>
+                            )}
                             <select
                               value={u.role || "editor"}
                               disabled={roleSaving === u.id}
@@ -801,7 +820,7 @@ export default function AdminPage() {
                                 </option>
                               ))}
                             </select>
-                          )}
+                          </div>
                         </td>
                         <td style={{ padding: "12px 8px" }}>
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

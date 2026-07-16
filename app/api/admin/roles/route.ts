@@ -40,11 +40,11 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "他社の権限は変更できません" }, { status: 403 });
     }
 
-    // 会社管理者は owner / 他admin への昇格制限（システムオーナーのみ owner 付与可）
-    if (!caller.isPlatformOwner && (role === "owner" || role === "admin")) {
-      if (role === "owner") {
+    // 会社オーナー付与: システムオーナー、または自社の会社オーナー
+    if (role === "owner" && !caller.isPlatformOwner) {
+      if (caller.companyRole !== "owner" || !canManageCompany(caller, companyCode)) {
         return NextResponse.json(
-          { error: "会社オーナーの変更はシステムオーナーのみ可能です" },
+          { error: "会社オーナーの変更は、システムオーナーまたは自社の会社オーナーのみ可能です" },
           { status: 403 }
         );
       }
@@ -73,17 +73,24 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const { error } = await admin
+    const { data: updatedRows, error } = await admin
       .from("company_users")
       .update({ role })
       .eq("user_id", userId)
-      .eq("company_id", company.id);
+      .eq("company_id", company.id)
+      .select("user_id, role");
 
     if (error) {
       console.error("[admin/roles]", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ ok: true });
+    if (!updatedRows || updatedRows.length === 0) {
+      return NextResponse.json(
+        { error: "対象ユーザーの会社所属が見つかりません。一覧を再読み込みしてください。" },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json({ ok: true, role: updatedRows[0].role });
   } catch (e) {
     console.error("[admin/roles]", e);
     return NextResponse.json({ error: "サーバーエラー" }, { status: 500 });
