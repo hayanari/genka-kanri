@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveCallerFromToken } from "@/lib/permissions";
+import { sendResendMail } from "@/lib/resendMail";
 import { buildAuthEmail, normalizeCompanyCode } from "@/lib/tenant";
 import { createAdminClient, isServiceRoleConfigured } from "@/lib/supabase/admin";
 
@@ -94,7 +95,23 @@ export async function POST(request: NextRequest) {
         })
         .eq("id", requestId);
       if (error) throw error;
-      return NextResponse.json({ ok: true, status: "rejected" });
+
+      const mail = await sendResendMail({
+        to: req.contact_email,
+        subject: `【案件管理】企業登録申込の結果（${req.company_name}）`,
+        text:
+          `${req.owner_name} 様\n\n` +
+          `企業登録の申込を拝見しましたが、今回は承認できませんでした。\n` +
+          (reviewNote ? `\n理由: ${reviewNote}\n` : "\n") +
+          `\n企業名: ${req.company_name}\n希望企業ID: ${req.company_code}\n`,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        status: "rejected",
+        mailOk: mail.ok,
+        mailError: mail.error ?? null,
+      });
     }
 
     const companyCode = normalizeCompanyCode(req.company_code);
@@ -171,12 +188,28 @@ export async function POST(request: NextRequest) {
         .eq("id", requestId),
     ]);
 
-    void sendApprovedMail(req.contact_email, companyCode, ownerLoginId, ownerPassword);
+    const mail = await sendResendMail({
+      to: req.contact_email,
+      subject: "【案件管理】企業登録 承認のお知らせ",
+      text:
+        `${req.owner_name} 様\n\n` +
+        `企業登録が承認されました。\n\n` +
+        `会社ID: ${companyCode}\n` +
+        `会社オーナーログインID: ${ownerLoginId}\n` +
+        `初期パスワード: ${ownerPassword}\n\n` +
+        `ログインURL: https://genka-kanri.vercel.app/login\n` +
+        `ログイン後、必ずパスワードを変更してください。\n`,
+    });
+
     return NextResponse.json({
       ok: true,
       status: "approved",
       companyCode,
       ownerLoginId,
+      ownerPassword: mail.ok ? undefined : ownerPassword,
+      mailOk: mail.ok,
+      mailError: mail.error ?? null,
+      contactEmail: req.contact_email,
     });
   } catch (e) {
     console.error("[admin/company-signups] POST", e);
@@ -186,36 +219,4 @@ export async function POST(request: NextRequest) {
 
 function generateTempPassword(): string {
   return `Tmp-${randomBytes(6).toString("base64url")}`;
-}
-
-async function sendApprovedMail(
-  to: string,
-  companyCode: string,
-  ownerLoginId: string,
-  ownerPassword: string
-) {
-  const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) return;
-  try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: process.env.RESEND_FROM ?? "onboarding@resend.dev",
-        to,
-        subject: "【案件管理】企業登録 承認のお知らせ",
-        text:
-          `企業登録が承認されました。\n\n` +
-          `会社ID: ${companyCode}\n` +
-          `会社オーナーログインID: ${ownerLoginId}\n` +
-          `初期パスワード: ${ownerPassword}\n\n` +
-          `ログイン後、必ずパスワード変更してください。`,
-      }),
-    });
-  } catch (e) {
-    console.error("[admin/company-signups] mail", e);
-  }
 }

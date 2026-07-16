@@ -306,7 +306,19 @@ export default function AdminPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "処理に失敗しました");
       await loadSignups();
-      alert("処理しました");
+      if (data.mailOk === false) {
+        const pwLine = data.ownerPassword
+          ? `\n初期パスワード（手渡し用）: ${data.ownerPassword}`
+          : "";
+        alert(
+          `処理は完了しましたが、申込者へのメール送信に失敗しました。\n` +
+            (data.mailError ? `詳細: ${data.mailError}\n` : "") +
+            (data.contactEmail ? `宛先: ${data.contactEmail}` : "") +
+            pwLine
+        );
+      } else {
+        alert(action === "approve" ? "承認し、申込者へメール送信しました" : "却下し、申込者へメール送信しました");
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : "処理に失敗しました");
     }

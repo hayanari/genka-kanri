@@ -52,9 +52,13 @@ export default function RegisterPage() {
       }
       setMessage(
         `承認依頼を受け付けました。審査結果は ${contactEmail} に連絡します。` +
-          (data.mailOk
-            ? `\nシステムオーナー（${data.ownerEmail ?? "hayanari316@gmail.com"}）へ通知メールも送信しました。`
-            : `\n※通知メールの送信に失敗しました（申込自体は保存済み）。管理画面で確認できます。`)
+          (data.confirmMailOk
+            ? `\n受付確認メールを ${contactEmail} へ送信しました。`
+            : `\n※受付確認メールの送信に失敗しました（申込自体は保存済み）。`) +
+          (data.ownerMailOk
+            ? `\nシステムオーナー（${data.ownerEmail ?? "hayanari316@gmail.com"}）へも通知しました。`
+            : `\n※オーナー通知メールの送信に失敗しました。`) +
+          (data.mailError ? `\n詳細: ${data.mailError}` : "")
       );
       setCompanyCode("");
       setCompanyName("");
