@@ -1804,10 +1804,12 @@ function StickyNoteView({
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (readOnly) return;
+    // セルの mousedown 選択・選択解除に奪われないよう止める
     e.stopPropagation();
     onSelect();
     const target = e.target as HTMLElement;
     if (target.tagName === "TEXTAREA" || target.tagName === "BUTTON" || target.closest("button")) return;
+    if (e.button !== 0) return;
     dragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
@@ -1848,6 +1850,10 @@ function StickyNoteView({
     <div
       className="cross-sticky"
       onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => {
+        // pointer だけ止めても mouse はセルに届くため、両方止める
+        e.stopPropagation();
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -1856,9 +1862,9 @@ function StickyNoteView({
         left: sticky.offsetX,
         top: sticky.offsetY,
         zIndex: 20 + sticky.zIndex + (selected ? 50 : 0),
-        width: selected ? 140 : 72,
+        width: selected ? 140 : 78,
         minHeight: selected ? 72 : 28,
-        padding: selected ? 6 : "4px 5px",
+        padding: selected ? "6px 22px 6px 6px" : "4px 20px 4px 5px",
         background: sticky.color,
         border: selected ? "1.5px solid #5d4037" : "1px solid rgba(0,0,0,.15)",
         borderRadius: 2,
@@ -1872,9 +1878,41 @@ function StickyNoteView({
         whiteSpace: selected ? "normal" : "nowrap",
         overflow: selected ? "visible" : "hidden",
         textOverflow: "ellipsis",
+        boxSizing: "border-box",
       }}
       title={sticky.body || "（空の付箋）"}
     >
+      {!readOnly && (
+        <button
+          type="button"
+          aria-label="付箋を削除"
+          title="削除"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            position: "absolute",
+            top: 1,
+            right: 1,
+            width: 16,
+            height: 16,
+            border: "none",
+            borderRadius: 2,
+            background: "rgba(0,0,0,.08)",
+            color: "#c62828",
+            cursor: "pointer",
+            fontSize: 12,
+            lineHeight: "16px",
+            padding: 0,
+            fontWeight: 700,
+          }}
+        >
+          ×
+        </button>
+      )}
       {selected && !readOnly ? (
         <>
           <textarea
@@ -1896,7 +1934,7 @@ function StickyNoteView({
             }}
             autoFocus
           />
-          <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 4 }}>
+          <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 4, paddingRight: 2 }}>
             {STICKY_COLORS.map((c) => (
               <button
                 key={c}
@@ -1913,21 +1951,6 @@ function StickyNoteView({
                 }}
               />
             ))}
-            <button
-              type="button"
-              onClick={onRemove}
-              style={{
-                marginLeft: "auto",
-                border: "none",
-                background: "transparent",
-                color: "#c62828",
-                cursor: "pointer",
-                fontSize: 10,
-                padding: 0,
-              }}
-            >
-              削除
-            </button>
           </div>
         </>
       ) : (
