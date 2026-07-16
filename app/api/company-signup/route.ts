@@ -1,16 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient, isServiceRoleConfigured } from "@/lib/supabase/admin";
 import { sendResendMail } from "@/lib/resendMail";
+import { checkRateLimit, pruneRateLimitBuckets } from "@/lib/rateLimit";
 import { normalizeCompanyCode } from "@/lib/tenant";
 
-const OWNER_EMAIL = "hayanari316@gmail.com";
+function notifyEmail(): string {
+  return (process.env.SIGNUP_NOTIFY_EMAIL || "hayanari316@gmail.com").trim().toLowerCase();
+}
+
+function clientIp(request: NextRequest): string {
+  const xf = request.headers.get("x-forwarded-for");
+  if (xf) return xf.split(",")[0]?.trim() || "unknown";
+  return request.headers.get("x-real-ip") || "unknown";
+}
 
 export async function POST(request: NextRequest) {
   try {
     if (!isServiceRoleConfigured()) {
       return NextResponse.json({ error: "server misconfigured" }, { status: 500 });
     }
+
+    pruneRateLimitBuckets();
+    const ip = clientIp(request);
+    const limited = checkRateLimit(`company-signup:${ip}`, { limit: 5, windowMs: 60 * 60 * 1000 });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: `申込が多すぎます。${limited.retryAfterSec}秒後に再度お試しください` },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
+    // ハニーポット（ボット用・画面上は非表示）
+    if (String(body.website ?? "").trim()) {
+      return NextResponse.json({ ok: true, requestId: "ok" });
+    }
+
     const companyCode = normalizeCompanyCode(String(body.companyCode ?? ""));
     const companyName = String(body.companyName ?? "").trim();
     const address = String(body.address ?? "").trim();
@@ -18,6 +43,7 @@ export async function POST(request: NextRequest) {
     const contactEmail = String(body.contactEmail ?? "").trim().toLowerCase();
     const ownerName = String(body.ownerName ?? "").trim();
     const agreed = body.agreed === true;
+    const ownerEmail = notifyEmail();
 
     if (!agreed) {
       return NextResponse.json(
@@ -76,7 +102,7 @@ export async function POST(request: NextRequest) {
     }
 
     const ownerMail = await sendResendMail({
-      to: OWNER_EMAIL,
+      to: ownerEmail,
       replyTo: contactEmail,
       subject: `【案件管理】新規企業申込 ${companyName} (${companyCode})`,
       text:
@@ -93,7 +119,7 @@ export async function POST(request: NextRequest) {
 
     const confirmMail = await sendResendMail({
       to: contactEmail,
-      replyTo: OWNER_EMAIL,
+      replyTo: ownerEmail,
       subject: `【案件管理】企業登録申込を受け付けました（${companyName}）`,
       text:
         `${ownerName} 様\n\n` +
@@ -107,7 +133,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       requestId: created.id,
-      ownerEmail: OWNER_EMAIL,
+      ownerEmail,
       mailOk: ownerMail.ok && confirmMail.ok,
       ownerMailOk: ownerMail.ok,
       confirmMailOk: confirmMail.ok,

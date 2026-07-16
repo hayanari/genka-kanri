@@ -215,11 +215,13 @@ async function runDailyChecksForCompany(
 
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = request.headers.get("Authorization");
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+  if (!secret) {
+    console.error("[cron/daily] CRON_SECRET 未設定のため拒否しました");
+    return NextResponse.json({ error: "CRON_SECRET が未設定です" }, { status: 503 });
+  }
+  const auth = request.headers.get("Authorization");
+  if (auth !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

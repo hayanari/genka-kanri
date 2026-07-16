@@ -13,6 +13,7 @@ export default function RegisterPage() {
   const [phone, setPhone] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [agreed, setAgreed] = useState(false);
+  const [honeypot, setHoneypot] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -49,6 +50,7 @@ export default function RegisterPage() {
           phone,
           contactEmail,
           agreed: true,
+          website: honeypot,
         }),
       });
       const data = await res.json();
@@ -62,7 +64,7 @@ export default function RegisterPage() {
             ? `\n受付確認メールを ${contactEmail} へ送信しました。`
             : `\n※受付確認メールの送信に失敗しました（申込自体は保存済み）。`) +
           (data.ownerMailOk
-            ? `\nシステムオーナー（${data.ownerEmail ?? "hayanari316@gmail.com"}）へも通知しました。`
+            ? `\nシステムオーナーへも通知しました。`
             : `\n※オーナー通知メールの送信に失敗しました。`) +
           (data.mailError ? `\n詳細: ${data.mailError}` : "")
       );
@@ -137,6 +139,21 @@ export default function RegisterPage() {
               style={inputStyle}
             />
           </label>
+
+          {/* ボット対策（画面非表示） */}
+          <div aria-hidden="true" style={{ position: "absolute", left: "-10000px", top: "auto", width: 1, height: 1, overflow: "hidden" }}>
+            <label>
+              ウェブサイト
+              <input
+                type="text"
+                name="website"
+                tabIndex={-1}
+                autoComplete="off"
+                value={honeypot}
+                onChange={(e) => setHoneypot(e.target.value)}
+              />
+            </label>
+          </div>
 
           <div
             style={{

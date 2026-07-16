@@ -53,7 +53,14 @@ export async function fetchCurrentTenant(): Promise<TenantCache | null> {
     .maybeSingle();
 
   if (error || !data) {
-    // 未紐付けの既存ユーザー向けフォールバック（SQL適用直後）
+    // 既存運用互換: 未紐付けは tokito に落とす（他社混入リスクあり）。
+    // 無効化する場合は DISABLE_LEGACY_TENANT_FALLBACK=1
+    if (process.env.DISABLE_LEGACY_TENANT_FALLBACK === "1") {
+      console.warn("[tenant] company_users 未紐付け（フォールバック無効）", user.id);
+      clearTenantCache();
+      return null;
+    }
+    console.warn("[tenant] company_users 未紐付け → tokito フォールバック", user.id);
     cachedUserId = user.id;
     cachedTenant = {
       companyId: DEFAULT_COMPANY_ID,
