@@ -8,7 +8,6 @@ import type {
   Vehicle,
   BidSchedule,
   ProcessMaster,
-  EquipmentRequest,
 } from "./utils";
 import type { ScheduleData } from "@/types/schedule";
 
@@ -28,7 +27,6 @@ export type BackupData = {
   bidSchedules?: BidSchedule[];
   /** 工事スケジュール（予定・作業員・日次メモ） */
   schedule?: ScheduleData;
-  equipmentRequests?: EquipmentRequest[];
 };
 
 function isValidBackup(raw: unknown): raw is BackupData {
@@ -77,7 +75,6 @@ export function saveDataPendingSync(
       vehicles: data.vehicles ?? [],
       processMasters: data.processMasters ?? [],
       bidSchedules: data.bidSchedules ?? [],
-      equipmentRequests: data.equipmentRequests ?? [],
       base: base ?? null,
       ts: Date.now(),
     }));
@@ -100,7 +97,6 @@ export function loadDataPending(): { data: PendingData; base: PendingData | null
       vehicles?: unknown[];
       processMasters?: unknown[];
       bidSchedules?: unknown[];
-      equipmentRequests?: unknown[];
       base?: Record<string, unknown> | null;
       ts?: number;
     };
@@ -119,7 +115,6 @@ export function loadDataPending(): { data: PendingData; base: PendingData | null
       vehicles: (o.vehicles ?? []) as { id: string; registration: string }[],
       processMasters: (o.processMasters ?? []) as BackupData["processMasters"],
       bidSchedules: (o.bidSchedules ?? []) as BackupData["bidSchedules"],
-      equipmentRequests: (o.equipmentRequests ?? []) as EquipmentRequest[],
     });
     const baseRaw = parsed.base;
     const base =

@@ -16,7 +16,6 @@ import type {
   Vehicle,
   BidSchedule,
   ProcessMaster,
-  EquipmentRequest,
 } from "./utils";
 
 export interface GenkaDataSet {
@@ -26,7 +25,6 @@ export interface GenkaDataSet {
   vehicles: Vehicle[];
   processMasters: ProcessMaster[];
   bidSchedules: BidSchedule[];
-  equipmentRequests: EquipmentRequest[];
 }
 
 const eq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -116,10 +114,5 @@ export function mergeGenkaData(
       remote.processMasters
     ),
     bidSchedules: mergeCollection(base.bidSchedules, local.bidSchedules, remote.bidSchedules),
-    equipmentRequests: mergeCollection(
-      base.equipmentRequests,
-      local.equipmentRequests,
-      remote.equipmentRequests
-    ),
   };
 }

@@ -24,7 +24,6 @@ import type {
   Vehicle,
   BidSchedule,
   ProcessMaster as ProcessMasterType,
-  EquipmentRequest,
 } from "@/lib/utils";
 import { bidScheduleToProject, getNextManagementNumber, toStoredPersonName } from "@/lib/utils";
 import { genId } from "@/lib/constants";
@@ -37,7 +36,6 @@ import VehicleMaster from "@/components/VehicleMaster";
 import ProcessMaster from "@/components/ProcessMaster";
 import BidScheduleList from "@/components/BidScheduleList";
 import NewBidSchedule from "@/components/NewBidSchedule";
-import EquipmentRequestList from "@/components/EquipmentRequestList";
 
 export default function Home() {
   const router = useRouter();
@@ -48,7 +46,6 @@ export default function Home() {
     vehicles: Vehicle[];
     processMasters: ProcessMasterType[];
     bidSchedules: BidSchedule[];
-    equipmentRequests: EquipmentRequest[];
   }>(createEmptyData);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -83,7 +80,6 @@ export default function Home() {
     vehicles?: { id: string; registration: string }[];
     processMasters?: ProcessMasterType[];
     bidSchedules?: BidSchedule[];
-    equipmentRequests?: EquipmentRequest[];
   }): GenkaDataSet => ({
     projects: d.projects ?? [],
     costs: d.costs ?? [],
@@ -91,7 +87,6 @@ export default function Home() {
     vehicles: (d.vehicles ?? []) as Vehicle[],
     processMasters: d.processMasters ?? [],
     bidSchedules: d.bidSchedules ?? [],
-    equipmentRequests: d.equipmentRequests ?? [],
   });
 
   const saveDataIfCurrent = useCallback(
@@ -103,7 +98,6 @@ export default function Home() {
         vehicles?: { id: string; registration: string }[];
         processMasters?: ProcessMasterType[];
         bidSchedules?: BidSchedule[];
-        equipmentRequests?: EquipmentRequest[];
       },
       opts?: { force?: boolean }
     ) => {
@@ -147,7 +141,6 @@ export default function Home() {
           costs: d.costs,
           quantities: d.quantities,
           bidSchedules: d.bidSchedules,
-          equipmentRequests: d.equipmentRequests,
           vehicles: d.vehicles,
           processMasters: d.processMasters,
         };
@@ -211,7 +204,6 @@ export default function Home() {
             costs: loaded.costs,
             quantities: loaded.quantities,
             bidSchedules: loaded.bidSchedules,
-            equipmentRequests: loaded.equipmentRequests,
             vehicles: loaded.vehicles,
             processMasters: loaded.processMasters,
           }));
@@ -635,7 +627,6 @@ export default function Home() {
     { id: "dashboard", label: "ダッシュボード", icon: Icons.dash },
     { id: "list", label: "案件一覧", icon: Icons.list },
     { id: "new", label: "新規案件", icon: Icons.plus },
-    { id: "equipment", label: "備品申請", icon: Icons.list },
     { id: "schedule", label: "スケジュール管理", icon: Icons.calendar, href: "/schedule" },
     { id: "field", label: "現場入力（スマホ）", icon: Icons.plus, href: "/field" },
     { id: "processmeeting", label: "工程会議ボード", icon: Icons.process, href: "/process-meeting" },
@@ -761,8 +752,7 @@ export default function Home() {
               (view === "detail" && (n.id === "list" || n.id === "archive" || n.id === "deleted")) ||
               (view === "vehicles" && n.id === "vehicles") ||
               (view === "processmasters" && n.id === "processmasters") ||
-              ((view === "bidschedule" || view === "newbidschedule") && n.id === "bidschedule") ||
-              (view === "equipment" && n.id === "equipment");
+              ((view === "bidschedule" || view === "newbidschedule") && n.id === "bidschedule");
             const style = {
               display: "flex",
               alignItems: "center",
@@ -1110,14 +1100,6 @@ export default function Home() {
         )}
         {!loading && !loadError && view === "new" && (
           <NewProject onSave={addProject} onCancel={() => navWithClose("list")} />
-        )}
-        {!loading && !loadError && view === "equipment" && (
-          <EquipmentRequestList
-            equipmentRequests={data.equipmentRequests}
-            onUpdate={(equipmentRequests) =>
-              setData((d) => ({ ...d, equipmentRequests }))
-            }
-          />
         )}
         {!loading && !loadError && view === "bidschedule" && (
           <BidScheduleList

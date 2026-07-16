@@ -6,7 +6,6 @@ import type {
   Vehicle,
   BidSchedule,
   ProcessMaster,
-  EquipmentRequest,
 } from "../utils";
 import { createEmptyData, DEFAULT_VEHICLES, DEFAULT_PROCESS_MASTERS, ensureManagementNumbers, toStoredPersonName } from "../utils";
 import {
@@ -30,14 +29,12 @@ function sanitizeBeforeSave(data: {
   vehicles?: { id: string; registration: string }[];
   processMasters?: ProcessMaster[];
   bidSchedules?: BidSchedule[];
-  equipmentRequests?: EquipmentRequest[];
 }) {
   const empty = createEmptyData();
   const projects = Array.isArray(data.projects) ? data.projects : empty.projects;
   const vehicles = Array.isArray(data.vehicles) ? data.vehicles : empty.vehicles;
   const processMasters = Array.isArray(data.processMasters) ? data.processMasters : empty.processMasters;
   const bidSchedules = Array.isArray(data.bidSchedules) ? data.bidSchedules : [];
-  const equipmentRequests = Array.isArray(data.equipmentRequests) ? data.equipmentRequests : [];
   return {
     projects,
     costs: data.costs ?? [],
@@ -45,7 +42,6 @@ function sanitizeBeforeSave(data: {
     vehicles,
     processMasters,
     bidSchedules,
-    equipmentRequests,
   };
 }
 
@@ -75,7 +71,6 @@ export type LoadedData = {
   vehicles: Vehicle[];
   processMasters: ProcessMaster[];
   bidSchedules: BidSchedule[];
-  equipmentRequests: EquipmentRequest[];
 };
 
 const pendingToSet = (p: PendingData): GenkaDataSet => ({
@@ -85,7 +80,6 @@ const pendingToSet = (p: PendingData): GenkaDataSet => ({
   vehicles: (p.vehicles ?? []) as Vehicle[],
   processMasters: (p.processMasters ?? []) as ProcessMaster[],
   bidSchedules: p.bidSchedules ?? [],
-  equipmentRequests: (p.equipmentRequests ?? []) as EquipmentRequest[],
 });
 
 export async function loadData(): Promise<LoadedData | null> {
@@ -155,7 +149,6 @@ async function fetchRemoteData(): Promise<LoadedData | null> {
       vehicles?: Vehicle[];
       processMasters?: ProcessMaster[];
       bidSchedules?: BidSchedule[];
-      equipmentRequests?: EquipmentRequest[];
     } | null;
 
     if (!stored) return createEmptyData();
@@ -187,7 +180,6 @@ async function fetchRemoteData(): Promise<LoadedData | null> {
     });
     projects = ensureManagementNumbers(projects);
     const bidSchedules = (stored.bidSchedules ?? []) as BidSchedule[];
-    const equipmentRequests = (stored.equipmentRequests ?? []) as EquipmentRequest[];
     const result = {
       projects,
       costs: (stored.costs ?? []) as Cost[],
@@ -195,7 +187,6 @@ async function fetchRemoteData(): Promise<LoadedData | null> {
       vehicles: Array.isArray(vehicles) && vehicles.length > 0 ? vehicles : [],
       processMasters: Array.isArray(processMasters) && processMasters.length > 0 ? processMasters : DEFAULT_PROCESS_MASTERS,
       bidSchedules,
-      equipmentRequests,
     };
     setLastRemoteCount(result.projects.length, result.costs.length, result.quantities.length);
     return result;
@@ -222,7 +213,6 @@ export async function saveData(
     vehicles?: { id: string; registration: string }[];
     processMasters?: ProcessMaster[];
     bidSchedules?: BidSchedule[];
-    equipmentRequests?: EquipmentRequest[];
   },
   options?: { force?: boolean }
 ): Promise<SaveResult> {
@@ -240,7 +230,6 @@ export async function saveData(
       vehicles: sanitized.vehicles,
       processMasters: sanitized.processMasters,
       bidSchedules: sanitized.bidSchedules,
-      equipmentRequests: sanitized.equipmentRequests,
     };
 
     if (!options?.force && isDangerousOverwrite(backupPayload)) {
@@ -257,7 +246,6 @@ export async function saveData(
       vehicles: backupPayload.vehicles,
       processMasters: backupPayload.processMasters,
       bidSchedules: backupPayload.bidSchedules,
-      equipmentRequests: backupPayload.equipmentRequests,
     };
 
     const maxRetries = 3;
@@ -298,7 +286,6 @@ export async function saveData(
       vehicles: data.vehicles,
       processMasters: data.processMasters,
       bidSchedules: data.bidSchedules,
-      equipmentRequests: data.equipmentRequests,
     });
     return { ok: false, reason: "error" };
   }

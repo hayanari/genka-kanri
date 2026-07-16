@@ -6,7 +6,7 @@
 // テーブル未作成でもアプリ動作には影響しない（失敗は握りつぶす）
 // ================================================================
 import { createClient } from "@/lib/supabase/client";
-import type { Project, Cost, Quantity, BidSchedule, EquipmentRequest } from "@/lib/utils";
+import type { Project, Cost, Quantity, BidSchedule } from "@/lib/utils";
 import { fmt } from "@/lib/constants";
 import { requireCompanyId } from "@/lib/tenant";
 
@@ -61,7 +61,6 @@ export interface GenkaSnapshot {
   costs: Cost[];
   quantities: Quantity[];
   bidSchedules?: BidSchedule[];
-  equipmentRequests?: EquipmentRequest[];
   vehicles?: { id: string; registration: string }[];
   processMasters?: { id: string; name: string }[];
 }
@@ -137,14 +136,6 @@ export function summarizeGenkaChanges(prev: GenkaSnapshot, next: GenkaSnapshot):
   for (const [id, b] of bPrev) {
     if (!bNext.has(id)) lines.push(`入札スケジュール削除: ${b.name}`);
   }
-
-  // 備品申請
-  const ePrevLen = prev.equipmentRequests?.length ?? 0;
-  const eNextLen = next.equipmentRequests?.length ?? 0;
-  if (ePrevLen !== eNextLen) lines.push(`備品申請を変更（${ePrevLen}件 → ${eNextLen}件）`);
-  else if (
-    JSON.stringify(prev.equipmentRequests ?? []) !== JSON.stringify(next.equipmentRequests ?? [])
-  ) lines.push("備品申請を更新");
 
   // マスタ
   if (JSON.stringify(prev.vehicles ?? []) !== JSON.stringify(next.vehicles ?? []))
