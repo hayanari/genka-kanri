@@ -338,8 +338,27 @@ export async function saveScheduleData(
           .in('date', memoDatesToDelete)
       }
     }
+
+    // 終了済み日の予定を案件の人工・車両へ自動転記（非同期・失敗しても保存は成功扱い）
+    void triggerScheduleLaborSync()
   } catch (e) {
     console.error('[ScheduleStorage] save error:', e)
     throw e
+  }
+}
+
+async function triggerScheduleLaborSync(): Promise<void> {
+  try {
+    const supabase = createClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (!session?.access_token) return
+    await fetch('/api/schedule/sync-labor', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+  } catch (e) {
+    console.warn('[ScheduleStorage] labor sync skipped:', e)
   }
 }

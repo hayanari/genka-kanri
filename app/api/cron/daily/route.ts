@@ -1,16 +1,15 @@
 /**
  * 毎朝の自動チェック（Vercel Cron から呼び出し）
- * - 入力漏れリマインド: 施工中なのに直近14日間 原価・人工の入力がない案件
- * - 予算アラート: 実行予算の90%を超えた案件
- * - 入金遅延: 入金予定日を過ぎても入金済みになっていない案件
- * - 毎月1日(JST): 月次サマリーを配信
- * 結果は Teams（TEAMS_WEBHOOK_URL）に投稿
+ * - スケジュール→人工・車両の日次自動転記（終了した日分）
+ * - 入力漏れリマインド / 予算アラート / 入金遅延 / 月次サマリー（Teams）
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { DEFAULT_COMPANY_ID } from "@/lib/tenant";
+import { syncScheduleLaborAllCompanies } from "@/lib/scheduleLaborServer";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 interface ProjectRow {
   id: string;
@@ -229,13 +228,21 @@ export async function GET(request: NextRequest) {
   if (!url || !key) {
     return NextResponse.json({ error: "Supabase設定がありません" }, { status: 500 });
   }
-  if (!webhook) {
-    return NextResponse.json({ ok: true, skipped: "TEAMS_WEBHOOK_URL未設定" });
-  }
 
   const supabase = createClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+
+  // 1) スケジュール→人工・車両（Webhook有無に関わらず実行）
+  const laborSync = await syncScheduleLaborAllCompanies(supabase);
+
+  if (!webhook) {
+    return NextResponse.json({
+      ok: true,
+      laborSync,
+      skipped: "TEAMS_WEBHOOK_URL未設定（人工転記のみ実行）",
+    });
+  }
 
   const { data: companyRows } = await supabase.from("companies").select("id, company_code, name");
   const targets =
@@ -267,5 +274,5 @@ export async function GET(request: NextRequest) {
     results.push(result);
   }
 
-  return NextResponse.json({ ok: true, posted: postedTotal, results });
+  return NextResponse.json({ ok: true, posted: postedTotal, results, laborSync });
 }

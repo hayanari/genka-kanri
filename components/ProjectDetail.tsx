@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   genId,
   fmt,
@@ -40,11 +40,10 @@ import { parseDesignBookToProcesses } from "@/lib/parseDesignBook";
 import { parseQuantityTableToSections } from "@/lib/parseQuantityTable";
 import { loadScheduleData } from "@/lib/scheduleStorage";
 import {
-  aggregateScheduleForProject,
-  aggregatesToQuantities,
-  findExistingAutoRows,
+  syncProjectScheduleLabor,
+  isAutoScheduleQty,
+  jstTodayYmd,
 } from "@/lib/scheduleLabor";
-import type { MonthlyLaborAggregate } from "@/lib/scheduleLabor";
 import { uploadReceipt, getReceiptUrl, deleteReceipt } from "@/lib/receipts";
 import type { ReceiptAttachment } from "@/lib/receipts";
 
@@ -67,6 +66,7 @@ export default function ProjectDetail({
   onDeleteCost,
   onAddQty,
   onDeleteQty,
+  onReplaceQuantities,
   onAddPayment,
   onDeletePayment,
   onAddChange,
@@ -78,19 +78,20 @@ export default function ProjectDetail({
   vehicles?: Vehicle[];
   processMasters?: ProcessMaster[];
   onBack: () => void;
-  onUpdateProject: (u: Project) => void;
-  onDeleteProject: (pid: string) => void;
-  onArchiveProject: (pid: string, archiveYear: string) => void;
-  onUnarchiveProject: (pid: string) => void;
-  onRestoreProject?: (pid: string) => void;
+  onUpdateProject: (p: Project) => void;
+  onDeleteProject: (id: string) => void;
+  onArchiveProject: (id: string) => void;
+  onUnarchiveProject: (id: string) => void;
+  onRestoreProject?: (id: string) => void;
   onAddCost: (c: Cost) => void;
   onUpdateCost: (c: Cost) => void;
   onDeleteCost: (id: string) => void;
   onAddQty: (q: Quantity) => void;
   onDeleteQty: (id: string) => void;
+  onReplaceQuantities?: (quantities: Quantity[]) => void;
   onAddPayment: (pid: string, pay: { id: string; date: string; amount: number; note: string }) => void;
   onDeletePayment: (pid: string, payId: string) => void;
-  onAddChange: (pid: string, ch: { id: string; date: string; type: string; amount: number; description: string }) => void;
+  onAddChange: (pid: string, ch: { id: string; date: string; type: string; amount: number; reason: string }) => void;
   onDeleteChange: (pid: string, chId: string) => void;
 }) {
   const isSubcontract = p.mode === "subcontract";
@@ -152,8 +153,47 @@ export default function ProjectDetail({
   const [cfAttachments, setCfAttachments] = useState<ReceiptAttachment[]>([]);
   const [uploadingReceipt, setUploadingReceipt] = useState(false);
   const pendingCostIdRef = useRef<string | null>(null);
-  const [schedAgg, setSchedAgg] = useState<MonthlyLaborAggregate[] | null>(null);
-  const [schedAggLoading, setSchedAggLoading] = useState(false);
+  const [laborSyncNote, setLaborSyncNote] = useState<string | null>(null);
+  const laborSyncedForRef = useRef<string | null>(null);
+
+  // 案件を開いたとき: 終了した日の予定を人工・車両へ自動転記
+  useEffect(() => {
+    if (laborSyncedForRef.current === p.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await loadScheduleData();
+        if (cancelled) return;
+        if (!data) {
+          laborSyncedForRef.current = p.id;
+          return;
+        }
+        const result = syncProjectScheduleLabor(
+          p,
+          data.schedules,
+          vehicles,
+          allQty,
+          jstTodayYmd()
+        );
+        if (cancelled) return;
+        laborSyncedForRef.current = p.id;
+        if (result.changed && onReplaceQuantities) {
+          onReplaceQuantities(result.quantities);
+          setLaborSyncNote(
+            `スケジュールから自動転記しました（追加${result.added}／更新${result.updated}／削除${result.removed}）`
+          );
+          window.setTimeout(() => setLaborSyncNote(null), 4000);
+        }
+      } catch (e) {
+        console.warn("[ProjectDetail] schedule labor sync", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // 案件オープン時のみ（allQty 変更で再実行しない）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.id]);
 
   const st = projStats(p, allCosts, allQty);
   const payStatus =
@@ -281,46 +321,6 @@ export default function ProjectDetail({
     else alert("添付ファイルを取得できませんでした");
   };
 
-  /** スケジュール実績を集計（プレビュー） */
-  const handleAggregateSchedule = async () => {
-    setSchedAggLoading(true);
-    try {
-      const data = await loadScheduleData();
-      if (!data) {
-        alert("スケジュールデータを読み込めませんでした");
-        return;
-      }
-      const aggs = aggregateScheduleForProject(p, data.schedules);
-      setSchedAgg(aggs);
-      if (aggs.length === 0) {
-        alert(
-          `スケジュールにこの案件と一致する予定が見つかりませんでした。\n\nスケジュールの「工事名」に案件名（または管理番号 ${p.managementNumber ?? ""}）と同じ名前が含まれていると自動で一致します。`
-        );
-      }
-    } finally {
-      setSchedAggLoading(false);
-    }
-  };
-
-  /** 集計結果を人工・車両記録として取込（既存の自動集計行は置き換え） */
-  const handleImportScheduleAgg = () => {
-    if (!schedAgg || schedAgg.length === 0) return;
-    const existing = findExistingAutoRows(p.id, allQty);
-    const rows = aggregatesToQuantities(p.id, schedAgg);
-    if (
-      !confirm(
-        `スケジュール実績を月別 ${rows.length}行として取り込みます。` +
-          (existing.length > 0
-            ? `\n（既存の自動集計 ${existing.length}行は新しい集計に置き換えます）`
-            : "") +
-          "\nよろしいですか？"
-      )
-    )
-      return;
-    existing.forEach((q) => onDeleteQty(q.id));
-    rows.forEach((r) => onAddQty(r));
-    setSchedAgg(null);
-  };
   const handleAddQty = () => {
     const isVehicle = qf.category === "vehicle";
     const selectedIds = isVehicle ? qf.vehicleIds : [];
@@ -1378,71 +1378,40 @@ export default function ProjectDetail({
               人工・車両記録
               {isSubcontract ? " ※打合せ等" : ""} {st.quantities.length}件
             </h4>
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-              <Btn sm onClick={handleAggregateSchedule} disabled={schedAggLoading}>
-                {schedAggLoading ? "集計中..." : "📅 スケジュール実績を集計"}
-              </Btn>
-              <Btn v="primary" sm onClick={() => setQtyModal(true)}>
-                {Icons.plus} 記録追加
-              </Btn>
-            </div>
+            <Btn v="primary" sm onClick={() => setQtyModal(true)}>
+              {Icons.plus} 記録追加
+            </Btn>
           </div>
-          {schedAgg && schedAgg.length > 0 && (
+          {laborSyncNote && (
             <div
               style={{
-                padding: "16px",
+                padding: "10px 14px",
                 background: "#f0fdf4",
-                borderRadius: "10px",
+                borderRadius: "8px",
                 border: "1px solid #86efac",
-                marginBottom: "20px",
+                marginBottom: "12px",
+                fontSize: "12px",
+                color: "#166534",
               }}
             >
-              <div style={{ fontSize: "13px", fontWeight: 600, color: T.tx, marginBottom: "10px" }}>
-                📅 スケジュールから集計した実績（取込前のプレビュー）
-              </div>
-              <div className="table-scroll">
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
-                  <thead>
-                    <tr style={{ borderBottom: `1px solid ${T.bd}` }}>
-                      <th style={{ padding: "6px 8px", textAlign: "left", color: T.ts, fontWeight: 500 }}>月</th>
-                      <th style={{ padding: "6px 8px", textAlign: "right", color: T.ts, fontWeight: 500 }}>人工（人日）</th>
-                      <th style={{ padding: "6px 8px", textAlign: "right", color: T.ts, fontWeight: 500 }}>車両（台日）</th>
-                      <th style={{ padding: "6px 8px", textAlign: "right", color: T.ts, fontWeight: 500 }}>予定数</th>
-                      <th style={{ padding: "6px 8px", textAlign: "left", color: T.ts, fontWeight: 500 }}>一致した工事名</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {schedAgg.map((a) => (
-                      <tr key={a.month} style={{ borderBottom: `1px solid ${T.bd}22` }}>
-                        <td style={{ padding: "6px 8px", color: T.tx }}>
-                          {a.month.slice(0, 4)}年{Number(a.month.slice(5))}月
-                        </td>
-                        <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: T.tx }}>
-                          {a.laborDays}
-                        </td>
-                        <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600, color: T.tx }}>
-                          {a.vehicleDays}
-                        </td>
-                        <td style={{ padding: "6px 8px", textAlign: "right", color: T.ts }}>{a.entryCount}</td>
-                        <td style={{ padding: "6px 8px", color: T.ts, fontSize: "11px" }}>
-                          {a.koujimeiSamples.join(" / ")}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div style={{ display: "flex", gap: "8px", marginTop: "12px", justifyContent: "flex-end" }}>
-                <Btn sm onClick={() => setSchedAgg(null)}>キャンセル</Btn>
-                <Btn v="success" sm onClick={handleImportScheduleAgg}>
-                  この内容で人工・車両記録に取込
-                </Btn>
-              </div>
-              <div style={{ fontSize: "11px", color: T.ts, marginTop: "8px" }}>
-                ※ 月別に1行ずつ登録されます。再度取り込むと自動集計分だけが最新に置き換わります（手入力の記録はそのまま残ります）。
-              </div>
+              {laborSyncNote}
             </div>
           )}
+          <div
+            style={{
+              padding: "12px 14px",
+              background: "#eff6ff",
+              borderRadius: "8px",
+              border: "1px solid #bfdbfe",
+              marginBottom: "16px",
+              fontSize: "12px",
+              color: T.ts,
+              lineHeight: 1.5,
+            }}
+          >
+            スケジュールの予定は、その日が終わると自動でここに転記されます（今日より前の日のみ）。
+            手入力の記録はそのまま残り、自動転記分だけが再同期で更新されます。
+          </div>
           <div
             style={{
               padding: "16px",
@@ -1556,6 +1525,7 @@ export default function ProjectDetail({
                   )
                   .map((q) => {
                     const cat = QUANTITY_CATEGORIES[q.category];
+                    const isAuto = isAutoScheduleQty(q);
                     return (
                       <tr
                         key={q.id}
@@ -1582,6 +1552,20 @@ export default function ProjectDetail({
                           >
                             {cat.icon} {cat.label}
                           </span>
+                          {isAuto && (
+                            <span
+                              style={{
+                                marginLeft: "6px",
+                                fontSize: "10px",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                background: "#dcfce7",
+                                color: "#166534",
+                              }}
+                            >
+                              自動
+                            </span>
+                          )}
                         </td>
                         <td
                           style={{
@@ -1611,21 +1595,23 @@ export default function ProjectDetail({
                             color: T.ts,
                           }}
                         >
-                          {q.note}
+                          {isAuto ? "スケジュール自動転記" : q.note}
                         </td>
                         <td style={{ padding: "10px 4px" }}>
-                          <button
-                            onClick={() => onDeleteQty(q.id)}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: T.ts,
-                              cursor: "pointer",
-                              opacity: 0.6,
-                            }}
-                          >
-                            {Icons.trash}
-                          </button>
+                          {!isAuto && (
+                            <button
+                              onClick={() => onDeleteQty(q.id)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: T.ts,
+                                cursor: "pointer",
+                                opacity: 0.6,
+                              }}
+                            >
+                              {Icons.trash}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );

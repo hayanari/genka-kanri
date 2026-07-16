@@ -1,112 +1,224 @@
 // ================================================================
 // lib/scheduleLabor.ts
-// スケジュール（工事予定）→ 案件の人工・車両実績への自動集計
-// schedule_entries は工事名（自由入力）で記録されるため、
-// 案件名・管理番号との正規化マッチングで紐付ける
+// スケジュール → 案件の人工・車両への日次自動転記
+// ・終了した日（今日より前）だけを対象
+// ・自動行は note で一意管理し、再同期しても重複しない
+// ・手入力行（自動マーカーなし）は触らない
 // ================================================================
-import type { ScheduleEntry } from "@/types/schedule";
-import type { Project, Quantity } from "@/lib/utils";
-import { genId } from "@/lib/constants";
+import type { ScheduleEntry } from "@/types/schedule"
+import type { Project, Quantity, Vehicle } from "@/lib/utils"
+import { genId } from "@/lib/constants"
 
-/** 自動集計行を識別するための備考マーカー */
-export const AUTO_NOTE_PREFIX = "スケジュール自動集計";
+/** 自動転記行を識別する備考プレフィックス */
+export const AUTO_NOTE_PREFIX = "スケジュール自動集計"
+
+export function isAutoScheduleQty(q: Quantity): boolean {
+  return (q.note ?? "").startsWith(AUTO_NOTE_PREFIX)
+}
+
+export function autoNoteLabor(date: string): string {
+  return `${AUTO_NOTE_PREFIX}:${date}:labor`
+}
+
+export function autoNoteVehicle(date: string, vehicleId: string): string {
+  return `${AUTO_NOTE_PREFIX}:${date}:vehicle:${vehicleId}`
+}
+
+/** 旧・月次取込の note（YYYY-MM）も自動行として扱う */
+export function isLegacyMonthlyAutoNote(note: string): boolean {
+  return /^スケジュール自動集計:\d{4}-\d{2}$/.test(note)
+}
 
 function norm(s: string | undefined): string {
   return (s ?? "")
     .replace(/\s+/g, "")
-    .replace(/[（(].*?[)）]/g, "") // 「（中区）」等の括弧は緩く無視
-    .toLowerCase();
+    .replace(/[（(].*?[)）]/g, "")
+    .toLowerCase()
 }
 
-/** スケジュールの工事名が案件と一致するか（部分一致・管理番号一致） */
+/** JST の今日 YYYY-MM-DD */
+export function jstTodayYmd(): string {
+  const d = new Date(Date.now() + 9 * 3600 * 1000)
+  return d.toISOString().slice(0, 10)
+}
+
+/** スケジュールの工事名が案件と一致するか */
 export function entryMatchesProject(entry: ScheduleEntry, project: Project): boolean {
-  const k = norm(entry.koujimei);
-  if (!k) return false;
-  const name = norm(project.name);
-  const mgmt = (project.managementNumber ?? "").toLowerCase();
-  if (mgmt && entry.koujimei.toLowerCase().includes(mgmt)) return true;
-  if (k.length >= 4 && name.includes(k)) return true;
-  if (name.length >= 4 && k.includes(name)) return true;
-  return k === name;
+  const k = norm(entry.koujimei)
+  if (!k) return false
+  const name = norm(project.name)
+  const mgmt = (project.managementNumber ?? "").toLowerCase()
+  if (mgmt && entry.koujimei.toLowerCase().includes(mgmt)) return true
+  if (k.length >= 4 && name.includes(k)) return true
+  if (name.length >= 4 && k.includes(name)) return true
+  return k === name
 }
 
-export interface MonthlyLaborAggregate {
-  month: string; // 'YYYY-MM'
-  laborDays: number;
-  vehicleDays: number;
-  entryCount: number;
-  koujimeiSamples: string[];
+type DayAgg = {
+  date: string
+  workers: Set<string>
+  vehicleIds: Set<string>
 }
 
-/** 案件に一致するスケジュール実績を月別に集計（対象: 今日まで。shift=off は除外） */
-export function aggregateScheduleForProject(
+function aggregateDaysForProject(
   project: Project,
   schedules: ScheduleEntry[],
-  untilDate?: string
-): MonthlyLaborAggregate[] {
-  const until = untilDate ?? new Date().toISOString().slice(0, 10);
-  const byMonth = new Map<string, MonthlyLaborAggregate>();
+  untilExclusive: string
+): DayAgg[] {
+  const byDate = new Map<string, DayAgg>()
   for (const e of schedules) {
-    if (e.shift === "off") continue;
-    if (!e.date || e.date > until) continue;
-    if (!entryMatchesProject(e, project)) continue;
-    const month = e.date.slice(0, 7);
-    let agg = byMonth.get(month);
+    if (e.shift === "off") continue
+    if (!e.date || e.date >= untilExclusive) continue
+    if (!entryMatchesProject(e, project)) continue
+    let agg = byDate.get(e.date)
     if (!agg) {
-      agg = { month, laborDays: 0, vehicleDays: 0, entryCount: 0, koujimeiSamples: [] };
-      byMonth.set(month, agg);
+      agg = { date: e.date, workers: new Set(), vehicleIds: new Set() }
+      byDate.set(e.date, agg)
     }
-    agg.laborDays += (e.workers ?? []).length;
-    agg.vehicleDays += (e.vehicleIds ?? []).length;
-    agg.entryCount += 1;
-    if (!agg.koujimeiSamples.includes(e.koujimei) && agg.koujimeiSamples.length < 5) {
-      agg.koujimeiSamples.push(e.koujimei);
+    for (const w of e.workers ?? []) {
+      if (w.trim()) agg.workers.add(w.trim())
+    }
+    for (const vid of e.vehicleIds ?? []) {
+      if (vid) agg.vehicleIds.add(vid)
     }
   }
-  return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
 }
 
-/** 月次集計を Quantity 行に変換（labor / vehicle 各1行、0は出力しない） */
-export function aggregatesToQuantities(
-  projectId: string,
-  aggs: MonthlyLaborAggregate[]
+/** 終了日分の自動転記行を生成（人数・使用車両） */
+export function buildDailyAutoQuantities(
+  project: Project,
+  schedules: ScheduleEntry[],
+  vehicles: Vehicle[],
+  untilExclusive?: string
 ): Quantity[] {
-  const rows: Quantity[] = [];
-  for (const a of aggs) {
-    const [y, m] = a.month.split("-");
-    const label = `${y}年${Number(m)}月`;
-    // 月末日（その月の実績として登録）
-    const lastDay = new Date(Number(y), Number(m), 0).getDate();
-    const date = `${a.month}-${String(lastDay).padStart(2, "0")}`;
-    if (a.laborDays > 0) {
+  const until = untilExclusive ?? jstTodayYmd()
+  const days = aggregateDaysForProject(project, schedules, until)
+  const vehicleName = (id: string) =>
+    vehicles.find((v) => v.id === id)?.registration ?? id
+  const rows: Quantity[] = []
+
+  for (const d of days) {
+    const laborN = d.workers.size
+    if (laborN > 0) {
+      const names = [...d.workers].slice(0, 8).join("、")
       rows.push({
         id: genId(),
-        projectId,
+        projectId: project.id,
         category: "labor",
-        description: `スケジュール実績（${label}）`,
-        quantity: a.laborDays,
-        date,
-        note: `${AUTO_NOTE_PREFIX}:${a.month}`,
-      });
+        description: `スケジュール実績（${d.date}）${names ? ` ${names}` : ""}`,
+        quantity: laborN,
+        date: d.date,
+        note: autoNoteLabor(d.date),
+      })
     }
-    if (a.vehicleDays > 0) {
+    for (const vid of d.vehicleIds) {
       rows.push({
         id: genId(),
-        projectId,
+        projectId: project.id,
         category: "vehicle",
-        description: `スケジュール実績（${label}）`,
-        quantity: a.vehicleDays,
-        date,
-        note: `${AUTO_NOTE_PREFIX}:${a.month}`,
-      });
+        description: vehicleName(vid),
+        quantity: 1,
+        date: d.date,
+        note: autoNoteVehicle(d.date, vid),
+        vehicleId: vid,
+      })
     }
   }
-  return rows;
+  return rows
 }
 
-/** 既存の自動集計行（同案件）を抽出 */
-export function findExistingAutoRows(projectId: string, quantities: Quantity[]): Quantity[] {
-  return quantities.filter(
-    (q) => q.projectId === projectId && (q.note ?? "").startsWith(AUTO_NOTE_PREFIX)
-  );
+export type SyncLaborResult = {
+  quantities: Quantity[]
+  changed: boolean
+  added: number
+  removed: number
+  updated: number
 }
+
+/**
+ * 1案件分: 自動転記行を日次内容で置き換え（手入力は残す）
+ * existing は全案件の quantities 配列
+ */
+export function syncProjectScheduleLabor(
+  project: Project,
+  schedules: ScheduleEntry[],
+  vehicles: Vehicle[],
+  existing: Quantity[],
+  untilExclusive?: string
+): SyncLaborResult {
+  const desired = buildDailyAutoQuantities(project, schedules, vehicles, untilExclusive)
+  const desiredByNote = new Map(desired.map((q) => [q.note, q]))
+
+  const others = existing.filter((q) => q.projectId !== project.id)
+  const manual = existing.filter(
+    (q) => q.projectId === project.id && !isAutoScheduleQty(q)
+  )
+  const oldAuto = existing.filter(
+    (q) => q.projectId === project.id && isAutoScheduleQty(q)
+  )
+  const oldByNote = new Map(oldAuto.map((q) => [q.note, q]))
+
+  let added = 0
+  let updated = 0
+  let removed = 0
+
+  const nextAuto: Quantity[] = []
+  for (const [note, row] of desiredByNote) {
+    const prev = oldByNote.get(note)
+    if (!prev) {
+      nextAuto.push(row)
+      added += 1
+    } else {
+      const same =
+        prev.quantity === row.quantity &&
+        prev.description === row.description &&
+        prev.date === row.date &&
+        prev.category === row.category &&
+        (prev.vehicleId ?? "") === (row.vehicleId ?? "")
+      if (same) {
+        nextAuto.push(prev)
+      } else {
+        nextAuto.push({ ...row, id: prev.id })
+        updated += 1
+      }
+    }
+  }
+  for (const old of oldAuto) {
+    if (!desiredByNote.has(old.note)) removed += 1
+  }
+
+  const quantities = [...others, ...manual, ...nextAuto]
+  const changed = added > 0 || updated > 0 || removed > 0
+  return { quantities, changed, added, removed, updated }
+}
+
+/** 全案件を同期 */
+export function syncAllProjectsScheduleLabor(
+  projects: Project[],
+  schedules: ScheduleEntry[],
+  vehicles: Vehicle[],
+  existing: Quantity[],
+  untilExclusive?: string
+): SyncLaborResult {
+  let quantities = existing
+  let added = 0
+  let removed = 0
+  let updated = 0
+  let changed = false
+
+  for (const p of projects) {
+    if (p.deleted || p.archived) continue
+    const r = syncProjectScheduleLabor(p, schedules, vehicles, quantities, untilExclusive)
+    quantities = r.quantities
+    added += r.added
+    removed += r.removed
+    updated += r.updated
+    if (r.changed) changed = true
+  }
+
+  return { quantities, changed, added, removed, updated }
+}
+
+// ── 互換: 旧月次API（未使用になっても型エラー回避のため残さない）──
+// ProjectDetail から月次UIを削除するため、月次関数は削除する

@@ -529,6 +529,10 @@ export default function Home() {
     }));
   };
 
+  const replaceQuantities = (quantities: Quantity[]) => {
+    setData((d) => ({ ...d, quantities }));
+  };
+
   const updateVehicles = (vehicles: Vehicle[]) => {
     setData((d) => ({ ...d, vehicles }));
   };
@@ -1154,6 +1158,7 @@ export default function Home() {
             onDeleteCost={deleteCost}
             onAddQty={addQty}
             onDeleteQty={deleteQty}
+            onReplaceQuantities={replaceQuantities}
             onAddPayment={addPayment}
             onDeletePayment={deletePayment}
             onAddChange={addChange}

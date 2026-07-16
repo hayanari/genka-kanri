@@ -1,6 +1,7 @@
 /**
  * アカウント一覧取得 API
  * システムオーナー: 全社 / 会社管理者: 自社のみ
+ * システムオーナー行は、呼び出し側がシステムオーナーのときだけ返す
  */
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -93,6 +94,11 @@ export async function GET(request: NextRequest) {
       list = list.filter((u) => u.companyCode === companyFilter);
     } else if (!caller.isPlatformOwner) {
       list = list.filter((u) => u.companyCode === caller.companyCode);
+    }
+
+    // システムオーナーはシステムオーナー同士以外には見せない
+    if (!caller.isPlatformOwner) {
+      list = list.filter((u) => !u.isPlatformOwner);
     }
 
     list.sort((a, b) => {
