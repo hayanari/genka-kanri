@@ -80,7 +80,7 @@ export default function ProjectDetail({
   onBack: () => void;
   onUpdateProject: (p: Project) => void;
   onDeleteProject: (id: string) => void;
-  onArchiveProject: (id: string) => void;
+  onArchiveProject: (id: string, archiveYear: string) => void;
   onUnarchiveProject: (id: string) => void;
   onRestoreProject?: (id: string) => void;
   onAddCost: (c: Cost) => void;
@@ -91,7 +91,7 @@ export default function ProjectDetail({
   onReplaceQuantities?: (quantities: Quantity[]) => void;
   onAddPayment: (pid: string, pay: { id: string; date: string; amount: number; note: string }) => void;
   onDeletePayment: (pid: string, payId: string) => void;
-  onAddChange: (pid: string, ch: { id: string; date: string; type: string; amount: number; reason: string }) => void;
+  onAddChange: (pid: string, ch: { id: string; date: string; type: string; amount: number; description: string }) => void;
   onDeleteChange: (pid: string, chId: string) => void;
 }) {
   const isSubcontract = p.mode === "subcontract";
