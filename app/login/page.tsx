@@ -236,11 +236,6 @@ export default function LoginPage() {
           </Btn>
         </form>
 
-        <p style={{ marginTop: 18, fontSize: 11, color: T.ts, lineHeight: 1.6 }}>
-          新規アカウントは管理者が発行します。自社（会社ID: tokito）の既存ユーザーは、ログインIDに
-          従来のメールアドレス（例: tokito@tokito-co.jp）を入れてログインできます。
-        </p>
-
         <div style={{ marginTop: 12, textAlign: "center", fontSize: 12 }}>
           <Link href="/register" style={{ color: T.ac, textDecoration: "none" }}>
             企業登録申込はこちら

@@ -98,11 +98,7 @@ export default function RegisterPage() {
           </Link>
         </div>
         <p style={{ marginTop: 0, color: T.ts, fontSize: 13, lineHeight: 1.6 }}>
-          必要事項を入力して承認依頼を送信してください。申込内容は
-          <a href="mailto:hayanari316@gmail.com" style={{ color: T.ac, marginLeft: 4 }}>
-            hayanari316@gmail.com
-          </a>
-          に通知され、承認後に会社オーナー（ログインID: admin）が自動作成されます。
+          必要事項を入力して承認依頼を送信してください。承認後に会社オーナー（ログインID: admin）が自動作成されます。
         </p>
         <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12 }}>
           <label>
