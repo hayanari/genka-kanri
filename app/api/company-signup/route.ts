@@ -17,6 +17,14 @@ export async function POST(request: NextRequest) {
     const phone = String(body.phone ?? "").trim();
     const contactEmail = String(body.contactEmail ?? "").trim().toLowerCase();
     const ownerName = String(body.ownerName ?? "").trim();
+    const agreed = body.agreed === true;
+
+    if (!agreed) {
+      return NextResponse.json(
+        { error: "個人情報の取扱い・免責事項への同意が必要です" },
+        { status: 400 }
+      );
+    }
 
     if (!companyCode || !/^[a-z0-9][a-z0-9-_]{1,31}$/.test(companyCode)) {
       return NextResponse.json(

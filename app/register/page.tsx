@@ -12,6 +12,7 @@ export default function RegisterPage() {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -29,6 +30,10 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving) return;
+    if (!agreed) {
+      setError("個人情報の取扱い・免責事項に同意してください");
+      return;
+    }
     setError("");
     setMessage("");
     setSaving(true);
@@ -43,6 +48,7 @@ export default function RegisterPage() {
           address,
           phone,
           contactEmail,
+          agreed: true,
         }),
       });
       const data = await res.json();
@@ -66,6 +72,7 @@ export default function RegisterPage() {
       setAddress("");
       setPhone("");
       setContactEmail("");
+      setAgreed(false);
     } catch {
       setError("通信エラーが発生しました");
     } finally {
@@ -134,9 +141,42 @@ export default function RegisterPage() {
               style={inputStyle}
             />
           </label>
+
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 8,
+              border: `1px solid ${T.bd}`,
+              background: T.bg,
+              fontSize: 12,
+              color: T.ts,
+              lineHeight: 1.65,
+            }}
+          >
+            <div style={{ fontWeight: 700, color: T.tx, marginBottom: 6 }}>個人情報の取扱い・免責事項</div>
+            <ul style={{ margin: "0 0 10px", paddingLeft: 18 }}>
+              <li>ご入力いただいた氏名・住所・電話番号・メールアドレス等の個人情報は、企業登録の審査・連絡・アカウント発行の目的でのみ利用します。</li>
+              <li>法令に基づく場合を除き、同意なく第三者へ提供しません。</li>
+              <li>本システムおよび通信・保管環境について、情報漏洩・不正アクセス・データ消失等のリスクを完全に排除することは保証できません。</li>
+              <li>申込者は上記を理解したうえで、自己の責任において本サービスを申し込み・利用するものとします。</li>
+            </ul>
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer", color: T.tx }}>
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                required
+                style={{ marginTop: 3 }}
+              />
+              <span style={{ fontSize: 13, fontWeight: 600 }}>
+                上記の個人情報の取扱いおよび免責事項に同意します（必須）
+              </span>
+            </label>
+          </div>
+
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || !agreed}
             style={{
               padding: "11px 12px",
               borderRadius: 8,
@@ -144,8 +184,8 @@ export default function RegisterPage() {
               fontFamily: "inherit",
               fontWeight: 700,
               color: "#fff",
-              background: saving ? "#94a3b8" : T.ac,
-              cursor: saving ? "not-allowed" : "pointer",
+              background: saving || !agreed ? "#94a3b8" : T.ac,
+              cursor: saving || !agreed ? "not-allowed" : "pointer",
             }}
           >
             {saving ? "送信中..." : "承認依頼を送信"}
