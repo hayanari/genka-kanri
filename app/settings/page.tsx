@@ -107,7 +107,7 @@ export default function SettingsPage() {
     setBackupSuccess("");
     setBackupLoading(true);
     try {
-      const result = await restoreRemoteBackup(item.data);
+      const result = await restoreRemoteBackup(item);
       if (result.ok) {
         setBackupSuccess("復元しました。トップページを再読み込みします。");
         setTimeout(() => router.replace("/"), 1500);
@@ -315,7 +315,7 @@ export default function SettingsPage() {
 
           <div style={{ marginBottom: "12px", fontSize: "15px", fontWeight: 600, color: T.tx }}>💾 データバックアップ（Supabase）</div>
           <p style={{ margin: "0 0 12px", fontSize: "13px", color: T.ts }}>
-            現在のデータをリモートにバックアップします。復元すると現在のデータが上書きされます。
+            手動バックアップに加え、保存前スナップショットと日次バックアップが自動で残ります。復元すると現在のデータは上書きされます（復元前の状態も自動保存されます）。
           </p>
           {backupSuccess && (
             <div
@@ -357,7 +357,7 @@ export default function SettingsPage() {
             {backupLoading ? "処理中..." : "今すぐバックアップを作成"}
           </Btn>
 
-          <div style={{ fontSize: "13px", fontWeight: 600, color: T.ts, marginBottom: "8px" }}>バックアップ一覧（最大50件）</div>
+          <div style={{ fontSize: "13px", fontWeight: 600, color: T.ts, marginBottom: "8px" }}>バックアップ一覧（最大80件）</div>
           <div
             style={{
               maxHeight: "220px",
@@ -385,6 +385,18 @@ export default function SettingsPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: "13px", color: T.tx }}>
                       {new Date(item.created_at).toLocaleString("ja-JP")}
+                      <span
+                        style={{
+                          marginLeft: "8px",
+                          fontSize: "11px",
+                          padding: "1px 6px",
+                          borderRadius: "4px",
+                          background: T.bd,
+                          color: T.ts,
+                        }}
+                      >
+                        {item.kindLabel}
+                      </span>
                       {item.created_by && (
                         <span style={{ marginLeft: "8px", fontSize: "12px", color: T.ts }}>({item.created_by})</span>
                       )}

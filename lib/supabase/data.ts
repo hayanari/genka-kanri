@@ -20,6 +20,10 @@ import type { BackupData, PendingData } from "../backup";
 import { mergeGenkaData } from "../mergeData";
 import type { GenkaDataSet } from "../mergeData";
 import { DEFAULT_COMPANY_ID, getCompanyDataId } from "../tenant";
+import {
+  countGenkaPayload,
+  isDestructiveGenkaOverwrite,
+} from "../dataProtection";
 
 export class NoTenantError extends Error {
   constructor() {
@@ -269,21 +273,26 @@ export async function saveData(
       return { ok: false, reason: "guard" };
     }
 
-    // サーバー側でも防御: 既存に案件があるのに空で潰さない（force でも）
+    // リモート既存件数との比較（force でも破壊的上書きは拒否。復元は /api/data/restore）
     {
       const { data: existing } = await supabase
         .from("genka_kanri_data")
         .select("data")
         .eq("id", dataId)
         .maybeSingle();
-      const existingProjects = Array.isArray((existing?.data as { projects?: unknown[] } | null)?.projects)
-        ? ((existing?.data as { projects: unknown[] }).projects.length)
-        : 0;
-      const nextProjects = backupPayload.projects.length;
-      if (existingProjects >= 5 && nextProjects === 0) {
-        console.warn("[saveData] ガード: サーバー既存データを空で上書きしようとしたためブロック", {
+      const existingCounts = countGenkaPayload(
+        existing?.data as {
+          projects?: unknown[];
+          costs?: unknown[];
+          quantities?: unknown[];
+        } | null
+      );
+      const nextCounts = countGenkaPayload(backupPayload);
+      if (isDestructiveGenkaOverwrite(existingCounts, nextCounts)) {
+        console.warn("[saveData] ガード: 破壊的上書きをブロック", {
           dataId,
-          existingProjects,
+          existingCounts,
+          nextCounts,
         });
         return { ok: false, reason: "guard" };
       }
@@ -318,6 +327,12 @@ export async function saveData(
           dataId
         );
         return { ok: true };
+      }
+      // DBトリガー（DATA_PROTECTION）による拒否
+      const msg = String((error as { message?: string })?.message ?? error);
+      if (/DATA_PROTECTION/i.test(msg) || (error as { code?: string })?.code === "23514") {
+        console.warn("[saveData] DB保護トリガーにより拒否:", msg);
+        return { ok: false, reason: "guard" };
       }
       lastError = error;
       if (attempt < maxRetries) {

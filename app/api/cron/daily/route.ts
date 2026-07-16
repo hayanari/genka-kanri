@@ -238,15 +238,74 @@ export async function GET(request: NextRequest) {
   // 1) スケジュール→人工・車両（Webhook有無に関わらず実行）
   const laborSync = await syncScheduleLaborAllCompanies(supabase);
 
+  // 2) 全社の日次バックアップ + 古い自動バックアップ整理
+  const { data: companyRows } = await supabase.from("companies").select("id, company_code, name");
+  const backupResults: { company: string; ok: boolean; error?: string }[] = [];
+  for (const c of companyRows ?? []) {
+    const companyId = String(c.id);
+    const label = String(c.name || c.company_code);
+    const { data: row } = await supabase
+      .from("genka_kanri_data")
+      .select("data")
+      .eq("id", companyId)
+      .maybeSingle();
+    const payload = row?.data as
+      | {
+          projects?: unknown[];
+          costs?: unknown[];
+          quantities?: unknown[];
+          vehicles?: unknown[];
+          processMasters?: unknown[];
+          bidSchedules?: unknown[];
+        }
+      | null;
+    const projectCount = Array.isArray(payload?.projects) ? payload!.projects!.length : 0;
+    if (!payload || projectCount === 0) {
+      backupResults.push({ company: label, ok: true, error: "skip empty" });
+      continue;
+    }
+    const { error: bErr } = await supabase.from("genka_kanri_backups").insert({
+      company_id: companyId,
+      kind: "daily",
+      created_by: "system:daily-cron",
+      data: payload,
+    });
+    if (bErr && /kind/i.test(bErr.message)) {
+      const retry = await supabase.from("genka_kanri_backups").insert({
+        company_id: companyId,
+        created_by: "system:daily-cron",
+        data: payload,
+      });
+      backupResults.push(
+        retry.error
+          ? { company: label, ok: false, error: retry.error.message }
+          : { company: label, ok: true }
+      );
+    } else if (bErr) {
+      backupResults.push({ company: label, ok: false, error: bErr.message });
+    } else {
+      backupResults.push({ company: label, ok: true });
+    }
+  }
+
+  let cleanup: unknown = null;
+  try {
+    const { data: cleaned, error: cErr } = await supabase.rpc("cleanup_genka_backups");
+    cleanup = cErr ? { error: cErr.message } : cleaned;
+  } catch (e) {
+    cleanup = { error: e instanceof Error ? e.message : String(e) };
+  }
+
   if (!webhook) {
     return NextResponse.json({
       ok: true,
       laborSync,
-      skipped: "TEAMS_WEBHOOK_URL未設定（人工転記のみ実行）",
+      dailyBackups: backupResults,
+      cleanup,
+      skipped: "TEAMS_WEBHOOK_URL未設定（人工転記・日次バックアップのみ実行）",
     });
   }
 
-  const { data: companyRows } = await supabase.from("companies").select("id, company_code, name");
   const targets =
     companyRows && companyRows.length > 0
       ? companyRows.map((c) => ({ id: String(c.id), label: String(c.name || c.company_code) }))
@@ -276,5 +335,12 @@ export async function GET(request: NextRequest) {
     results.push(result);
   }
 
-  return NextResponse.json({ ok: true, posted: postedTotal, results, laborSync });
+  return NextResponse.json({
+    ok: true,
+    posted: postedTotal,
+    results,
+    laborSync,
+    dailyBackups: backupResults,
+    cleanup,
+  });
 }

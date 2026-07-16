@@ -243,6 +243,8 @@ export function shouldRunDailyBackup(): boolean {
   return elapsed >= 24 * 60 * 60 * 1000;
 }
 
+import { isDestructiveGenkaOverwrite, countGenkaPayload } from "@/lib/dataProtection";
+
 /** 空データでの上書きを検出（ガード） */
 export function isDangerousOverwrite(
   data: BackupData,
@@ -250,12 +252,5 @@ export function isDangerousOverwrite(
 ): boolean {
   const prev = getLastRemoteCount(companyId);
   if (!prev) return false;
-  const pCount = data.projects?.length ?? 0;
-  const cCount = data.costs?.length ?? 0;
-  const qCount = data.quantities?.length ?? 0;
-  if (prev.projects >= 5 && pCount === 0) return true;
-  if (prev.costs >= 10 && cCount === 0) return true;
-  if (prev.quantities >= 10 && qCount === 0) return true;
-  if (prev.projects >= 3 && pCount === 0 && prev.costs + prev.quantities > 0) return true;
-  return false;
+  return isDestructiveGenkaOverwrite(prev, countGenkaPayload(data));
 }

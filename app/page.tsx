@@ -236,7 +236,7 @@ export default function Home() {
         } else if (result.reason === "forbidden") {
           setSaveError("閲覧専用の権限のため変更は保存されません");
         } else {
-          setSaveError(result.reason === "guard" ? "データ保護のため保存をキャンセルしました" : "保存に失敗しました");
+          setSaveError(result.reason === "guard" ? "データ保護のため保存をキャンセルしました（空・急減の上書きを防止）。設定のバックアップから復元できます。" : "保存に失敗しました");
         }
       } else {
         setSaveError(null);
