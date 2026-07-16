@@ -66,32 +66,65 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "申込の保存に失敗しました" }, { status: 500 });
     }
 
-    void notifyOwner(companyCode, companyName, contactEmail);
-    return NextResponse.json({ ok: true, requestId: created.id, ownerEmail: OWNER_EMAIL });
+    const mail = await notifyOwner(companyCode, companyName, contactEmail, address, phone, ownerName);
+    return NextResponse.json({
+      ok: true,
+      requestId: created.id,
+      ownerEmail: OWNER_EMAIL,
+      mailOk: mail.ok,
+      mailError: mail.error ?? null,
+    });
   } catch (e) {
     console.error("[company-signup]", e);
     return NextResponse.json({ error: "サーバーエラー" }, { status: 500 });
   }
 }
 
-async function notifyOwner(companyCode: string, companyName: string, contactEmail: string) {
+async function notifyOwner(
+  companyCode: string,
+  companyName: string,
+  contactEmail: string,
+  address: string,
+  phone: string,
+  ownerName: string
+): Promise<{ ok: boolean; error?: string }> {
   const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) return;
+  if (!resendKey) {
+    console.warn("[company-signup] RESEND_API_KEY 未設定");
+    return { ok: false, error: "RESEND_API_KEY 未設定" };
+  }
+  const from = process.env.RESEND_FROM ?? "onboarding@resend.dev";
+  const text =
+    `新規企業申込が届きました。\n\n` +
+    `企業名: ${companyName}\n` +
+    `企業ID: ${companyCode}\n` +
+    `オーナー氏名: ${ownerName}\n` +
+    `住所: ${address}\n` +
+    `電話: ${phone}\n` +
+    `連絡先メール: ${contactEmail}\n\n` +
+    `管理画面（/admin）で承認してください。`;
   try {
-    await fetch("https://api.resend.com/emails", {
+    const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${resendKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: process.env.RESEND_FROM ?? "onboarding@resend.dev",
+        from,
         to: OWNER_EMAIL,
         subject: `【案件管理】新規企業申込 ${companyName} (${companyCode})`,
-        text: `新規企業申込が届きました。\n企業名: ${companyName}\n企業ID: ${companyCode}\n連絡先: ${contactEmail}\n\n管理画面で承認してください。`,
+        text,
       }),
     });
+    const body = await res.text();
+    if (!res.ok) {
+      console.error("[company-signup] Resend error:", res.status, body);
+      return { ok: false, error: `Resend ${res.status}: ${body.slice(0, 200)}` };
+    }
+    return { ok: true };
   } catch (e) {
     console.error("[company-signup] notify", e);
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }

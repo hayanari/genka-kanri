@@ -51,8 +51,10 @@ export default function RegisterPage() {
         return;
       }
       setMessage(
-        `承認依頼を送信しました。審査結果は ${contactEmail} に連絡します。` +
-          `\n必要に応じて ${data.ownerEmail ?? "tokito@tokito-co.jp"} へご連絡ください。`
+        `承認依頼を受け付けました。審査結果は ${contactEmail} に連絡します。` +
+          (data.mailOk
+            ? `\nシステムオーナー（${data.ownerEmail ?? "tokito@tokito-co.jp"}）へ通知メールも送信しました。`
+            : `\n※通知メールの送信に失敗しました（申込自体は保存済み）。管理画面で確認できます。`)
       );
       setCompanyCode("");
       setCompanyName("");
