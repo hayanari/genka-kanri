@@ -41,6 +41,7 @@ import {
   deleteCrossScheduleSticky,
   CROSS_VIEWER_FORBIDDEN_MSG,
 } from "@/lib/crossScheduleStorage";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 
 const MONTH_NAMES = "1月 2月 3月 4月 5月 6月 7月 8月 9月 10月 11月 12月".split(" ");
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
@@ -123,15 +124,28 @@ function rectRange(a: GridPos, b: GridPos) {
 }
 
 const DAY_W = 26;
-const LEFT_COLS = [
+const DAY_W_MOBILE = 30;
+const DESKTOP_LEFT_COLS = [
   { key: "name", label: "工事名", width: 150 },
   { key: "client", label: "元請", width: 92 },
   { key: "person", label: "担当者", width: 68 },
   { key: "crew", label: "施工班", width: 112 },
 ] as const;
-const LEFT_TOTAL = LEFT_COLS.reduce((s, c) => s + c.width, 0);
+/** スマホ: 左固定列を狭くし、日付カレンダーが見えるようにする（422px→約172px） */
+const MOBILE_LEFT_COLS = [
+  { key: "name", label: "工事名", width: 108 },
+  { key: "crew", label: "班", width: 64 },
+] as const;
+
+type LeftCol = { key: string; label: string; width: number };
 
 export default function CrossScheduleBoard() {
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  const leftCols: LeftCol[] = isMobile ? [...MOBILE_LEFT_COLS] : [...DESKTOP_LEFT_COLS];
+  const leftTotal = leftCols.reduce((s, c) => s + c.width, 0);
+  const dayW = isMobile ? DAY_W_MOBILE : DAY_W;
+  const showExtraLeft = !isMobile;
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [rows, setRows] = useState<CrossScheduleRow[]>([]);
   const [cells, setCells] = useState<Record<string, CrossScheduleCell>>({});
@@ -1012,13 +1026,13 @@ export default function CrossScheduleBoard() {
     const cellStickies = stickiesByCell.get(cellKey(row.id, d.date)) ?? [];
     const selected = selectedKeySet.has(cellKey(row.id, d.date));
     const style: React.CSSProperties = {
-      width: DAY_W,
-      minWidth: DAY_W,
-      maxWidth: DAY_W,
-      height: 26,
+      width: dayW,
+      minWidth: dayW,
+      maxWidth: dayW,
+      height: isMobile ? 32 : 26,
       padding: 0,
       textAlign: "center",
-      fontSize: 11,
+      fontSize: isMobile ? 12 : 11,
       fontWeight: 700,
       cursor: readOnly ? "default" : "cell",
       position: "relative",
@@ -1114,23 +1128,36 @@ export default function CrossScheduleBoard() {
   const leftCellBase: React.CSSProperties = {
     borderRight: "1px solid #d0d8e4",
     borderBottom: "1px solid #e0e6ed",
-    padding: "2px 6px",
-    fontSize: 12,
+    padding: isMobile ? "2px 4px" : "2px 6px",
+    fontSize: isMobile ? 11 : 12,
     background: "#fff",
     position: "sticky",
     zIndex: 2,
   };
-  const leftOffsets = LEFT_COLS.reduce<number[]>((acc, c, i) => {
-    acc.push(i === 0 ? 0 : acc[i - 1] + LEFT_COLS[i - 1].width);
+  const leftOffsets = leftCols.reduce<number[]>((acc, c, i) => {
+    acc.push(i === 0 ? 0 : acc[i - 1] + leftCols[i - 1].width);
     return acc;
   }, []);
+  const crewColIndex = leftCols.findIndex((c) => c.key === "crew");
+  const nameCol = leftCols.find((c) => c.key === "name")!;
+  const crewCol = leftCols.find((c) => c.key === "crew")!;
+  const clientCol = leftCols.find((c) => c.key === "client");
+  const personCol = leftCols.find((c) => c.key === "person");
+  const nameOffset = leftOffsets[leftCols.findIndex((c) => c.key === "name")] ?? 0;
+  const clientOffset = clientCol
+    ? leftOffsets[leftCols.findIndex((c) => c.key === "client")]
+    : 0;
+  const personOffset = personCol
+    ? leftOffsets[leftCols.findIndex((c) => c.key === "person")]
+    : 0;
+  const crewOffset = leftOffsets[crewColIndex] ?? 0;
 
   const editingCell = editing ? cells[cellKey(editing.rowId, editing.date)] : null;
   const editingRow = editing ? rows.find((r) => r.id === editing.rowId) : null;
   const editingProject = editingRow ? projectById.get(editingRow.projectId) : null;
 
   return (
-    <div style={{ padding: "0 16px 24px" }}>
+    <div style={{ padding: isMobile ? "0 8px 24px" : "0 16px 24px" }}>
       {/* ── 操作バー ── */}
       <div
         className="cross-no-print"
@@ -1140,7 +1167,7 @@ export default function CrossScheduleBoard() {
           gap: 8,
           margin: "12px 0",
           background: "#fff",
-          padding: 10,
+          padding: isMobile ? 8 : 10,
           borderRadius: 8,
           border: "1px solid #d0d8e4",
         }}
@@ -1390,23 +1417,60 @@ export default function CrossScheduleBoard() {
         )}
       </div>
 
+      {isMobile && (
+        <div
+          className="cross-no-print"
+          style={{
+            fontSize: 12,
+            color: "#1565c0",
+            background: "#e3f2fd",
+            border: "1px solid #90caf9",
+            borderRadius: 6,
+            padding: "8px 10px",
+            marginBottom: 8,
+            fontWeight: 600,
+          }}
+        >
+          ←→ 表を左右にスワイプすると日付カレンダーが表示されます
+        </div>
+      )}
+
       {/* ── 本体テーブル ── */}
       <div
         ref={pdfAreaRef}
+        className="cross-schedule-scroll"
         onClick={() => setEditingStickyId(null)}
-        style={{ background: "#fff", borderRadius: 8, border: "1px solid #d0d8e4", overflow: "auto", maxHeight: "calc(100vh - 210px)" }}
+        style={{
+          background: "#fff",
+          borderRadius: 8,
+          border: "1px solid #d0d8e4",
+          overflow: "auto",
+          WebkitOverflowScrolling: "touch",
+          touchAction: "pan-x pan-y",
+          maxHeight: isMobile ? "calc(100dvh - 280px)" : "calc(100vh - 210px)",
+          width: "100%",
+          maxWidth: "100%",
+        }}
       >
-        <table style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: LEFT_TOTAL + days.length * DAY_W }}>
+        <table
+          style={{
+            borderCollapse: "separate",
+            borderSpacing: 0,
+            minWidth: leftTotal + days.length * dayW,
+            width: leftTotal + days.length * dayW,
+          }}
+        >
           <thead>
             {/* 月ヘッダー */}
             <tr>
-              {LEFT_COLS.map((c, i) => (
+              {leftCols.map((c, i) => (
                 <th
                   key={c.key}
                   style={{
                     ...headCell,
                     width: c.width,
                     minWidth: c.width,
+                    maxWidth: c.width,
                     left: leftOffsets[i],
                     zIndex: 5,
                     top: 0,
@@ -1431,8 +1495,9 @@ export default function CrossScheduleBoard() {
                     ...headCell,
                     top: 25,
                     zIndex: 3,
-                    width: DAY_W,
-                    minWidth: DAY_W,
+                    width: dayW,
+                    minWidth: dayW,
+                    maxWidth: dayW,
                     padding: "1px 0",
                     fontSize: 10,
                     background: d.dow === 0 ? "#ffebee" : d.dow === 6 ? "#e8f1fb" : "#f5f7fa",
@@ -1449,7 +1514,7 @@ export default function CrossScheduleBoard() {
           <tbody>
             {groups.length === 0 && (
               <tr>
-                <td colSpan={LEFT_COLS.length + days.length} style={{ padding: 24, textAlign: "center", color: "#90a4ae", fontSize: 13 }}>
+                <td colSpan={leftCols.length + days.length} style={{ padding: 24, textAlign: "center", color: "#90a4ae", fontSize: 13 }}>
                   まだ案件がありません。上の「案件を追加」から選んでください。
                 </td>
               </tr>
@@ -1459,10 +1524,38 @@ export default function CrossScheduleBoard() {
                 <tr key={row.id}>
                   {ri === 0 && (
                     <>
-                      <td rowSpan={g.rows.length} style={{ ...leftCellBase, left: leftOffsets[0], width: LEFT_COLS[0].width, minWidth: LEFT_COLS[0].width, fontWeight: 700, verticalAlign: "top", borderBottom: "1px solid #b8c4d4" }}>
-                        <div>{g.project?.name ?? "（削除済み案件）"}</div>
+                      <td
+                        rowSpan={g.rows.length}
+                        style={{
+                          ...leftCellBase,
+                          left: nameOffset,
+                          width: nameCol.width,
+                          minWidth: nameCol.width,
+                          maxWidth: nameCol.width,
+                          fontWeight: 700,
+                          verticalAlign: "top",
+                          borderBottom: "1px solid #b8c4d4",
+                        }}
+                      >
+                        <div
+                          style={{
+                            overflow: "hidden",
+                            display: "-webkit-box",
+                            WebkitLineClamp: isMobile ? 3 : 6,
+                            WebkitBoxOrient: "vertical",
+                            lineHeight: 1.25,
+                          }}
+                          title={g.project?.name ?? ""}
+                        >
+                          {g.project?.name ?? "（削除済み案件）"}
+                        </div>
                         {g.project?.managementNumber && (
                           <div style={{ fontSize: 10, color: "#90a4ae", fontWeight: 400 }}>{g.project.managementNumber}</div>
+                        )}
+                        {isMobile && (g.project?.client || g.project?.personInCharge) && (
+                          <div style={{ fontSize: 9, color: "#90a4ae", fontWeight: 400, marginTop: 2 }}>
+                            {[g.project?.client, g.project?.personInCharge].filter(Boolean).join(" / ")}
+                          </div>
                         )}
                         {!readOnly && (
                           <button
@@ -1475,20 +1568,47 @@ export default function CrossScheduleBoard() {
                           </button>
                         )}
                       </td>
-                      <td rowSpan={g.rows.length} style={{ ...leftCellBase, left: leftOffsets[1], width: LEFT_COLS[1].width, minWidth: LEFT_COLS[1].width, verticalAlign: "top", color: "#4a6280", borderBottom: "1px solid #b8c4d4" }}>
-                        {g.project?.client ?? ""}
-                      </td>
-                      <td rowSpan={g.rows.length} style={{ ...leftCellBase, left: leftOffsets[2], width: LEFT_COLS[2].width, minWidth: LEFT_COLS[2].width, verticalAlign: "top", color: "#4a6280", borderBottom: "1px solid #b8c4d4" }}>
-                        {g.project?.personInCharge ?? ""}
-                      </td>
+                      {showExtraLeft && clientCol && (
+                        <td
+                          rowSpan={g.rows.length}
+                          style={{
+                            ...leftCellBase,
+                            left: clientOffset,
+                            width: clientCol.width,
+                            minWidth: clientCol.width,
+                            verticalAlign: "top",
+                            color: "#4a6280",
+                            borderBottom: "1px solid #b8c4d4",
+                          }}
+                        >
+                          {g.project?.client ?? ""}
+                        </td>
+                      )}
+                      {showExtraLeft && personCol && (
+                        <td
+                          rowSpan={g.rows.length}
+                          style={{
+                            ...leftCellBase,
+                            left: personOffset,
+                            width: personCol.width,
+                            minWidth: personCol.width,
+                            verticalAlign: "top",
+                            color: "#4a6280",
+                            borderBottom: "1px solid #b8c4d4",
+                          }}
+                        >
+                          {g.project?.personInCharge ?? ""}
+                        </td>
+                      )}
                     </>
                   )}
                   <td
                     style={{
                       ...leftCellBase,
-                      left: leftOffsets[3],
-                      width: LEFT_COLS[3].width,
-                      minWidth: LEFT_COLS[3].width,
+                      left: crewOffset,
+                      width: crewCol.width,
+                      minWidth: crewCol.width,
+                      maxWidth: crewCol.width,
                       padding: "0 2px",
                       borderBottom: ri === g.rows.length - 1 ? "1px solid #b8c4d4" : "1px solid #e0e6ed",
                     }}
@@ -1499,7 +1619,7 @@ export default function CrossScheduleBoard() {
                         onChange={(e) => updateCrewName(row.id, e.target.value)}
                         placeholder="班名"
                         disabled={readOnly}
-                        style={{ width: "100%", border: "none", outline: "none", fontSize: 12, fontFamily: "inherit", background: "transparent", padding: "4px 4px", color: "#1a2535" }}
+                        style={{ width: "100%", border: "none", outline: "none", fontSize: isMobile ? 11 : 12, fontFamily: "inherit", background: "transparent", padding: "4px 2px", color: "#1a2535" }}
                         aria-label={`${g.project?.name ?? ""}の施工班名`}
                       />
                       {!readOnly && (

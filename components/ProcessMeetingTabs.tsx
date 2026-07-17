@@ -76,6 +76,9 @@ export default function ProcessMeetingTabs() {
           padding: "10px 16px 0",
           borderBottom: "1px solid #d0d8e4",
           background: "#eef2f7",
+          flexWrap: "wrap",
+          overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
         }}
       >
         <Link

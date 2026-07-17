@@ -89,6 +89,26 @@ body {
   min-width: 480px;
 }
 
+/* 横断工程表: スマホで左右スワイプしやすくする */
+.cross-schedule-scroll {
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  max-width: 100%;
+}
+.cross-schedule-scroll table {
+  /* sticky 左列より右側の日付が見えるよう、幅はインラインで制御 */
+}
+
+@media (max-width: 767px) {
+  .cross-schedule-scroll {
+    /* iOS で親の overflow-x:hidden の影響を受けにくくする */
+    margin-left: -4px;
+    margin-right: -4px;
+    width: calc(100% + 8px);
+  }
+}
+
 /* スケジュール印刷用 */
 @media print {
   .schedule-no-print {
