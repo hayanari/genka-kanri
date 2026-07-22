@@ -327,17 +327,57 @@ export async function saveScheduleData(
         kindMap[name] = serverKinds[name] ?? 'staff'
       }
     }
-    await supabase.from('schedule_workers').delete().eq('company_id', companyId)
+
+    // 全削除→再挿入は挿入失敗時にマスターが空になるため、upsert＋差分削除にする
     if (finalWorkers.length > 0) {
-      await supabase.from('schedule_workers').insert(
+      const { error: upErr } = await supabase.from('schedule_workers').upsert(
         finalWorkers.map((name, i) => ({
           name,
           sort_order: i,
           company_id: companyId,
           left_at: leftAtMap[name] ?? null,
           kind: kindMap[name] ?? 'staff',
-        }))
+        })),
+        { onConflict: 'company_id,name' }
       )
+      if (upErr) {
+        console.error('[ScheduleStorage] schedule_workers upsert:', upErr)
+        throw upErr
+      }
+    }
+    const finalSet = new Set(finalWorkers)
+    let namesToDelete = serverWorkers.filter((w) => !finalSet.has(w))
+    // 予定に残っている名前はマスターから消さない（不完全なローカル状態での誤削除防止）
+    if (namesToDelete.length > 0) {
+      const { data: entryRows } = await supabase
+        .from('schedule_entries')
+        .select('workers')
+        .eq('company_id', companyId)
+      const used = new Set<string>()
+      for (const e of entryRows ?? []) {
+        for (const n of (e as { workers?: string[] }).workers ?? []) {
+          const t = String(n).trim()
+          if (t) used.add(t)
+        }
+      }
+      for (const s of data.schedules ?? []) {
+        for (const n of s.workers ?? []) {
+          const t = String(n).trim()
+          if (t) used.add(t)
+        }
+      }
+      namesToDelete = namesToDelete.filter((w) => !used.has(w))
+    }
+    if (namesToDelete.length > 0) {
+      const { error: delWErr } = await supabase
+        .from('schedule_workers')
+        .delete()
+        .eq('company_id', companyId)
+        .in('name', namesToDelete)
+      if (delWErr) {
+        console.error('[ScheduleStorage] schedule_workers delete:', delWErr)
+        throw delWErr
+      }
     }
 
     // 3. 日次メモ
