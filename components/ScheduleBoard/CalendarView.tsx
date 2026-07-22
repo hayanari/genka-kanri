@@ -4,13 +4,13 @@
 // 前半/後半 2列カレンダー
 // ================================================================
 import React from 'react'
-import type { ScheduleEntry, DayMemos } from '@/types/schedule'
+import type { ScheduleEntry, DayMemos, WorkerKind } from '@/types/schedule'
 import type { Vehicle, Project } from '@/lib/utils'
 import {
   daysInMonth, DOW_LABELS, TODAY_STR, addDays,
   getConflicts, getVehicleConflicts, getAvailableWorkers, getOffWorkers, getMorningEntries,
   getBaseKoujimei,
-  workerColor, hexRgba,
+  displayWorkerColor, hexRgba,
 } from '@/lib/scheduleUtils'
 import { ShiftBadge, WorkerRow, OffWorkerRow, VehicleRow, Pip } from './Chips'
 import { DayMemoField } from './DayMemoField'
@@ -22,6 +22,8 @@ interface Props {
   workers: string[]
   /** 作業員名 → 退職日(YYYY-MM-DD) */
   workerLeftAt?: Record<string, string>
+  /** 作業員名 → 自社/協力 */
+  workerKinds?: Record<string, WorkerKind>
   vehicles: Vehicle[]
   /** 案件管理から連携する案件（未アーカイブ）。その日に予定が無い案件を「未配置」に出す */
   projects: Project[]
@@ -38,7 +40,7 @@ interface DayRowProps extends Omit<Props, 'year'|'month'> {
   dateStr: string
 }
 const DayRow: React.FC<DayRowProps> = ({
-  dateStr, schedules, workers, workerLeftAt, vehicles, projects, dayMemos,
+  dateStr, schedules, workers, workerLeftAt, workerKinds, vehicles, projects, dayMemos,
   filterWorker, onFilterWorker, onClickEntry, onAddEntry, onDayMemoChange,
 }) => {
   const vehicleMap = React.useMemo(() => new Map(vehicles.map(v => [v.id, v.registration])), [vehicles])
@@ -128,14 +130,14 @@ const DayRow: React.FC<DayRowProps> = ({
                 <span style={{ fontSize: 10, fontWeight: 700, color: '#4a148c' }}>{e.koujimei}</span>
                 {e.memo && <span style={{ fontSize: 9, color: '#4a6280', opacity: 0.85 }}>— {e.memo}</span>}
               </div>
-              <WorkerRow workers={e.workers} conflicts={new Set()} />
+              <WorkerRow workers={e.workers} conflicts={new Set()} workerKinds={workerKinds} />
               <VehicleRow vehicleIds={e.vehicleIds ?? []} vehicleMap={vehicleMap} conflicts={vcf} />
             </div>
           ))}
 
           {/* 昼勤 */}
           {dayE.map(e => {
-            const fc = workerColor(e.workers[0] ?? '')
+            const fc = displayWorkerColor(e.workers[0] ?? '', workerKinds)
             return (
               <div key={e.id}
                 onClick={() => onClickEntry(e)}
@@ -145,7 +147,7 @@ const DayRow: React.FC<DayRowProps> = ({
                   <span style={{ fontSize: 10, fontWeight: 700, color: '#1a2535', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{e.koujimei}</span>
                   {e.memo && <span style={{ fontSize: 9, color: '#4a6280', opacity: 0.85 }}>— {e.memo}</span>}
                 </div>
-                <WorkerRow workers={e.workers} conflicts={cf} onClickWorker={onFilterWorker} />
+                <WorkerRow workers={e.workers} conflicts={cf} workerKinds={workerKinds} onClickWorker={onFilterWorker} />
                 <VehicleRow vehicleIds={e.vehicleIds ?? []} vehicleMap={vehicleMap} conflicts={vcf} />
               </div>
             )
@@ -162,7 +164,7 @@ const DayRow: React.FC<DayRowProps> = ({
                 <span style={{ fontSize: 10, fontWeight: 700, color: '#1a237e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>{e.koujimei}</span>
                 {e.memo && <span style={{ fontSize: 9, color: '#4a6280', opacity: 0.85 }}>— {e.memo}</span>}
               </div>
-              <WorkerRow workers={e.workers} conflicts={cf} isNight onClickWorker={onFilterWorker} />
+              <WorkerRow workers={e.workers} conflicts={cf} isNight workerKinds={workerKinds} onClickWorker={onFilterWorker} />
               <VehicleRow vehicleIds={e.vehicleIds ?? []} vehicleMap={vehicleMap} conflicts={vcf} />
             </div>
           ))}
@@ -177,7 +179,7 @@ const DayRow: React.FC<DayRowProps> = ({
                 <ShiftBadge type="off" />
                 {e.memo && <span style={{ fontSize: 9, color: '#4a6280', opacity: 0.85 }}>— {e.memo}</span>}
               </div>
-              <OffWorkerRow workers={e.workers} conflicts={cf} />
+              <OffWorkerRow workers={e.workers} conflicts={cf} workerKinds={workerKinds} />
             </div>
           ))}
 
@@ -202,14 +204,16 @@ const DayRow: React.FC<DayRowProps> = ({
             <span style={{ fontSize: 8, fontWeight: 700, color: '#2e7d32', whiteSpace: 'nowrap', paddingTop: 2, minWidth: 22 }}>空き</span>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
               {avail.map(w => {
-                const c = workerColor(w)
+                const c = displayWorkerColor(w, workerKinds)
+                const partner = workerKinds?.[w] === 'partner'
                 return (
-                  <span key={w} onClick={() => onFilterWorker(w)} style={{
+                  <span key={w} onClick={() => onFilterWorker(w)} title={partner ? '協力（人工転記なし）' : undefined} style={{
                     display: 'inline-block', padding: '1px 5px', borderRadius: 3,
                     fontSize: 9, fontWeight: 600, cursor: 'pointer',
-                    background: hexRgba(c, 0.08), color: c, border: `1px solid ${hexRgba(c, 0.25)}`,
+                    background: hexRgba(c, 0.08), color: c,
+                    border: `1px ${partner ? 'dashed' : 'solid'} ${hexRgba(c, 0.25)}`,
                   }}>
-                    {w}
+                    {partner ? `協 ${w}` : w}
                   </span>
                 )
               })}

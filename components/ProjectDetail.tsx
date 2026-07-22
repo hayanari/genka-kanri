@@ -173,7 +173,8 @@ export default function ProjectDetail({
           data.schedules,
           vehicles,
           allQty,
-          jstTodayYmd()
+          jstTodayYmd(),
+          data.workerKinds
         );
         if (cancelled) return;
         laborSyncedForRef.current = p.id;

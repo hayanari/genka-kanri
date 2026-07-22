@@ -4,52 +4,59 @@
 // 小さな UI パーツ（チップ・バッジ）
 // ================================================================
 import React from 'react'
-import { workerColor, hexRgba } from '@/lib/scheduleUtils'
+import type { WorkerKind } from '@/types/schedule'
+import { displayWorkerColor, hexRgba } from '@/lib/scheduleUtils'
 
 // ── Worker chip ──────────────────────────────────────────────────
 interface WChipProps {
   name: string
   isConflict?: boolean
   isNight?: boolean
+  kind?: WorkerKind
   onClick?: () => void
 }
 export const WChip: React.FC<WChipProps> = ({
-  name, isConflict = false, isNight = false, onClick
+  name, isConflict = false, isNight = false, kind, onClick
 }) => {
-  const base = wcolor(name)
-  const bg     = isConflict ? '#fff5f5' : isNight ? '#e8eaf6' : hexRgba(base, 0.1)
-  const border = isConflict ? '#ffcdd2' : isNight ? '#9fa8da' : hexRgba(base, 0.3)
+  const showPartner = kind === 'partner'
+  const base = displayWorkerColor(name, showPartner ? { [name]: 'partner' } : undefined)
+  const bg     = isConflict ? '#fff5f5' : isNight ? '#e8eaf6' : hexRgba(base, showPartner ? 0.14 : 0.1)
+  const border = isConflict ? '#ffcdd2' : isNight ? '#9fa8da' : hexRgba(base, 0.35)
   const color  = isConflict ? '#c62828' : isNight ? '#1a237e' : base
   return (
     <span
       onClick={e => { e.stopPropagation(); onClick?.() }}
+      title={showPartner ? '協力（人工転記なし）' : undefined}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 1,
         padding: '1px 5px', borderRadius: 3,
         fontSize: 9, fontWeight: 600,
         cursor: onClick ? 'pointer' : 'default',
-        border: `1px solid ${border}`, background: bg, color,
+        border: `1px ${showPartner ? 'dashed' : 'solid'} ${border}`,
+        background: bg, color,
         whiteSpace: 'nowrap',
       }}
     >
       {isConflict && <span style={{ fontSize: 9, fontWeight: 900, color: '#c62828', marginRight: 1 }}>!</span>}
+      {showPartner && <span style={{ fontSize: 8, fontWeight: 800, opacity: 0.9 }}>協</span>}
       {name}
     </span>
   )
 }
 
 // ── Off (有休) chip ──────────────────────────────────────────────
-interface OffChipProps { name: string; isConflict?: boolean }
-export const OffChip: React.FC<OffChipProps> = ({ name, isConflict = false }) => (
+interface OffChipProps { name: string; isConflict?: boolean; kind?: WorkerKind }
+export const OffChip: React.FC<OffChipProps> = ({ name, isConflict = false, kind }) => (
   <span style={{
     display: 'inline-flex', alignItems: 'center', gap: 2,
     padding: '1px 5px', borderRadius: 3,
     fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap',
-    border:      isConflict ? '1px solid #ffcdd2' : '1px solid #b0bec5',
+    border:      isConflict ? '1px solid #ffcdd2' : `1px ${kind === 'partner' ? 'dashed' : 'solid'} #b0bec5`,
     background:  isConflict ? '#fff5f5'           : '#eceff1',
     color:       isConflict ? '#c62828'           : '#546e7a',
   }}>
     {isConflict && <span style={{ fontWeight: 900 }}>!</span>}
+    {kind === 'partner' && <span style={{ fontSize: 8, fontWeight: 800 }}>協</span>}
     <span style={{ textDecoration: isConflict ? 'none' : 'line-through', opacity: isConflict ? 1 : 0.8 }}>
       {name}
     </span>
@@ -94,15 +101,17 @@ interface WorkerRowProps {
   workers: string[]
   conflicts: Set<string>
   isNight?: boolean
+  workerKinds?: Record<string, WorkerKind>
   onClickWorker?: (w: string) => void
 }
 export const WorkerRow: React.FC<WorkerRowProps> = ({
-  workers, conflicts, isNight = false, onClickWorker
+  workers, conflicts, isNight = false, workerKinds, onClickWorker
 }) => (
   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, marginTop: 2 }}>
     {workers.map(w => (
       <WChip
         key={w} name={w}
+        kind={workerKinds?.[w] === 'partner' ? 'partner' : 'staff'}
         isConflict={conflicts.has(w)}
         isNight={isNight}
         onClick={onClickWorker ? () => onClickWorker(w) : undefined}
@@ -112,10 +121,21 @@ export const WorkerRow: React.FC<WorkerRowProps> = ({
 )
 
 // ── Off worker row ───────────────────────────────────────────────
-interface OffWorkerRowProps { workers: string[]; conflicts: Set<string> }
-export const OffWorkerRow: React.FC<OffWorkerRowProps> = ({ workers, conflicts }) => (
+interface OffWorkerRowProps {
+  workers: string[]
+  conflicts: Set<string>
+  workerKinds?: Record<string, WorkerKind>
+}
+export const OffWorkerRow: React.FC<OffWorkerRowProps> = ({ workers, conflicts, workerKinds }) => (
   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, marginTop: 2 }}>
-    {workers.map(w => <OffChip key={w} name={w} isConflict={conflicts.has(w)} />)}
+    {workers.map(w => (
+      <OffChip
+        key={w}
+        name={w}
+        isConflict={conflicts.has(w)}
+        kind={workerKinds?.[w] === 'partner' ? 'partner' : 'staff'}
+      />
+    ))}
   </div>
 )
 
@@ -152,6 +172,3 @@ export const VehicleRow: React.FC<VehicleRowProps> = ({ vehicleIds, vehicleMap, 
     </div>
   )
 }
-
-// ─── workerColor re-export for convenience ───────────────────────
-function wcolor(w: string) { return workerColor(w) }

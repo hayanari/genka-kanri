@@ -2,7 +2,7 @@
 // lib/scheduleStorage.ts
 // ストレージ層 — Supabase
 // ================================================================
-import type { ScheduleData, ScheduleEntry, DayMemos } from '@/types/schedule'
+import type { ScheduleData, ScheduleEntry, DayMemos, WorkerKind } from '@/types/schedule'
 import { createClient } from '@/lib/supabase/client'
 import { effectiveWorkerList } from '@/lib/scheduleUtils'
 import { mergeCollection } from '@/lib/mergeData'
@@ -77,7 +77,7 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
       { data: memos },
     ] = await Promise.all([
       supabase.from('schedule_entries').select('*').eq('company_id', companyId).order('date'),
-      supabase.from('schedule_workers').select('name, sort_order, left_at').eq('company_id', companyId).order('sort_order'),
+      supabase.from('schedule_workers').select('name, sort_order, left_at, kind').eq('company_id', companyId).order('sort_order'),
       supabase.from('schedule_day_memos').select('date, memo').eq('company_id', companyId),
     ])
 
@@ -123,14 +123,17 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
     }))
     const workerNames = (workers ?? []).map((w: { name: string }) => w.name)
     const workerLeftAt: Record<string, string> = {}
+    const workerKinds: Record<string, WorkerKind> = {}
     for (const w of workers ?? []) {
-      const row = w as { name: string; left_at?: string | null }
+      const row = w as { name: string; left_at?: string | null; kind?: string | null }
       if (row.left_at) workerLeftAt[row.name] = String(row.left_at).slice(0, 10)
+      workerKinds[row.name] = row.kind === 'partner' ? 'partner' : 'staff'
     }
     return {
       schedules: scheduleRows,
       workers: effectiveWorkerList(workerNames, scheduleRows),
       workerLeftAt,
+      workerKinds,
       dayMemos: Object.fromEntries(
         (memos ?? []).map((m: { date: string; memo: string }) => [m.date, m.memo ?? ''])
       ),
@@ -214,10 +217,27 @@ export function mergeScheduleData(
     if (v) workerLeftAt[name] = v.slice(0, 10)
   }
 
+  // 区分: 自分が変更していれば自分、そうでなければサーバー（未設定は自社）
+  const workerKinds: Record<string, WorkerKind> = {}
+  const kindNames = new Set([
+    ...workers,
+    ...Object.keys(base.workerKinds ?? {}),
+    ...Object.keys(local.workerKinds ?? {}),
+    ...Object.keys(server.workerKinds ?? {}),
+  ])
+  for (const name of kindNames) {
+    if (!workers.includes(name)) continue
+    const b = (base.workerKinds ?? {})[name] ?? 'staff'
+    const l = (local.workerKinds ?? {})[name] ?? 'staff'
+    const s = (server.workerKinds ?? {})[name] ?? 'staff'
+    workerKinds[name] = (l !== b ? l : s) === 'partner' ? 'partner' : 'staff'
+  }
+
   return {
     schedules,
     workers: effectiveWorkerList(workers, schedules),
     workerLeftAt,
+    workerKinds,
     dayMemos,
   }
 }
@@ -276,14 +296,16 @@ export async function saveScheduleData(
     //    （他端末が追加した作業員を消さない。削除はベースラインにあった分のみ適用）
     const { data: serverWorkerRows } = await supabase
       .from('schedule_workers')
-      .select('name, sort_order, left_at')
+      .select('name, sort_order, left_at, kind')
       .eq('company_id', companyId)
       .order('sort_order')
     const serverWorkers = (serverWorkerRows ?? []).map((w: { name: string }) => w.name)
     const serverLeftAt: Record<string, string> = {}
+    const serverKinds: Record<string, WorkerKind> = {}
     for (const w of serverWorkerRows ?? []) {
-      const row = w as { name: string; left_at?: string | null }
+      const row = w as { name: string; left_at?: string | null; kind?: string | null }
       if (row.left_at) serverLeftAt[row.name] = String(row.left_at).slice(0, 10)
+      serverKinds[row.name] = row.kind === 'partner' ? 'partner' : 'staff'
     }
     const removedByMe = new Set(
       baseline ? (baseline.workers ?? []).filter((w) => !workersToStore.includes(w)) : []
@@ -293,13 +315,16 @@ export async function saveScheduleData(
       if (!finalWorkers.includes(w) && !removedByMe.has(w)) finalWorkers.push(w)
     }
     const leftAtMap: Record<string, string> = {}
+    const kindMap: Record<string, WorkerKind> = {}
     const localNames = new Set(workersToStore)
     for (const name of finalWorkers) {
       if (localNames.has(name)) {
         const v = (data.workerLeftAt ?? {})[name]
         if (v) leftAtMap[name] = v.slice(0, 10)
-      } else if (serverLeftAt[name]) {
-        leftAtMap[name] = serverLeftAt[name]
+        kindMap[name] = (data.workerKinds ?? {})[name] === 'partner' ? 'partner' : 'staff'
+      } else {
+        if (serverLeftAt[name]) leftAtMap[name] = serverLeftAt[name]
+        kindMap[name] = serverKinds[name] ?? 'staff'
       }
     }
     await supabase.from('schedule_workers').delete().eq('company_id', companyId)
@@ -310,6 +335,7 @@ export async function saveScheduleData(
           sort_order: i,
           company_id: companyId,
           left_at: leftAtMap[name] ?? null,
+          kind: kindMap[name] ?? 'staff',
         }))
       )
     }

@@ -4,7 +4,7 @@
 // ================================================================
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Project, Quantity, Vehicle } from "@/lib/utils"
-import type { ScheduleEntry } from "@/types/schedule"
+import type { ScheduleEntry, WorkerKind } from "@/types/schedule"
 import { syncAllProjectsScheduleLabor, jstTodayYmd } from "@/lib/scheduleLabor"
 import { DEFAULT_COMPANY_ID } from "@/lib/tenant"
 
@@ -92,12 +92,24 @@ export async function syncScheduleLaborForCompany(
     if (schedErr) throw schedErr
     const schedules = mapScheduleRows(schedRows ?? [])
 
+    const { data: workerRows } = await supabase
+      .from("schedule_workers")
+      .select("name, kind")
+      .eq("company_id", companyId)
+    const workerKinds: Record<string, WorkerKind> = {}
+    for (const w of workerRows ?? []) {
+      const row = w as { name: string; kind?: string | null }
+      if (row.kind === "partner") workerKinds[row.name] = "partner"
+      else workerKinds[row.name] = "staff"
+    }
+
     const result = syncAllProjectsScheduleLabor(
       projects,
       schedules,
       vehicles,
       quantities,
-      today
+      today,
+      workerKinds
     )
 
     if (!result.changed) {

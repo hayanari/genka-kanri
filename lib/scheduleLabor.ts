@@ -4,10 +4,12 @@
 // ・終了した日（今日より前）だけを対象
 // ・自動行は note で一意管理し、再同期しても重複しない
 // ・手入力行（自動マーカーなし）は触らない
+// ・協力業者（partner）は人工に含めない（外注費は請求時に手入力）
 // ================================================================
-import type { ScheduleEntry } from "@/types/schedule"
+import type { ScheduleEntry, WorkerKind } from "@/types/schedule"
 import type { Project, Quantity, Vehicle } from "@/lib/utils"
 import { genId } from "@/lib/constants"
+import { isPartnerWorker } from "@/lib/scheduleUtils"
 
 /** 自動転記行を識別する備考プレフィックス */
 export const AUTO_NOTE_PREFIX = "スケジュール自動集計"
@@ -63,7 +65,8 @@ type DayAgg = {
 function aggregateDaysForProject(
   project: Project,
   schedules: ScheduleEntry[],
-  untilExclusive: string
+  untilExclusive: string,
+  workerKinds?: Record<string, WorkerKind> | null
 ): DayAgg[] {
   const byDate = new Map<string, DayAgg>()
   for (const e of schedules) {
@@ -76,7 +79,11 @@ function aggregateDaysForProject(
       byDate.set(e.date, agg)
     }
     for (const w of e.workers ?? []) {
-      if (w.trim()) agg.workers.add(w.trim())
+      const name = w.trim()
+      if (!name) continue
+      // 協力業者は人工（自社人日）に入れない
+      if (isPartnerWorker(name, workerKinds)) continue
+      agg.workers.add(name)
     }
     for (const vid of e.vehicleIds ?? []) {
       if (vid) agg.vehicleIds.add(vid)
@@ -85,15 +92,16 @@ function aggregateDaysForProject(
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
 }
 
-/** 終了日分の自動転記行を生成（人数・使用車両） */
+/** 終了日分の自動転記行を生成（自社人数・使用車両） */
 export function buildDailyAutoQuantities(
   project: Project,
   schedules: ScheduleEntry[],
   vehicles: Vehicle[],
-  untilExclusive?: string
+  untilExclusive?: string,
+  workerKinds?: Record<string, WorkerKind> | null
 ): Quantity[] {
   const until = untilExclusive ?? jstTodayYmd()
-  const days = aggregateDaysForProject(project, schedules, until)
+  const days = aggregateDaysForProject(project, schedules, until, workerKinds)
   const vehicleName = (id: string) =>
     vehicles.find((v) => v.id === id)?.registration ?? id
   const rows: Quantity[] = []
@@ -145,9 +153,16 @@ export function syncProjectScheduleLabor(
   schedules: ScheduleEntry[],
   vehicles: Vehicle[],
   existing: Quantity[],
-  untilExclusive?: string
+  untilExclusive?: string,
+  workerKinds?: Record<string, WorkerKind> | null
 ): SyncLaborResult {
-  const desired = buildDailyAutoQuantities(project, schedules, vehicles, untilExclusive)
+  const desired = buildDailyAutoQuantities(
+    project,
+    schedules,
+    vehicles,
+    untilExclusive,
+    workerKinds
+  )
   const desiredByNote = new Map(desired.map((q) => [q.note, q]))
 
   const others = existing.filter((q) => q.projectId !== project.id)
@@ -199,7 +214,8 @@ export function syncAllProjectsScheduleLabor(
   schedules: ScheduleEntry[],
   vehicles: Vehicle[],
   existing: Quantity[],
-  untilExclusive?: string
+  untilExclusive?: string,
+  workerKinds?: Record<string, WorkerKind> | null
 ): SyncLaborResult {
   let quantities = existing
   let added = 0
@@ -209,7 +225,14 @@ export function syncAllProjectsScheduleLabor(
 
   for (const p of projects) {
     if (p.deleted || p.archived) continue
-    const r = syncProjectScheduleLabor(p, schedules, vehicles, quantities, untilExclusive)
+    const r = syncProjectScheduleLabor(
+      p,
+      schedules,
+      vehicles,
+      quantities,
+      untilExclusive,
+      workerKinds
+    )
     quantities = r.quantities
     added += r.added
     removed += r.removed

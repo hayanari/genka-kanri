@@ -2,7 +2,7 @@
 // lib/scheduleUtils.ts
 // ビジネスロジック・ユーティリティ
 // ================================================================
-import type { ScheduleEntry, DayMemos } from '@/types/schedule'
+import type { ScheduleEntry, DayMemos, WorkerKind } from '@/types/schedule'
 import { DEFAULT_WORKERS } from './sampleData'
 
 // ─── カラー ───────────────────────────────────────────────────────
@@ -15,6 +15,31 @@ const _colorMap: Record<string, string> = {}
 DEFAULT_WORKERS.forEach((w, i) => { _colorMap[w] = W_COLORS[i % W_COLORS.length] })
 
 export const workerColor = (name: string): string => _colorMap[name] ?? '#546e7a'
+
+/** 協力業者チップ用の固定色（自社カラーと区別） */
+export const PARTNER_WORKER_COLOR = '#e65100'
+
+export function getWorkerKind(
+  name: string,
+  workerKinds?: Record<string, WorkerKind> | null
+): WorkerKind {
+  return workerKinds?.[name] === 'partner' ? 'partner' : 'staff'
+}
+
+export function isPartnerWorker(
+  name: string,
+  workerKinds?: Record<string, WorkerKind> | null
+): boolean {
+  return getWorkerKind(name, workerKinds) === 'partner'
+}
+
+/** 表示色: 協力は固定オレンジ、自社は従来カラー */
+export function displayWorkerColor(
+  name: string,
+  workerKinds?: Record<string, WorkerKind> | null
+): string {
+  return isPartnerWorker(name, workerKinds) ? PARTNER_WORKER_COLOR : workerColor(name)
+}
 
 export const hexRgba = (hex: string, alpha: number): string => {
     const r = parseInt(hex.slice(1, 3), 16)

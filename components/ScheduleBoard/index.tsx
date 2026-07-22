@@ -7,7 +7,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
-import type { ScheduleEntry, DayMemos, ViewType, ScheduleData } from '@/types/schedule'
+import type { ScheduleEntry, DayMemos, ViewType, ScheduleData, WorkerKind } from '@/types/schedule'
 import type { Project, Vehicle } from '@/lib/utils'
 import { loadScheduleData, saveScheduleData, saveSchedulePendingSync, fetchScheduleRevision, mergeScheduleData, VIEWER_FORBIDDEN_MSG } from '@/lib/scheduleStorage'
 import { logAudit } from '@/lib/auditLog'
@@ -16,7 +16,7 @@ import { loadWorkerContacts, saveWorkerContact, deleteWorkerContact } from '@/li
 import { computeScheduleChanges } from '@/lib/scheduleNotify'
 import { createClient } from '@/lib/supabase/client'
 import {
-  TODAY_STR, daysInMonth, genId, workerColor, hexRgba,
+  TODAY_STR, daysInMonth, genId, displayWorkerColor, hexRgba,
   getConflicts, getMonthSchedules, applySameDayKoujimeiSuffix,
   effectiveWorkerList,
 } from '@/lib/scheduleUtils'
@@ -31,6 +31,7 @@ export default function ScheduleBoard() {
   // ── State ──────────────────────────────────────────────────────
   const [workers,   setWorkers]   = useState<string[]>([])
   const [workerLeftAt, setWorkerLeftAt] = useState<Record<string, string>>({})
+  const [workerKinds, setWorkerKinds] = useState<Record<string, WorkerKind>>({})
   const [schedules, setSchedules] = useState<ScheduleEntry[]>([])
   const [dayMemos,  setDayMemos]  = useState<DayMemos>({})
   const [view,           setView]           = useState<ViewType>('cal')
@@ -72,15 +73,28 @@ export default function ScheduleBoard() {
     w: string[],
     s: ScheduleEntry[],
     m: DayMemos,
-    opts?: { prevSchedules?: ScheduleEntry[]; leftAt?: Record<string, string> }
+    opts?: {
+      prevSchedules?: ScheduleEntry[]
+      leftAt?: Record<string, string>
+      kinds?: Record<string, WorkerKind>
+    }
   ): Promise<ScheduleData | null> => {
     const wEff = effectiveWorkerList(w, s)
     const left = opts?.leftAt ?? workerLeftAt
+    const kinds = opts?.kinds ?? workerKinds
     const cleanedLeft: Record<string, string> = {}
+    const cleanedKinds: Record<string, WorkerKind> = {}
     for (const name of wEff) {
       if (left[name]) cleanedLeft[name] = left[name].slice(0, 10)
+      cleanedKinds[name] = kinds[name] === 'partner' ? 'partner' : 'staff'
     }
-    let payload: ScheduleData = { workers: wEff, schedules: s, dayMemos: m, workerLeftAt: cleanedLeft }
+    let payload: ScheduleData = {
+      workers: wEff,
+      schedules: s,
+      dayMemos: m,
+      workerLeftAt: cleanedLeft,
+      workerKinds: cleanedKinds,
+    }
     let deleteBaseline: ScheduleData | undefined = baselineRef.current ?? undefined
     const remote = await fetchScheduleRevision()
     if (
@@ -149,7 +163,7 @@ export default function ScheduleBoard() {
       }
     }
     return payload
-  }, [workerLeftAt])
+  }, [workerLeftAt, workerKinds])
 
   // ── スケジュール初期ロード ────────────────────────────────────────
   useEffect(() => {
@@ -163,18 +177,21 @@ export default function ScheduleBoard() {
         const s = data.schedules ?? []
         const m = data.dayMemos ?? {}
         const left = data.workerLeftAt ?? {}
+        const kinds = data.workerKinds ?? {}
         setWorkers(w)
         setSchedules(s)
         setDayMemos(m)
         setWorkerLeftAt(left)
-        baselineRef.current = { workers: w, schedules: s, dayMemos: m, workerLeftAt: left }
+        setWorkerKinds(kinds)
+        baselineRef.current = { workers: w, schedules: s, dayMemos: m, workerLeftAt: left, workerKinds: kinds }
       } else {
         // サーバーが空のときはサンプルを表示せず、空のまま開始する
         setWorkers([])
         setSchedules([])
         setDayMemos({})
         setWorkerLeftAt({})
-        baselineRef.current = { workers: [], schedules: [], dayMemos: {}, workerLeftAt: {} }
+        setWorkerKinds({})
+        baselineRef.current = { workers: [], schedules: [], dayMemos: {}, workerLeftAt: {}, workerKinds: {} }
       }
       if (!cancelled) lastSyncedRevisionRef.current = await fetchScheduleRevision()
       } catch (e) {
@@ -200,12 +217,14 @@ export default function ScheduleBoard() {
       const s = fresh.schedules ?? []
       const mem = fresh.dayMemos ?? {}
       const left = fresh.workerLeftAt ?? {}
+      const kinds = fresh.workerKinds ?? {}
       const { year: y, month: mo } = yearMonthRef.current
       setWorkers(w)
       setSchedules(s)
       setDayMemos(mem)
       setWorkerLeftAt(left)
-      baselineRef.current = { workers: w, schedules: s, dayMemos: mem, workerLeftAt: left }
+      setWorkerKinds(kinds)
+      baselineRef.current = { workers: w, schedules: s, dayMemos: mem, workerLeftAt: left, workerKinds: kinds }
       lastSyncedRevisionRef.current = await fetchScheduleRevision()
       setSyncNotice('他の端末での更新を取り込みました')
       window.setTimeout(() => setSyncNotice(null), 5000)
@@ -218,11 +237,11 @@ export default function ScheduleBoard() {
   useEffect(() => {
     const handler = () => {
       if (!scheduleHydratedRef.current) return
-      saveSchedulePendingSync({ workers, schedules, dayMemos, workerLeftAt })
+      saveSchedulePendingSync({ workers, schedules, dayMemos, workerLeftAt, workerKinds })
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [workers, schedules, dayMemos, workerLeftAt])
+  }, [workers, schedules, dayMemos, workerLeftAt, workerKinds])
 
   /** persist の結果（マージ後の確定データ）を画面に反映 */
   const applySaved = (saved: ScheduleData) => {
@@ -230,6 +249,7 @@ export default function ScheduleBoard() {
     setWorkers(saved.workers)
     setDayMemos(saved.dayMemos)
     setWorkerLeftAt(saved.workerLeftAt ?? {})
+    setWorkerKinds(saved.workerKinds ?? {})
   }
 
   // ── 予定 CRUD ──────────────────────────────────────────────────
@@ -264,10 +284,12 @@ export default function ScheduleBoard() {
   }
 
   // ── 作業員 CRUD ──────────────────────────────────────────────────
-  const handleAddWorker = async (name: string) => {
+  const handleAddWorker = async (name: string, kind: WorkerKind = 'staff') => {
     if (!name || workers.includes(name)) return
     const next = [...workers, name]
-    const saved = await persist(next, schedules, dayMemos)
+    const nextKind: WorkerKind = kind === 'partner' ? 'partner' : 'staff'
+    const nextKinds: Record<string, WorkerKind> = { ...workerKinds, [name]: nextKind }
+    const saved = await persist(next, schedules, dayMemos, { kinds: nextKinds })
     if (saved !== null) applySaved(saved)
   }
   const handleRemoveWorker = async (name: string) => {
@@ -279,9 +301,12 @@ export default function ScheduleBoard() {
     }))
     const nextLeft = { ...workerLeftAt }
     delete nextLeft[name]
+    const nextKinds = { ...workerKinds }
+    delete nextKinds[name]
     const saved = await persist(nextWorkers, nextSchedules, dayMemos, {
       prevSchedules: schedules,
       leftAt: nextLeft,
+      kinds: nextKinds,
     })
     if (saved === null) return
     applySaved(saved)
@@ -322,7 +347,15 @@ export default function ScheduleBoard() {
       nextLeft[trimmed] = nextLeft[oldName]
       delete nextLeft[oldName]
     }
-    const saved = await persist(nextWorkers, nextSchedules, dayMemos, { leftAt: nextLeft })
+    const nextKinds = { ...workerKinds }
+    if (nextKinds[oldName]) {
+      nextKinds[trimmed] = nextKinds[oldName]
+      delete nextKinds[oldName]
+    }
+    const saved = await persist(nextWorkers, nextSchedules, dayMemos, {
+      leftAt: nextLeft,
+      kinds: nextKinds,
+    })
     if (saved === null) return false
     applySaved(saved)
     const email = workerContacts[oldName] ?? ''
@@ -342,7 +375,7 @@ export default function ScheduleBoard() {
     if (filterWorker === oldName) setFilterWorker(trimmed)
     if (selectedWorker === oldName) setSelectedWorker(trimmed)
     return true
-  }, [workers, schedules, dayMemos, persist, workerContacts, filterWorker, selectedWorker, workerLeftAt])
+  }, [workers, schedules, dayMemos, persist, workerContacts, filterWorker, selectedWorker, workerLeftAt, workerKinds])
 
   const handleSetWorkerLeftAt = useCallback(async (name: string, leftAt: string | null) => {
     const nextLeft = { ...workerLeftAt }
@@ -351,6 +384,14 @@ export default function ScheduleBoard() {
     const saved = await persist(workers, schedules, dayMemos, { leftAt: nextLeft })
     if (saved !== null) applySaved(saved)
   }, [workers, schedules, dayMemos, workerLeftAt, persist])
+
+  const handleSetWorkerKind = useCallback(async (name: string, kind: WorkerKind) => {
+    const nextKind: WorkerKind = kind === 'partner' ? 'partner' : 'staff'
+    const nextKinds: Record<string, WorkerKind> = { ...workerKinds, [name]: nextKind }
+    const saved = await persist(workers, schedules, dayMemos, { kinds: nextKinds })
+    if (saved !== null) applySaved(saved)
+  }, [workers, schedules, dayMemos, workerKinds, persist])
+
   const handleSaveContact = useCallback(async (workerName: string, email: string) => {
     await saveWorkerContact(workerName, email)
     setWorkerContacts(prev => ({ ...prev, [workerName]: email }))
@@ -533,8 +574,8 @@ export default function ScheduleBoard() {
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
             {filterWorker && <>
-              <span style={{ fontSize: 11, background: hexRgba(workerColor(filterWorker), 0.1), color: workerColor(filterWorker), border: `1px solid ${hexRgba(workerColor(filterWorker), 0.3)}`, padding: '3px 8px', borderRadius: 3 }}>
-                🔍 {filterWorker}
+              <span style={{ fontSize: 11, background: hexRgba(displayWorkerColor(filterWorker, workerKinds), 0.1), color: displayWorkerColor(filterWorker, workerKinds), border: `1px solid ${hexRgba(displayWorkerColor(filterWorker, workerKinds), 0.3)}`, padding: '3px 8px', borderRadius: 3 }}>
+                🔍 {filterWorker}{workerKinds[filterWorker] === 'partner' ? '（協力）' : ''}
               </span>
               {navBtn(false, () => setFilterWorker(null), '✕ 解除')}
             </>}
@@ -589,7 +630,7 @@ export default function ScheduleBoard() {
         {view === 'cal' && (
           <CalendarView
             year={year} month={month}
-            schedules={schedules} workers={workers} workerLeftAt={workerLeftAt}
+            schedules={schedules} workers={workers} workerLeftAt={workerLeftAt} workerKinds={workerKinds}
             vehicles={vehicles} projects={projects} dayMemos={dayMemos}
             filterWorker={filterWorker}
             onFilterWorker={handleFilterWorker}
@@ -602,7 +643,7 @@ export default function ScheduleBoard() {
         {view === 'list' && (
           <ListView
             schedules={schedules} vehicles={vehicles} dayMemos={dayMemos}
-            filterWorker={filterWorker} searchText={searchText}
+            filterWorker={filterWorker} searchText={searchText} workerKinds={workerKinds}
             onClickEntry={e => setModal({ entry: e, isEdit: true })}
             onDeleteEntry={handleDeleteEntry}
           />
@@ -611,7 +652,7 @@ export default function ScheduleBoard() {
         {view === 'worker' && (
           <WorkerView
             workers={workers} schedules={schedules} vehicles={vehicles}
-            selectedWorker={selectedWorker}
+            selectedWorker={selectedWorker} workerKinds={workerKinds}
             onSelect={setSelectedWorker}
             onBack={() => setSelectedWorker(null)}
           />
@@ -623,11 +664,13 @@ export default function ScheduleBoard() {
             schedules={schedules}
             workerContacts={workerContacts}
             workerLeftAt={workerLeftAt}
+            workerKinds={workerKinds}
             onAdd={handleAddWorker}
             onRemove={handleRemoveWorker}
             onRename={handleRenameWorker}
             onSaveContact={handleSaveContact}
             onSetLeftAt={handleSetWorkerLeftAt}
+            onSetKind={handleSetWorkerKind}
             onTestTeams={handleTestTeams}
           />
         )}
@@ -639,6 +682,7 @@ export default function ScheduleBoard() {
           entry={modal.entry}
           workers={workers}
           workerLeftAt={workerLeftAt}
+          workerKinds={workerKinds}
           projects={projects}
           vehicles={vehicles}
           isEdit={modal.isEdit}

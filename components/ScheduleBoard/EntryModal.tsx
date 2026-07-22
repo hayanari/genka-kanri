@@ -4,9 +4,9 @@
 // 予定追加・編集モーダル
 // ================================================================
 import React, { useState, useMemo } from 'react'
-import type { ScheduleEntry, Shift } from '@/types/schedule'
+import type { ScheduleEntry, Shift, WorkerKind } from '@/types/schedule'
 import type { Project, Vehicle } from '@/lib/utils'
-import { genId, getBaseKoujimei, workerColor, hexRgba, getSelectableWorkers } from '@/lib/scheduleUtils'
+import { genId, getBaseKoujimei, displayWorkerColor, hexRgba, getSelectableWorkers } from '@/lib/scheduleUtils'
 
 const OTHER_ID = '__other__'
 
@@ -15,6 +15,7 @@ interface Props {
   entry: Partial<ScheduleEntry> & { date: string }
   workers: string[]
   workerLeftAt?: Record<string, string>
+  workerKinds?: Record<string, WorkerKind>
   projects: Project[]
   vehicles: Vehicle[]
   isEdit: boolean
@@ -36,7 +37,7 @@ const SHIFT_HINT: Record<Shift, string | null> = {
 }
 
 export const EntryModal: React.FC<Props> = ({
-  entry, workers, workerLeftAt, projects, vehicles, isEdit, onSave, onDelete, onClose,
+  entry, workers, workerLeftAt, workerKinds, projects, vehicles, isEdit, onSave, onDelete, onClose,
 }) => {
   const baseKouji = getBaseKoujimei(entry.koujimei ?? '')
   const matchedProj = useMemo(
@@ -186,17 +187,20 @@ export const EntryModal: React.FC<Props> = ({
             }}>
               {selectableWorkers.map(w => {
                 const sel = selected.has(w)
-                const c = workerColor(w)
+                const partner = workerKinds?.[w] === 'partner'
+                const c = displayWorkerColor(w, workerKinds)
                 return (
-                  <span key={w} onClick={() => toggleWorker(w)} style={{
+                  <span key={w} onClick={() => toggleWorker(w)} title={partner ? '協力（人工転記なし）' : undefined} style={{
                     padding: '3px 9px', borderRadius: 3, fontSize: 11,
                     cursor: 'pointer', transition: 'all .1s',
                     background: sel ? hexRgba(c, 0.12) : '#fff',
                     color:      sel ? c                 : '#4a6280',
-                    border:     sel ? `2px solid ${c}`  : '1px solid #d0d8e4',
+                    border:     sel
+                      ? `2px ${partner ? 'dashed' : 'solid'} ${c}`
+                      : `1px ${partner ? 'dashed' : 'solid'} #d0d8e4`,
                     fontWeight: sel ? 700 : 400,
                   }}>
-                    {w}
+                    {partner ? `協 ${w}` : w}
                   </span>
                 )
               })}

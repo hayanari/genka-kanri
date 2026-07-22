@@ -4,11 +4,12 @@
 // 一覧ビュー / 作業員ビュー / マスタービュー
 // ================================================================
 import React, { useState } from 'react'
-import type { ScheduleEntry, DayMemos } from '@/types/schedule'
+import type { ScheduleEntry, DayMemos, WorkerKind } from '@/types/schedule'
 import type { Vehicle } from '@/lib/utils'
 import {
-  TODAY_STR, DOW_LABELS, getConflicts, getVehicleConflicts, workerColor,
+  TODAY_STR, DOW_LABELS, getConflicts, getVehicleConflicts, displayWorkerColor,
 } from '@/lib/scheduleUtils'
+import { WORKER_KIND_LABELS } from '@/types/schedule'
 import { ShiftBadge, WChip, WorkerRow, OffWorkerRow, VehicleRow } from './Chips'
 
 // ── 共通スタイル ─────────────────────────────────────────────────
@@ -26,11 +27,12 @@ interface ListViewProps {
   dayMemos: DayMemos
   filterWorker: string | null
   searchText: string
+  workerKinds?: Record<string, WorkerKind>
   onClickEntry: (e: ScheduleEntry) => void
   onDeleteEntry: (id: string) => void
 }
 export const ListView: React.FC<ListViewProps> = ({
-  schedules, vehicles, dayMemos, filterWorker, searchText, onClickEntry, onDeleteEntry,
+  schedules, vehicles, dayMemos, filterWorker, searchText, workerKinds, onClickEntry, onDeleteEntry,
 }) => {
   const vehicleMap = React.useMemo(() => new Map(vehicles.map(v => [v.id, v.registration])), [vehicles])
   let filtered = schedules
@@ -54,7 +56,7 @@ export const ListView: React.FC<ListViewProps> = ({
       {filtered.map(e => {
         const cf = getConflicts(e.date, schedules)
         const isOff = e.shift === 'off', isNight = e.shift === 'night'
-        const pc = isOff ? '#546e7a' : isNight ? '#1a237e' : workerColor(e.workers[0] ?? '')
+        const pc = isOff ? '#546e7a' : isNight ? '#1a237e' : displayWorkerColor(e.workers[0] ?? '', workerKinds)
         const dm = dayMemos[e.date]
         const sep = e.date !== lastDate
         lastDate = e.date
@@ -85,8 +87,8 @@ export const ListView: React.FC<ListViewProps> = ({
                 </div>
                 <div style={{ marginTop: 3, display: 'flex', flexWrap: 'wrap', gap: 3, flexDirection: 'column', alignItems: 'flex-start' }}>
                   {isOff
-                    ? <OffWorkerRow workers={e.workers} conflicts={cf} />
-                    : <WorkerRow workers={e.workers} conflicts={cf} isNight={isNight} />
+                    ? <OffWorkerRow workers={e.workers} conflicts={cf} workerKinds={workerKinds} />
+                    : <WorkerRow workers={e.workers} conflicts={cf} isNight={isNight} workerKinds={workerKinds} />
                   }
                   <VehicleRow vehicleIds={e.vehicleIds ?? []} vehicleMap={vehicleMap} conflicts={getVehicleConflicts(e.date, schedules)} />
                 </div>
@@ -111,16 +113,18 @@ interface WorkerViewProps {
   schedules: ScheduleEntry[]
   vehicles: Vehicle[]
   selectedWorker: string | null
+  workerKinds?: Record<string, WorkerKind>
   onSelect: (w: string) => void
   onBack: () => void
 }
 export const WorkerView: React.FC<WorkerViewProps> = ({
-  workers, schedules, vehicles, selectedWorker, onSelect, onBack,
+  workers, schedules, vehicles, selectedWorker, workerKinds, onSelect, onBack,
 }) => {
   const vehicleMap = React.useMemo(() => new Map(vehicles.map(v => [v.id, v.registration])), [vehicles])
   if (selectedWorker) {
     const w = selectedWorker
-    const c = workerColor(w)
+    const c = displayWorkerColor(w, workerKinds)
+    const partner = workerKinds?.[w] === 'partner'
     const entries = schedules.filter(e => e.workers.includes(w)).sort((a, b) => a.date.localeCompare(b.date))
     let lastDate2 = ''
     return (
@@ -128,8 +132,18 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
         <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 30, height: 30, borderRadius: '50%', background: c }} />
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: c }}>{w}</div>
-            <div style={{ fontSize: 11, color: '#4a6280' }}>登録 {entries.length} 件</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: c }}>
+              {w}
+              {partner && (
+                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: '#e65100' }}>
+                  {WORKER_KIND_LABELS.partner}
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: '#4a6280' }}>
+              登録 {entries.length} 件
+              {partner && ' · 人工転記なし（外注費は請求時に手入力）'}
+            </div>
           </div>
         </div>
         {entries.map(e => {
@@ -161,7 +175,7 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
                   <>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, marginTop: 3 }}>
                       {e.workers.filter(x => x !== w).map(x => (
-                        <WChip key={x} name={x} isConflict={false} isNight={isN} />
+                        <WChip key={x} name={x} isConflict={false} isNight={isN} kind={workerKinds?.[x] === 'partner' ? 'partner' : 'staff'} />
                       ))}
                     </div>
                     <VehicleRow vehicleIds={e.vehicleIds ?? []} vehicleMap={vehicleMap} conflicts={getVehicleConflicts(e.date, schedules)} />
@@ -178,10 +192,11 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 8 }}>
       {workers.map(w => {
-        const c       = workerColor(w)
+        const c       = displayWorkerColor(w, workerKinds)
         const total   = schedules.filter(e => e.workers.includes(w) && e.shift !== 'off').length
         const offCnt  = schedules.filter(e => e.workers.includes(w) && e.shift === 'off').length
         const hc      = schedules.filter(e => e.workers.includes(w)).some(e => getConflicts(e.date, schedules).has(w))
+        const partner = workerKinds?.[w] === 'partner'
         return (
           <div key={w} onClick={() => onSelect(w)} style={{
             background: '#fff', border: '1px solid #d0d8e4', borderRadius: 6,
@@ -193,6 +208,11 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div style={{ width: 12, height: 12, borderRadius: '50%', background: c, flexShrink: 0 }} />
               <span style={{ fontSize: 13, fontWeight: 700, color: c }}>{w}</span>
+              {partner && (
+                <span style={{ fontSize: 9, fontWeight: 700, color: '#e65100', border: '1px dashed #e65100', padding: '0 4px', borderRadius: 2 }}>
+                  協力
+                </span>
+              )}
               {hc && <span style={{ fontSize: 10, fontWeight: 700, color: '#c62828', background: '#fff5f5', border: '1px solid #ffcdd2', padding: '0 4px', borderRadius: 2 }}>!</span>}
             </div>
             <div style={{ fontSize: 10, color: '#4a6280', marginTop: 4 }}>
@@ -214,23 +234,32 @@ interface MasterViewProps {
   schedules: ScheduleEntry[]
   workerContacts: Record<string, string>
   workerLeftAt: Record<string, string>
-  onAdd: (name: string) => void
+  workerKinds: Record<string, WorkerKind>
+  onAdd: (name: string, kind?: WorkerKind) => void
   onRemove: (name: string) => void
   onRename: (oldName: string, newName: string) => Promise<boolean>
   onSaveContact: (name: string, email: string) => void
   onSetLeftAt: (name: string, leftAt: string | null) => void
+  onSetKind: (name: string, kind: WorkerKind) => void
   onTestTeams?: () => void
 }
 export const MasterView: React.FC<MasterViewProps> = ({
-  workers, schedules, workerContacts, workerLeftAt,
-  onAdd, onRemove, onRename, onSaveContact, onSetLeftAt, onTestTeams,
+  workers, schedules, workerContacts, workerLeftAt, workerKinds,
+  onAdd, onRemove, onRename, onSaveContact, onSetLeftAt, onSetKind, onTestTeams,
 }) => {
   const [name, setName] = useState('')
+  const [addKind, setAddKind] = useState<WorkerKind>('staff')
   const [editingEmail, setEditingEmail] = useState<Record<string, string>>({})
   const [editingDisplayName, setEditingDisplayName] = useState<Record<string, string>>({})
   const [editingLeftAt, setEditingLeftAt] = useState<Record<string, string>>({})
   const [testLoading, setTestLoading] = useState(false)
-  const add = () => { onAdd(name.trim()); setName('') }
+  const add = () => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    onAdd(trimmed, addKind)
+    setName('')
+    setAddKind('staff')
+  }
   const handleTest = () => {
     if (!onTestTeams) return
     setTestLoading(true)
@@ -240,7 +269,7 @@ export const MasterView: React.FC<MasterViewProps> = ({
   return (
     <div>
       <p style={{ fontSize: 11, color: '#4a6280', marginBottom: 12 }}>
-        表示名・メール・退職日を編集できます。退職日を入れると、その日以降はカレンダーの「空き」と予定の選択候補から外れます（過去の予定はそのまま残ります）。
+        表示名・区分・メール・退職日を編集できます。「協力」はスケジュールに配置できますが人工には転記しません（請求書が来たら外注費として手入力）。
       </p>
       {onTestTeams && (
         <div style={{ marginBottom: 12 }}>
@@ -258,20 +287,30 @@ export const MasterView: React.FC<MasterViewProps> = ({
           <span style={{ marginLeft: 8, fontSize: 10, color: '#8aa0b8' }}>チャネルに届くか確認</span>
         </div>
       )}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <input
           type="text" value={name} onChange={e => setName(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') add() }}
           placeholder="氏名を入力して追加"
           style={{ padding: '7px 10px', border: '1px solid #d0d8e4', borderRadius: 4, fontSize: 12, flex: 1, maxWidth: 240 }}
         />
+        <select
+          value={addKind}
+          onChange={e => setAddKind(e.target.value as WorkerKind)}
+          aria-label="追加する区分"
+          style={{ padding: '7px 8px', border: '1px solid #d0d8e4', borderRadius: 4, fontSize: 12 }}
+        >
+          <option value="staff">{WORKER_KIND_LABELS.staff}</option>
+          <option value="partner">{WORKER_KIND_LABELS.partner}</option>
+        </select>
         <button onClick={add} style={{ padding: '5px 14px', borderRadius: 4, border: 'none', background: '#e65c00', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 700 }}>
           ＋ 追加
         </button>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {workers.map(w => {
-          const c   = workerColor(w)
+          const kind = workerKinds[w] === 'partner' ? 'partner' : 'staff'
+          const c   = displayWorkerColor(w, workerKinds)
           const cnt = schedules.filter(e => e.workers.includes(w) && e.shift !== 'off').length
           const email = editingEmail[w] ?? workerContacts[w] ?? ''
           const displayName = editingDisplayName[w] ?? w
@@ -305,7 +344,7 @@ export const MasterView: React.FC<MasterViewProps> = ({
           }
           return (
             <div key={w} style={{ background: '#fff', border: '1px solid #d0d8e4', borderRadius: 6, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ width: 14, height: 14, borderRadius: '50%', background: c, flexShrink: 0 }} />
                 <input
                   type="text"
@@ -319,6 +358,20 @@ export const MasterView: React.FC<MasterViewProps> = ({
                     fontSize: 14, fontWeight: 700, color: c, fontFamily: 'inherit',
                   }}
                 />
+                <select
+                  value={kind}
+                  onChange={e => onSetKind(w, e.target.value as WorkerKind)}
+                  aria-label={`${w} の区分`}
+                  style={{
+                    padding: '5px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: 'inherit',
+                    border: kind === 'partner' ? '1px dashed #e65100' : '1px solid #d0d8e4',
+                    color: kind === 'partner' ? '#e65100' : '#4a6280',
+                    background: kind === 'partner' ? '#fff8f1' : '#fff',
+                  }}
+                >
+                  <option value="staff">{WORKER_KIND_LABELS.staff}</option>
+                  <option value="partner">{WORKER_KIND_LABELS.partner}</option>
+                </select>
                 <span style={{ fontSize: 11, color: '#4a6280', flexShrink: 0 }}>稼働 {cnt}件</span>
                 {leftVal && (
                   <span style={{ fontSize: 10, color: '#c62828', flexShrink: 0 }}>
