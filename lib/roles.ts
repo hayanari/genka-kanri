@@ -152,6 +152,19 @@ export function clearRoleCache() {
   clearTenantCache();
 }
 
+/**
+ * ログイン後の遷移先。
+ * システムオーナーは運用画面へ、それ以外は案件管理へ。
+ */
+export function resolvePostLoginPath(access: {
+  isPlatformOwner?: boolean | null;
+  canAccessAdmin?: boolean | null;
+}): string {
+  if (access.isPlatformOwner) return "/admin";
+  return "/";
+}
+
+
 /** 指定会社の権限一覧（管理画面用） */
 export async function fetchCompanyRoles(
   companyCode: string

@@ -68,6 +68,7 @@ export default function Home() {
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const lastSyncedRevisionRef = useRef<string | null>(null);
   const { role, canAccessAdmin } = useUserRole();
+  const showAdminLink = role !== null && canAccessAdmin;
   const lastAuditedSnapshotRef = useRef<GenkaSnapshot | null>(null);
   const viewRef = useRef(view);
   const csvModalRef = useRef(showCsvExportModal);
@@ -883,7 +884,7 @@ export default function Home() {
           >
             ⚙️ 設定・バックアップ
           </Link>
-          {canAccessAdmin && (
+          {showAdminLink && (
             <Link
               href="/admin"
               style={{

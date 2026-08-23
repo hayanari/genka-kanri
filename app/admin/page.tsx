@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T } from "@/lib/constants";
 import AuthGuard from "@/components/AuthGuard";
@@ -36,12 +37,14 @@ type CallerInfo = {
 };
 
 export default function AdminPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<UserItem[]>([]);
   const [companies, setCompanies] = useState<CompanyItem[]>([]);
   const [companyFilter, setCompanyFilter] = useState("tokito");
   const [caller, setCaller] = useState<CallerInfo | null>(null);
   const [error, setError] = useState("");
+  const [forbidden, setForbidden] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [resettingPw, setResettingPw] = useState<string | null>(null);
   const [roleSaving, setRoleSaving] = useState<string | null>(null);
@@ -121,8 +124,12 @@ export default function AdminPage() {
       });
       const me = await meRes.json();
       if (!meRes.ok || !me.canAccessAdmin) {
+        setForbidden(true);
         setError("このページにアクセスする権限がありません（会社管理者またはシステムオーナーが必要です）");
         setLoading(false);
+        window.setTimeout(() => {
+          router.replace("/");
+        }, 1800);
         return;
       }
 
@@ -580,6 +587,11 @@ export default function AdminPage() {
                 }}
               >
                 {error}
+                {forbidden && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: T.ts }}>
+                    案件管理へ戻ります…
+                  </div>
+                )}
               </div>
             )}
             {!loading && !error && (

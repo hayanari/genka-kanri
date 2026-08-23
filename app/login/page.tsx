@@ -6,7 +6,7 @@ import Link from "next/link";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/client";
 import { T } from "@/lib/constants";
 import { clearTenantCache } from "@/lib/tenant";
-import { clearRoleCache } from "@/lib/roles";
+import { clearRoleCache, fetchCurrentAccess, resolvePostLoginPath } from "@/lib/roles";
 import { Btn } from "@/components/ui/primitives";
 
 export default function LoginPage() {
@@ -35,7 +35,9 @@ export default function LoginPage() {
           data: { session },
         } = await supabase.auth.getSession();
         if (!cancelled && session?.user) {
-          router.replace("/");
+          clearRoleCache();
+          const access = await fetchCurrentAccess({ force: true });
+          router.replace(resolvePostLoginPath(access));
         }
       } catch {
         if (!cancelled) {
@@ -124,7 +126,8 @@ export default function LoginPage() {
       }
       clearTenantCache();
       clearRoleCache();
-      router.push("/");
+      const access = await fetchCurrentAccess({ force: true });
+      router.push(resolvePostLoginPath(access));
       router.refresh();
     } catch {
       setError("通信エラーが発生しました");
