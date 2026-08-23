@@ -1,6 +1,6 @@
 /**
- * 会社削除 API（システムオーナーのみ）
- * 関連ユーザー・データもまとめて削除。tokito は削除不可。
+ * 会社の無効化・再有効化・名称変更 / 削除
+ * システムオーナーのみ
  */
 import { NextRequest, NextResponse } from "next/server";
 import { resolveCallerFromToken } from "@/lib/permissions";
@@ -22,22 +22,109 @@ const TABLES_WITH_COMPANY_ID = [
   "genka_kanri_backups",
 ] as const;
 
+async function requirePlatformOwner(request: NextRequest) {
+  const token = request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
+  if (!token) {
+    return { error: NextResponse.json({ error: "認証が必要です" }, { status: 401 }) } as const;
+  }
+  const caller = await resolveCallerFromToken(token);
+  if (!caller?.isPlatformOwner) {
+    return {
+      error: NextResponse.json(
+        { error: "この操作はシステムオーナーのみ可能です" },
+        { status: 403 }
+      ),
+    } as const;
+  }
+  if (!isServiceRoleConfigured()) {
+    return {
+      error: NextResponse.json({ error: "server misconfigured" }, { status: 500 }),
+    } as const;
+  }
+  return { admin: createAdminClient() } as const;
+}
+
+/** 会社の有効/無効・名称変更 */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ companyCode: string }> }
+) {
+  try {
+    const gate = await requirePlatformOwner(request);
+    if ("error" in gate) return gate.error;
+    const { admin } = gate;
+
+    const { companyCode: raw } = await params;
+    const companyCode = normalizeCompanyCode(decodeURIComponent(raw || ""));
+    if (!companyCode) {
+      return NextResponse.json({ error: "会社IDが必要です" }, { status: 400 });
+    }
+
+    const body = await request.json();
+    const patch: { is_active?: boolean; name?: string } = {};
+    if (typeof body.isActive === "boolean") {
+      if (body.isActive === false && companyCode === DEFAULT_COMPANY_CODE) {
+        return NextResponse.json(
+          { error: `基幹会社（${DEFAULT_COMPANY_CODE}）は無効化できません` },
+          { status: 400 }
+        );
+      }
+      patch.is_active = body.isActive;
+    }
+    if (typeof body.name === "string" && body.name.trim()) {
+      patch.name = body.name.trim();
+    }
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json(
+        { error: "isActive または name を指定してください" },
+        { status: 400 }
+      );
+    }
+
+    const { data: updated, error } = await admin
+      .from("companies")
+      .update(patch)
+      .eq("company_code", companyCode)
+      .select("id, company_code, name, is_active")
+      .maybeSingle();
+    if (error) {
+      console.error("[admin/companies PATCH]", error);
+      return NextResponse.json(
+        {
+          error: /is_active/i.test(error.message)
+            ? "is_active 列がありません。supabase/companies_is_active.sql を実行してください"
+            : error.message,
+        },
+        { status: 500 }
+      );
+    }
+    if (!updated) {
+      return NextResponse.json({ error: "会社が見つかりません" }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      company: {
+        id: updated.id,
+        companyCode: updated.company_code,
+        name: updated.name,
+        isActive: updated.is_active !== false,
+      },
+    });
+  } catch (e) {
+    console.error("[admin/companies PATCH]", e);
+    return NextResponse.json({ error: "サーバーエラー" }, { status: 500 });
+  }
+}
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ companyCode: string }> }
 ) {
   try {
-    const token = request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
-    if (!token) {
-      return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
-    }
-    const caller = await resolveCallerFromToken(token);
-    if (!caller?.isPlatformOwner) {
-      return NextResponse.json({ error: "会社削除はシステムオーナーのみ可能です" }, { status: 403 });
-    }
-    if (!isServiceRoleConfigured()) {
-      return NextResponse.json({ error: "server misconfigured" }, { status: 500 });
-    }
+    const gate = await requirePlatformOwner(request);
+    if ("error" in gate) return gate.error;
+    const { admin } = gate;
 
     const { companyCode: raw } = await params;
     const companyCode = normalizeCompanyCode(decodeURIComponent(raw || ""));
@@ -51,7 +138,6 @@ export async function DELETE(
       );
     }
 
-    const admin = createAdminClient();
     const { data: company, error: cErr } = await admin
       .from("companies")
       .select("id, company_code, name")
@@ -68,7 +154,6 @@ export async function DELETE(
 
     const userIds = (members ?? []).map((m) => m.user_id).filter(Boolean) as string[];
 
-    // プラットフォームオーナーがこの会社にだけ所属している場合は削除しない
     if (userIds.length > 0) {
       const { data: owners } = await admin
         .from("platform_owners")
@@ -82,7 +167,6 @@ export async function DELETE(
       }
     }
 
-    // 関連テーブル掃除（FK が CASCADE でないもの）
     for (const table of TABLES_WITH_COMPANY_ID) {
       const { error } = await admin.from(table).delete().eq("company_id", company.id);
       if (error && !/does not exist|relation/i.test(error.message)) {
@@ -97,7 +181,6 @@ export async function DELETE(
       .update({ approved_company_id: null, approved_user_id: null })
       .eq("approved_company_id", company.id);
 
-    // Auth ユーザー削除（company_users は CASCADE）
     for (const userId of userIds) {
       const { error } = await admin.auth.admin.deleteUser(userId);
       if (error) {
@@ -105,7 +188,6 @@ export async function DELETE(
       }
     }
 
-    // 残った company_users があれば削除
     await admin.from("company_users").delete().eq("company_id", company.id);
 
     const { error: delErr } = await admin.from("companies").delete().eq("id", company.id);

@@ -59,17 +59,51 @@ export async function fetchCurrentTenant(): Promise<TenantCache | null> {
 
   const { data, error } = await supabase
     .from("company_users")
-    .select("login_id, company_id, companies(id, company_code, name)")
+    .select("login_id, company_id, companies(id, company_code, name, is_active)")
     .eq("user_id", user.id)
     .maybeSingle();
 
   if (error || !data?.company_id) {
+    // is_active 列が無い環境向けフォールバック
+    if (error && /is_active/i.test(error.message)) {
+      const retry = await supabase
+        .from("company_users")
+        .select("login_id, company_id, companies(id, company_code, name)")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (retry.error || !retry.data?.company_id) {
+        console.warn("[tenant] company_users 未紐付け", user.id, retry.error?.message);
+        clearTenantCache();
+        return null;
+      }
+      const company = Array.isArray(retry.data.companies)
+        ? retry.data.companies[0]
+        : retry.data.companies;
+      const code = String(company?.company_code ?? "").trim();
+      if (!code) {
+        clearTenantCache();
+        return null;
+      }
+      cachedUserId = user.id;
+      cachedTenant = {
+        companyId: String(retry.data.company_id),
+        companyCode: code,
+        companyName: String(company?.name ?? "").trim() || code,
+        loginId: String(retry.data.login_id),
+      };
+      return cachedTenant;
+    }
     console.warn("[tenant] company_users 未紐付け", user.id, error?.message);
     clearTenantCache();
     return null;
   }
 
   const company = Array.isArray(data.companies) ? data.companies[0] : data.companies;
+  if (company && "is_active" in company && company.is_active === false) {
+    console.warn("[tenant] 会社が無効です", company.company_code);
+    clearTenantCache();
+    return null;
+  }
   const code = String(company?.company_code ?? "").trim();
   if (!code) {
     console.warn("[tenant] companies 行がありません", data.company_id);

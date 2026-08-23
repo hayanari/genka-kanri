@@ -21,7 +21,12 @@ type UserItem = {
   lastSignInAt: string | null;
 };
 
-type CompanyItem = { company_code: string; name: string };
+type CompanyItem = {
+  company_code: string;
+  name: string;
+  isActive?: boolean;
+  userCount?: number;
+};
 
 type CallerInfo = {
   isPlatformOwner: boolean;
@@ -48,6 +53,12 @@ export default function AdminPage() {
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState("");
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [newCompanyCode, setNewCompanyCode] = useState("");
+  const [newCompanyName, setNewCompanyName] = useState("");
+  const [newOwnerPassword, setNewOwnerPassword] = useState("");
+  const [creatingCompany, setCreatingCompany] = useState(false);
+  const [companyMsg, setCompanyMsg] = useState("");
+  const [togglingCompany, setTogglingCompany] = useState<string | null>(null);
 
   const loadUsers = useCallback(async (token: string, company: string) => {
     const q =
@@ -58,7 +69,38 @@ export default function AdminPage() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "取得に失敗しました");
     setUsers(data.users ?? []);
-    setCompanies(data.companies ?? []);
+    // システムオーナーは会社APIで件数・有効状態も取る
+    if (data.caller?.isPlatformOwner) {
+      try {
+        const cRes = await fetch("/api/admin/companies", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const cData = await cRes.json();
+        if (cRes.ok && Array.isArray(cData.companies)) {
+          setCompanies(
+            cData.companies.map(
+              (c: {
+                companyCode: string;
+                name: string;
+                isActive: boolean;
+                userCount: number;
+              }) => ({
+                company_code: c.companyCode,
+                name: c.name,
+                isActive: c.isActive,
+                userCount: c.userCount,
+              })
+            )
+          );
+        } else {
+          setCompanies(data.companies ?? []);
+        }
+      } catch {
+        setCompanies(data.companies ?? []);
+      }
+    } else {
+      setCompanies(data.companies ?? []);
+    }
     if (data.caller) setCaller(data.caller);
   }, []);
 
@@ -344,6 +386,80 @@ export default function AdminPage() {
 
   const [deletingCompany, setDeletingCompany] = useState<string | null>(null);
 
+  const handleCreateCompany = async () => {
+    if (!accessToken) return;
+    setCompanyMsg("");
+    setCreatingCompany(true);
+    try {
+      const res = await fetch("/api/admin/companies", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          companyCode: newCompanyCode,
+          name: newCompanyName,
+          createOwner: true,
+          ownerLoginId: "admin",
+          ownerPassword: newOwnerPassword || undefined,
+          ownerDisplayName: "管理者",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCompanyMsg(data.error ?? "作成に失敗しました");
+        return;
+      }
+      const ow = data.owner;
+      setCompanyMsg(
+        ow
+          ? `作成しました。会社ID=${data.company.companyCode} / ログインID=${ow.loginId} / 初期パスワード=${ow.password}`
+          : data.warning
+            ? `会社は作成しました（注意: ${data.warning}）`
+            : `作成しました（${data.company.companyCode}）`
+      );
+      setNewCompanyCode("");
+      setNewCompanyName("");
+      setNewOwnerPassword("");
+      setCompanyFilter(data.company.companyCode);
+      setCreateCompanyCode(data.company.companyCode);
+      await loadUsers(accessToken, data.company.companyCode);
+    } catch {
+      setCompanyMsg("通信エラーが発生しました");
+    } finally {
+      setCreatingCompany(false);
+    }
+  };
+
+  const handleToggleCompanyActive = async (c: CompanyItem, nextActive: boolean) => {
+    if (!accessToken) return;
+    const label = nextActive ? "有効化" : "無効化（ログイン停止）";
+    if (!confirm(`「${c.name}」（${c.company_code}）を${label}しますか？`)) return;
+    setTogglingCompany(c.company_code);
+    try {
+      const res = await fetch(`/api/admin/companies/${encodeURIComponent(c.company_code)}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ isActive: nextActive }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "更新に失敗しました");
+      setCompanies((prev) =>
+        prev.map((x) =>
+          x.company_code === c.company_code ? { ...x, isActive: nextActive } : x
+        )
+      );
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "更新に失敗しました");
+    } finally {
+      setTogglingCompany(null);
+    }
+  };
+
   const handleDeleteCompany = async (c: CompanyItem) => {
     if (!accessToken || !caller?.isPlatformOwner) return;
     if (c.company_code === "tokito") {
@@ -550,54 +666,191 @@ export default function AdminPage() {
 
                 {caller?.isPlatformOwner && (
                   <div style={{ marginBottom: 24 }}>
-                    <div style={{ fontWeight: 800, color: T.tx, marginBottom: 8 }}>会社一覧・削除</div>
-                    <div style={{ fontSize: 12, color: T.ts, marginBottom: 12 }}>
-                      会社を削除すると、所属ユーザーと会社データもまとめて消えます。基幹会社（tokito）は削除できません。
+                    <div style={{ fontWeight: 800, color: T.tx, marginBottom: 8 }}>
+                      会社の追加・有効/無効
                     </div>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {companies.map((c) => (
-                        <div
-                          key={c.company_code}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: 12,
-                            padding: "12px 14px",
-                            border: `1px solid ${T.bd}`,
-                            borderRadius: 10,
-                            background: T.bg,
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <div>
-                            <div style={{ fontWeight: 700, color: T.tx }}>{c.name}</div>
-                            <div style={{ fontSize: 12, color: T.ts }}>{c.company_code}</div>
-                          </div>
-                          {c.company_code === "tokito" ? (
-                            <span style={{ fontSize: 12, color: T.ts }}>削除不可</span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => void handleDeleteCompany(c)}
-                              disabled={!!deletingCompany}
-                              style={{
-                                padding: "7px 12px",
-                                borderRadius: 8,
-                                border: `1px solid ${T.dg}44`,
-                                background: T.dg + "18",
-                                color: T.dg,
-                                cursor: deletingCompany ? "not-allowed" : "pointer",
-                                fontWeight: 700,
-                                fontFamily: "inherit",
-                                fontSize: 12,
-                              }}
-                            >
-                              {deletingCompany === c.company_code ? "削除中..." : "この会社を削除"}
-                            </button>
-                          )}
+                    <div style={{ fontSize: 12, color: T.ts, marginBottom: 12 }}>
+                      無効にした会社はログインできません（データは残ります）。削除は取り消しできません。
+                    </div>
+
+                    <div
+                      style={{
+                        marginBottom: 16,
+                        padding: 14,
+                        border: `1px solid ${T.bd}`,
+                        borderRadius: 10,
+                        background: T.bg,
+                        display: "grid",
+                        gap: 8,
+                        maxWidth: 420,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: 13, color: T.tx }}>会社を追加</div>
+                      <input
+                        placeholder="会社ID（例: acme）"
+                        value={newCompanyCode}
+                        onChange={(e) => setNewCompanyCode(e.target.value)}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 6,
+                          border: `1px solid ${T.bd}`,
+                          fontFamily: "inherit",
+                        }}
+                      />
+                      <input
+                        placeholder="会社名"
+                        value={newCompanyName}
+                        onChange={(e) => setNewCompanyName(e.target.value)}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 6,
+                          border: `1px solid ${T.bd}`,
+                          fontFamily: "inherit",
+                        }}
+                      />
+                      <input
+                        type="password"
+                        placeholder="初期オーナー(admin)のパスワード（空なら自動生成）"
+                        value={newOwnerPassword}
+                        onChange={(e) => setNewOwnerPassword(e.target.value)}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 6,
+                          border: `1px solid ${T.bd}`,
+                          fontFamily: "inherit",
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleCreateCompany()}
+                        disabled={creatingCompany || !newCompanyCode.trim() || !newCompanyName.trim()}
+                        style={{
+                          padding: "9px 12px",
+                          borderRadius: 8,
+                          border: "none",
+                          background: T.ac,
+                          color: "#fff",
+                          fontWeight: 700,
+                          cursor: creatingCompany ? "not-allowed" : "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        {creatingCompany ? "作成中..." : "会社を追加（オーナー admin も作成）"}
+                      </button>
+                      {companyMsg && (
+                        <div style={{ fontSize: 12, color: T.ts, whiteSpace: "pre-wrap" }}>
+                          {companyMsg}
                         </div>
-                      ))}
+                      )}
+                    </div>
+
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {companies.map((c) => {
+                        const active = c.isActive !== false;
+                        return (
+                          <div
+                            key={c.company_code}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              gap: 12,
+                              padding: "12px 14px",
+                              border: `1px solid ${T.bd}`,
+                              borderRadius: 10,
+                              background: active ? T.bg : "#fef2f2",
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontWeight: 700, color: T.tx }}>
+                                {c.name}{" "}
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: active ? "#15803d" : "#b91c1c",
+                                    marginLeft: 6,
+                                  }}
+                                >
+                                  {active ? "有効" : "無効"}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: 12, color: T.ts }}>
+                                {c.company_code}
+                                {typeof c.userCount === "number" ? ` · ユーザー ${c.userCount}人` : ""}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <button
+                                type="button"
+                                onClick={() => setCompanyFilter(c.company_code)}
+                                style={{
+                                  padding: "7px 12px",
+                                  borderRadius: 8,
+                                  border: `1px solid ${T.bd}`,
+                                  background: "#fff",
+                                  color: T.tx,
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                  fontFamily: "inherit",
+                                  fontSize: 12,
+                                }}
+                              >
+                                所属ユーザーを表示
+                              </button>
+                              {c.company_code !== "tokito" && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleToggleCompanyActive(c, !active)}
+                                  disabled={togglingCompany === c.company_code}
+                                  style={{
+                                    padding: "7px 12px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${active ? "#b91c1c44" : "#15803d44"}`,
+                                    background: active ? "#fef2f2" : "#f0fdf4",
+                                    color: active ? "#b91c1c" : "#15803d",
+                                    cursor: "pointer",
+                                    fontWeight: 700,
+                                    fontFamily: "inherit",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  {togglingCompany === c.company_code
+                                    ? "更新中..."
+                                    : active
+                                      ? "無効化"
+                                      : "有効化"}
+                                </button>
+                              )}
+                              {c.company_code === "tokito" ? (
+                                <span style={{ fontSize: 12, color: T.ts, alignSelf: "center" }}>
+                                  基幹（削除・無効化不可）
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteCompany(c)}
+                                  disabled={!!deletingCompany}
+                                  style={{
+                                    padding: "7px 12px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${T.dg}44`,
+                                    background: T.dg + "18",
+                                    color: T.dg,
+                                    cursor: deletingCompany ? "not-allowed" : "pointer",
+                                    fontWeight: 700,
+                                    fontFamily: "inherit",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  {deletingCompany === c.company_code ? "削除中..." : "削除"}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                       {companies.length === 0 && (
                         <div style={{ fontSize: 13, color: T.ts }}>会社がありません</div>
                       )}

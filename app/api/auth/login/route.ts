@@ -55,20 +55,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: company, error: companyError } = await admin
-      .from("companies")
-      .select("id, company_code, name, allow_legacy_email_login")
-      .eq("company_code", companyCode)
-      .maybeSingle();
+    type CompanyRow = {
+      id: string;
+      company_code: string;
+      name: string;
+      allow_legacy_email_login?: boolean;
+      is_active?: boolean;
+    };
 
-    if (companyError) {
-      console.error("[auth/login] company", companyError);
-      return NextResponse.json({ error: "認証処理に失敗しました" }, { status: 500 });
+    let company: CompanyRow | null = null;
+    {
+      const { data, error } = await admin
+        .from("companies")
+        .select("id, company_code, name, allow_legacy_email_login, is_active")
+        .eq("company_code", companyCode)
+        .maybeSingle();
+      if (error && /is_active/i.test(error.message)) {
+        const retry = await admin
+          .from("companies")
+          .select("id, company_code, name, allow_legacy_email_login")
+          .eq("company_code", companyCode)
+          .maybeSingle();
+        if (retry.error) {
+          console.error("[auth/login] company", retry.error);
+          return NextResponse.json({ error: "認証処理に失敗しました" }, { status: 500 });
+        }
+        company = retry.data;
+      } else if (error) {
+        console.error("[auth/login] company", error);
+        return NextResponse.json({ error: "認証処理に失敗しました" }, { status: 500 });
+      } else {
+        company = data;
+      }
     }
+
     if (!company) {
       return NextResponse.json(
         { error: "会社IDまたはログイン情報が正しくありません" },
         { status: 401 }
+      );
+    }
+    if (company.is_active === false) {
+      return NextResponse.json(
+        { error: "この会社アカウントは現在利用停止中です。管理者にお問い合わせください。" },
+        { status: 403 }
       );
     }
 
