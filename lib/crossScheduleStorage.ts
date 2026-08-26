@@ -1,6 +1,6 @@
 // ================================================================
 // lib/crossScheduleStorage.ts
-// 横断工程表（日別ビュー）のストレージ層 — Supabase
+// 横断工程表 — 期間バー・工種・行（Supabase）
 // ================================================================
 import { createClient } from "@/lib/supabase/client"
 import { requireCompanyId } from "@/lib/tenant"
@@ -8,6 +8,8 @@ import type {
   CrossScheduleRow,
   CrossScheduleCell,
   CrossScheduleSticky,
+  CrossScheduleBar,
+  CrossWorkKind,
   MarkDef,
 } from "@/types/crossSchedule"
 
@@ -24,20 +26,40 @@ export async function loadCrossScheduleRows(): Promise<CrossScheduleRow[]> {
   const companyId = await requireCompanyId()
   const { data, error } = await supabase
     .from("cross_schedule_rows")
-    .select("id, project_id, crew_name, sort_order")
+    .select("id, project_id, crew_name, crew_color, sort_order")
     .eq("company_id", companyId)
     .order("project_id")
     .order("sort_order")
-  if (error) throw error
+  if (error) {
+    // crew_color 未適用の互換
+    if (/crew_color/i.test(error.message)) {
+      const retry = await supabase
+        .from("cross_schedule_rows")
+        .select("id, project_id, crew_name, sort_order")
+        .eq("company_id", companyId)
+        .order("project_id")
+        .order("sort_order")
+      if (retry.error) throw retry.error
+      return (retry.data ?? []).map((r) => ({
+        id: String(r.id),
+        projectId: String(r.project_id),
+        crewName: String(r.crew_name ?? ""),
+        crewColor: "",
+        sortOrder: Number(r.sort_order ?? 0),
+      }))
+    }
+    throw error
+  }
   return (data ?? []).map((r) => ({
     id: String(r.id),
     projectId: String(r.project_id),
     crewName: String(r.crew_name ?? ""),
+    crewColor: String((r as { crew_color?: string }).crew_color ?? ""),
     sortOrder: Number(r.sort_order ?? 0),
   }))
 }
 
-/** 表示範囲の日付セルのみ読み込む（startDate〜endDate は YYYY-MM-DD、両端含む） */
+/** @deprecated 旧セル。互換のため残す */
 export async function loadCrossScheduleCells(
   startDate: string,
   endDate: string
@@ -66,20 +88,26 @@ export async function upsertCrossScheduleRow(row: CrossScheduleRow): Promise<voi
   await assertWritable()
   const supabase = createClient()
   const companyId = await requireCompanyId()
-  const { error } = await supabase.from("cross_schedule_rows").upsert(
-    {
-      id: row.id,
-      company_id: companyId,
-      project_id: row.projectId,
-      crew_name: row.crewName,
-      sort_order: row.sortOrder,
-    },
-    { onConflict: "id" }
-  )
-  if (error) throw error
+  const payload: Record<string, unknown> = {
+    id: row.id,
+    company_id: companyId,
+    project_id: row.projectId,
+    crew_name: row.crewName,
+    sort_order: row.sortOrder,
+    crew_color: row.crewColor ?? "",
+  }
+  const { error } = await supabase.from("cross_schedule_rows").upsert(payload, { onConflict: "id" })
+  if (error) {
+    if (/crew_color/i.test(error.message)) {
+      delete payload.crew_color
+      const retry = await supabase.from("cross_schedule_rows").upsert(payload, { onConflict: "id" })
+      if (retry.error) throw retry.error
+      return
+    }
+    throw error
+  }
 }
 
-/** 行を削除（セル・付箋は ON DELETE CASCADE で消える） */
 export async function deleteCrossScheduleRow(rowId: string): Promise<void> {
   await assertWritable()
   const supabase = createClient()
@@ -92,12 +120,10 @@ export async function deleteCrossScheduleRow(rowId: string): Promise<void> {
   if (error) throw error
 }
 
-/** セルを保存。内容がすべて空なら行×日付のセルを削除する */
 export async function saveCrossScheduleCell(cell: CrossScheduleCell): Promise<void> {
   await saveCrossScheduleCells([cell])
 }
 
-/** 複数セルを一括保存（コピペ・範囲塗り用） */
 export async function saveCrossScheduleCells(cells: CrossScheduleCell[]): Promise<void> {
   if (cells.length === 0) return
   await assertWritable()
@@ -108,7 +134,6 @@ export async function saveCrossScheduleCells(cells: CrossScheduleCell[]): Promis
   const toUpsert = cells.filter((c) => c.mark || c.spanNo || c.note || c.colorBg)
 
   if (toDelete.length > 0) {
-    // 行ごとにまとめて削除（ PostgREST の複合キー一括削除が難しいので並列）
     await Promise.all(
       toDelete.map((c) =>
         supabase
@@ -139,7 +164,124 @@ export async function saveCrossScheduleCells(cells: CrossScheduleCell[]): Promis
   }
 }
 
-// ── カスタムマーク ─────────────────────────────────────────────────
+// ── 工種マスタ ─────────────────────────────────────────────────────
+
+export async function loadCrossWorkKinds(): Promise<CrossWorkKind[]> {
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { data, error } = await supabase
+    .from("cross_schedule_work_kinds")
+    .select("id, kind_key, label, color, sort_order")
+    .eq("company_id", companyId)
+    .order("sort_order")
+  if (error) {
+    if (/cross_schedule_work_kinds|schema cache|does not exist/i.test(error.message)) return []
+    throw error
+  }
+  return (data ?? []).map((k) => ({
+    id: String(k.id),
+    kindKey: String(k.kind_key ?? ""),
+    label: String(k.label ?? ""),
+    color: String(k.color ?? "#90caf9"),
+    sortOrder: Number(k.sort_order ?? 0),
+    custom: true,
+  }))
+}
+
+export async function upsertCrossWorkKind(kind: CrossWorkKind & { id: string }): Promise<void> {
+  await assertWritable()
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { error } = await supabase.from("cross_schedule_work_kinds").upsert(
+    {
+      id: kind.id,
+      company_id: companyId,
+      kind_key: kind.kindKey || "",
+      label: kind.label,
+      color: kind.color,
+      sort_order: kind.sortOrder ?? 0,
+    },
+    { onConflict: "id" }
+  )
+  if (error) throw error
+}
+
+export async function deleteCrossWorkKind(kindId: string): Promise<void> {
+  await assertWritable()
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { error } = await supabase
+    .from("cross_schedule_work_kinds")
+    .delete()
+    .eq("company_id", companyId)
+    .eq("id", kindId)
+  if (error) throw error
+}
+
+// ── 期間バー ───────────────────────────────────────────────────────
+
+export async function loadCrossScheduleBars(
+  startDate: string,
+  endDate: string
+): Promise<CrossScheduleBar[]> {
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { data, error } = await supabase
+    .from("cross_schedule_bars")
+    .select("id, row_id, start_date, end_date, work_kind_id, label, note, planned_days")
+    .eq("company_id", companyId)
+    .lte("start_date", endDate)
+    .gte("end_date", startDate)
+  if (error) {
+    if (/cross_schedule_bars|schema cache|does not exist/i.test(error.message)) return []
+    throw error
+  }
+  return (data ?? []).map((b) => ({
+    id: String(b.id),
+    rowId: String(b.row_id),
+    startDate: String(b.start_date).slice(0, 10),
+    endDate: String(b.end_date).slice(0, 10),
+    workKindId: String(b.work_kind_id ?? ""),
+    label: String(b.label ?? ""),
+    note: String(b.note ?? ""),
+    plannedDays: b.planned_days == null ? null : Number(b.planned_days),
+  }))
+}
+
+export async function upsertCrossScheduleBar(bar: CrossScheduleBar): Promise<void> {
+  await assertWritable()
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { error } = await supabase.from("cross_schedule_bars").upsert(
+    {
+      id: bar.id,
+      company_id: companyId,
+      row_id: bar.rowId,
+      start_date: bar.startDate,
+      end_date: bar.endDate,
+      work_kind_id: bar.workKindId,
+      label: bar.label,
+      note: bar.note,
+      planned_days: bar.plannedDays,
+    },
+    { onConflict: "id" }
+  )
+  if (error) throw error
+}
+
+export async function deleteCrossScheduleBar(barId: string): Promise<void> {
+  await assertWritable()
+  const supabase = createClient()
+  const companyId = await requireCompanyId()
+  const { error } = await supabase
+    .from("cross_schedule_bars")
+    .delete()
+    .eq("company_id", companyId)
+    .eq("id", barId)
+  if (error) throw error
+}
+
+// ── カスタムマーク（互換）──────────────────────────────────────────
 
 export async function loadCrossScheduleMarks(): Promise<MarkDef[]> {
   const supabase = createClient()
@@ -192,7 +334,7 @@ export async function deleteCrossScheduleMark(markId: string): Promise<void> {
   if (error) throw error
 }
 
-// ── 付箋 ───────────────────────────────────────────────────────────
+// ── 付箋（互換）───────────────────────────────────────────────────
 
 export async function loadCrossScheduleStickies(
   startDate: string,

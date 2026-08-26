@@ -1,9 +1,8 @@
 "use client";
 
 // ================================================================
-// components/CrossScheduleBoard.tsx
-// 横断工程表（日別ビュー）— 行 = 案件 × 施工班、列 = 日
-// エクセルの横断工程表（四半期シート）をアプリ内で再現する
+// 横断工程表 — 期間バー中心（案件×最大5レーン、年表示対応）
+// 人工・原価とは連携しない
 // ================================================================
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import html2canvas from "html2canvas";
@@ -12,47 +11,41 @@ import type { Project } from "@/lib/utils";
 import { loadData } from "@/lib/supabase/data";
 import { genId } from "@/lib/constants";
 import { useUserRole } from "@/lib/roles";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import {
-  DEFAULT_MARK_DEFS,
-  STICKY_COLORS,
-  CELL_COLOR_PRESETS,
-  mergeMarkDefs,
-  markDefFromList,
-  resolveCellColors,
+  MAX_CREWS_PER_PROJECT,
+  CREW_COLOR_PALETTE,
+  mergeWorkKinds,
+  workKindById,
+  crewColorForName,
+  barDisplayDays,
+  calendarDaysInclusive,
 } from "@/types/crossSchedule";
-import type {
-  CrossScheduleRow,
-  CrossScheduleCell,
-  CrossScheduleSticky,
-  MarkDef,
-} from "@/types/crossSchedule";
+import type { CrossScheduleRow, CrossScheduleBar, CrossWorkKind } from "@/types/crossSchedule";
 import {
   loadCrossScheduleRows,
-  loadCrossScheduleCells,
-  loadCrossScheduleMarks,
-  loadCrossScheduleStickies,
+  loadCrossScheduleBars,
+  loadCrossWorkKinds,
   upsertCrossScheduleRow,
   deleteCrossScheduleRow,
-  saveCrossScheduleCell,
-  saveCrossScheduleCells,
-  upsertCrossScheduleMark,
-  deleteCrossScheduleMark,
-  upsertCrossScheduleSticky,
-  deleteCrossScheduleSticky,
+  upsertCrossScheduleBar,
+  deleteCrossScheduleBar,
+  upsertCrossWorkKind,
+  deleteCrossWorkKind,
   CROSS_VIEWER_FORBIDDEN_MSG,
 } from "@/lib/crossScheduleStorage";
-import { useMediaQuery } from "@/lib/useMediaQuery";
 
-const MONTH_NAMES = "1月 2月 3月 4月 5月 6月 7月 8月 9月 10月 11月 12月".split(" ");
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
 
 type DayCol = {
-  date: string; // YYYY-MM-DD
+  date: string;
   day: number;
-  monthIndex: number; // 0-11
+  monthIndex: number;
   year: number;
-  dow: number; // 0=日
+  dow: number;
 };
+
+type RangeMonths = 1 | 3 | 12;
 
 function ymd(y: number, mIdx: number, d: number): string {
   return `${y}-${String(mIdx + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
@@ -65,7 +58,13 @@ function buildDays(startYear: number, startMonthIndex: number, monthCount: numbe
   for (let i = 0; i < monthCount; i++) {
     const last = new Date(y, m + 1, 0).getDate();
     for (let d = 1; d <= last; d++) {
-      out.push({ date: ymd(y, m, d), day: d, monthIndex: m, year: y, dow: new Date(y, m, d).getDay() });
+      out.push({
+        date: ymd(y, m, d),
+        day: d,
+        monthIndex: m,
+        year: y,
+        dow: new Date(y, m, d).getDay(),
+      });
     }
     m += 1;
     if (m > 11) {
@@ -81,76 +80,63 @@ const todayStr = () => {
   return ymd(t.getFullYear(), t.getMonth(), t.getDate());
 };
 
-/** 入力モード: 詳細 / マーク / スパン / 消しゴム / 付箋 */
-type PenMode =
-  | { kind: "detail" }
-  | { kind: "mark"; char: string }
-  | { kind: "span" }
-  | { kind: "erase" }
-  | { kind: "sticky" };
-
-const cellKey = (rowId: string, date: string) => `${rowId}|${date}`;
-
-type GridPos = { ri: number; di: number };
-
-type ClipCell = {
-  mark: string;
-  spanNo: string;
-  note: string;
-  colorBg: string;
-  colorFg: string;
-};
-
-type ClipPayload = {
-  h: number;
-  w: number;
-  /** 行優先。空セルは null */
-  grid: (ClipCell | null)[][];
-};
-
-type UndoEntry = {
-  /** key → 変更前のセル（null = もともと空） */
-  before: Record<string, CrossScheduleCell | null>;
-  ts: number;
-};
-
-function rectRange(a: GridPos, b: GridPos) {
-  return {
-    r0: Math.min(a.ri, b.ri),
-    r1: Math.max(a.ri, b.ri),
-    d0: Math.min(a.di, b.di),
-    d1: Math.max(a.di, b.di),
-  };
+function dayWidthFor(range: RangeMonths, mobile: boolean): number {
+  if (range === 12) return mobile ? 8 : 10;
+  if (range === 3) return mobile ? 22 : 20;
+  return mobile ? 30 : 28;
 }
 
-const DAY_W = 26;
-const DAY_W_MOBILE = 30;
-const DESKTOP_LEFT_COLS = [
-  { key: "name", label: "工事名", width: 150 },
-  { key: "client", label: "元請", width: 92 },
-  { key: "person", label: "担当者", width: 68 },
-  { key: "crew", label: "施工班", width: 112 },
+const DESKTOP_LEFT = [
+  { key: "name", label: "工事名", width: 148 },
+  { key: "client", label: "元請", width: 88 },
+  { key: "person", label: "担当", width: 64 },
+  { key: "crew", label: "業者", width: 128 },
 ] as const;
-/** スマホ: 左固定列を狭くし、日付カレンダーが見えるようにする（422px→約172px） */
-const MOBILE_LEFT_COLS = [
-  { key: "name", label: "工事名", width: 108 },
-  { key: "crew", label: "班", width: 64 },
+const MOBILE_LEFT = [
+  { key: "name", label: "工事名", width: 100 },
+  { key: "crew", label: "業者", width: 88 },
 ] as const;
 
-type LeftCol = { key: string; label: string; width: number };
+const LANE_H = 30;
+const HEADER_H = 44;
+
+type DragPaint = {
+  rowId: string;
+  startDi: number;
+  endDi: number;
+};
+
+type BarEditDraft = {
+  id: string;
+  rowId: string;
+  startDate: string;
+  endDate: string;
+  workKindId: string;
+  label: string;
+  note: string;
+  plannedDays: string;
+};
+
+function contrastFg(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return "#fff";
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const y = (r * 299 + g * 587 + b * 114) / 1000;
+  return y > 160 ? "#1a1a1a" : "#ffffff";
+}
 
 export default function CrossScheduleBoard() {
   const isMobile = useMediaQuery("(max-width: 767px)");
-  const leftCols: LeftCol[] = isMobile ? [...MOBILE_LEFT_COLS] : [...DESKTOP_LEFT_COLS];
+  const leftCols = isMobile ? [...MOBILE_LEFT] : [...DESKTOP_LEFT];
   const leftTotal = leftCols.reduce((s, c) => s + c.width, 0);
-  const dayW = isMobile ? DAY_W_MOBILE : DAY_W;
-  const showExtraLeft = !isMobile;
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [rows, setRows] = useState<CrossScheduleRow[]>([]);
-  const [cells, setCells] = useState<Record<string, CrossScheduleCell>>({});
-  const [customMarks, setCustomMarks] = useState<MarkDef[]>([]);
-  const [stickies, setStickies] = useState<CrossScheduleSticky[]>([]);
+  const [bars, setBars] = useState<CrossScheduleBar[]>([]);
+  const [customKinds, setCustomKinds] = useState<CrossWorkKind[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -158,77 +144,81 @@ export default function CrossScheduleBoard() {
 
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth());
-  const [rangeMonths, setRangeMonths] = useState<1 | 3>(3);
+  const [rangeMonths, setRangeMonths] = useState<RangeMonths>(3);
 
-  const [pen, setPen] = useState<PenMode>({ kind: "detail" });
-  const [nextSpanNo, setNextSpanNo] = useState(1);
-  const [paintColor, setPaintColor] = useState(CELL_COLOR_PRESETS[1]); // 青（予定っぽいデフォルト）
-  const [stickyColor, setStickyColor] = useState<string>(STICKY_COLORS[0]);
-  const [editing, setEditing] = useState<{ rowId: string; date: string } | null>(null);
-  const [editingStickyId, setEditingStickyId] = useState<string | null>(null);
-  const [showMarkManager, setShowMarkManager] = useState(false);
+  const [activeKindId, setActiveKindId] = useState<string>("");
   const [addProjectId, setAddProjectId] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
-  /** 選択範囲（Excel風）— selA=アンカー, selB=対角 */
-  const [selA, setSelA] = useState<GridPos | null>(null);
-  const [selB, setSelB] = useState<GridPos | null>(null);
-  const [clipNotice, setClipNotice] = useState<string | null>(null);
+  const [showKindManager, setShowKindManager] = useState(false);
+  const [editingBar, setEditingBar] = useState<BarEditDraft | null>(null);
+  const [drag, setDrag] = useState<DragPaint | null>(null);
 
   const { role } = useUserRole();
   const readOnly = role === "viewer";
   const pdfAreaRef = useRef<HTMLDivElement>(null);
-  const clipboardRef = useRef<ClipPayload | null>(null);
-  const undoStackRef = useRef<UndoEntry[]>([]);
-  const undoingRef = useRef(false);
-  const cellsRef = useRef(cells);
-  cellsRef.current = cells;
-  const [undoDepth, setUndoDepth] = useState(0);
-  const dragSelRef = useRef<{
-    active: boolean;
-    start: GridPos;
-    end: GridPos;
-    moved: boolean;
-  } | null>(null);
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const crewTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const today = todayStr();
 
-  const markDefs = useMemo(() => mergeMarkDefs(customMarks), [customMarks]);
-  const stickiesByCell = useMemo(() => {
-    const m = new Map<string, CrossScheduleSticky[]>();
-    for (const s of stickies) {
-      const k = cellKey(s.rowId, s.date);
-      const list = m.get(k) ?? [];
-      list.push(s);
-      m.set(k, list);
+  const dayW = dayWidthFor(rangeMonths, isMobile);
+  const workKinds = useMemo(() => mergeWorkKinds(customKinds), [customKinds]);
+
+  useEffect(() => {
+    if (!activeKindId && workKinds.length > 0) {
+      setActiveKindId(workKinds[0].id);
     }
-    return m;
-  }, [stickies]);
+  }, [activeKindId, workKinds]);
 
   const days = useMemo(() => buildDays(year, month, rangeMonths), [year, month, rangeMonths]);
   const rangeStart = days[0]?.date ?? "";
   const rangeEnd = days[days.length - 1]?.date ?? "";
+  const dateIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    days.forEach((d, i) => m.set(d.date, i));
+    return m;
+  }, [days]);
 
-  // ── 初期ロード（案件・行・マーク）────────────────────────────────
+  const monthBands = useMemo(() => {
+    const bands: { key: string; label: string; start: number; span: number }[] = [];
+    let i = 0;
+    while (i < days.length) {
+      const d = days[i];
+      let j = i + 1;
+      while (j < days.length && days[j].year === d.year && days[j].monthIndex === d.monthIndex) j++;
+      bands.push({
+        key: `${d.year}-${d.monthIndex}`,
+        label: rangeMonths === 12 ? `${d.monthIndex + 1}月` : `${d.year}年${d.monthIndex + 1}月`,
+        start: i,
+        span: j - i,
+      });
+      i = j;
+    }
+    return bands;
+  }, [days, rangeMonths]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       setLoadError(null);
       try {
-        const [d, r, marks] = await Promise.all([
+        const [d, r, kinds] = await Promise.all([
           loadData(),
           loadCrossScheduleRows(),
-          loadCrossScheduleMarks().catch(() => [] as MarkDef[]),
+          loadCrossWorkKinds().catch(() => [] as CrossWorkKind[]),
         ]);
         if (cancelled) return;
         setProjects((d?.projects ?? []).filter((p) => !p.deleted));
-        setRows(r);
-        setCustomMarks(marks);
+        setRows(r.map((row) => ({ ...row, crewColor: row.crewColor ?? "" })));
+        setCustomKinds(kinds);
       } catch (e) {
         console.error("[CrossSchedule] load", e);
-        if (!cancelled)
+        if (!cancelled) {
           setLoadError(
-            "読み込みに失敗しました。Supabase で supabase/cross_schedule.sql が実行済みか確認してください。"
+            "読み込みに失敗しました。Supabase で supabase/cross_schedule.sql と supabase/cross_schedule_bars.sql を実行してください。"
           );
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -238,26 +228,15 @@ export default function CrossScheduleBoard() {
     };
   }, []);
 
-  // ── 表示範囲のセル・付箋を読み込み ────────────────────────────────
   useEffect(() => {
     if (!rangeStart || !rangeEnd) return;
     let cancelled = false;
     (async () => {
       try {
-        const [list, stickyList] = await Promise.all([
-          loadCrossScheduleCells(rangeStart, rangeEnd),
-          loadCrossScheduleStickies(rangeStart, rangeEnd).catch(() => [] as CrossScheduleSticky[]),
-        ]);
-        if (cancelled) return;
-        const map: Record<string, CrossScheduleCell> = {};
-        for (const c of list) map[cellKey(c.rowId, c.date)] = c;
-        setCells(map);
-        cellsRef.current = map;
-        setStickies(stickyList);
-        undoStackRef.current = [];
-        setUndoDepth(0);
+        const list = await loadCrossScheduleBars(rangeStart, rangeEnd);
+        if (!cancelled) setBars(list);
       } catch (e) {
-        console.error("[CrossSchedule] load cells", e);
+        console.error("[CrossSchedule] load bars", e);
       }
     })();
     return () => {
@@ -265,14 +244,12 @@ export default function CrossScheduleBoard() {
     };
   }, [rangeStart, rangeEnd]);
 
-  // ── 案件グループ ─────────────────────────────────────────────────
   const projectById = useMemo(() => {
     const m = new Map<string, Project>();
     for (const p of projects) m.set(p.id, p);
     return m;
   }, [projects]);
 
-  /** ボードに載っている案件（管理番号順）とその班行 */
   const groups = useMemo(() => {
     const byPid = new Map<string, CrossScheduleRow[]>();
     for (const r of rows) {
@@ -295,36 +272,15 @@ export default function CrossScheduleBoard() {
     }));
   }, [rows, projectById]);
 
-  /** 表の行順（選択・コピペの座標系） */
-  const flatRows = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
-
-  const selectedTargets = useMemo(() => {
-    if (!selA || !selB) return [] as { rowId: string; date: string; ri: number; di: number }[];
-    const { r0, r1, d0, d1 } = rectRange(selA, selB);
-    const out: { rowId: string; date: string; ri: number; di: number }[] = [];
-    for (let ri = r0; ri <= r1; ri++) {
-      const row = flatRows[ri];
-      if (!row) continue;
-      for (let di = d0; di <= d1; di++) {
-        const day = days[di];
-        if (!day) continue;
-        out.push({ rowId: row.id, date: day.date, ri, di });
-      }
+  const barsByRow = useMemo(() => {
+    const m = new Map<string, CrossScheduleBar[]>();
+    for (const b of bars) {
+      const list = m.get(b.rowId) ?? [];
+      list.push(b);
+      m.set(b.rowId, list);
     }
-    return out;
-  }, [selA, selB, flatRows, days]);
-
-  const selectedCount = selectedTargets.length;
-  const selectedKeySet = useMemo(() => {
-    const s = new Set<string>();
-    for (const t of selectedTargets) s.add(cellKey(t.rowId, t.date));
-    return s;
-  }, [selectedTargets]);
-  const rowIndexById = useMemo(() => {
-    const m = new Map<string, number>();
-    flatRows.forEach((r, i) => m.set(r.id, i));
     return m;
-  }, [flatRows]);
+  }, [bars]);
 
   const projectsNotOnBoard = useMemo(() => {
     const onBoard = new Set(rows.map((r) => r.projectId));
@@ -333,7 +289,6 @@ export default function CrossScheduleBoard() {
       .sort((a, b) => (a.managementNumber ?? "").localeCompare(b.managementNumber ?? "", "ja"));
   }, [projects, rows]);
 
-  // ── 保存まわり ───────────────────────────────────────────────────
   const reportSaved = useCallback(() => {
     setSaveState("saved");
     setSaveErrorMsg(null);
@@ -343,554 +298,52 @@ export default function CrossScheduleBoard() {
   const reportError = useCallback((e: unknown) => {
     console.error("[CrossSchedule] save", e);
     setSaveState("error");
-    setSaveErrorMsg(e instanceof Error && e.message === CROSS_VIEWER_FORBIDDEN_MSG ? e.message : "保存に失敗しました");
-  }, []);
-
-  const persistCell = useCallback(
-    async (cell: CrossScheduleCell) => {
-      setSaveState("saving");
-      try {
-        await saveCrossScheduleCell(cell);
-        reportSaved();
-      } catch (e) {
-        reportError(e);
-      }
-    },
-    [reportSaved, reportError]
-  );
-
-  const persistCells = useCallback(
-    async (list: CrossScheduleCell[]) => {
-      setSaveState("saving");
-      try {
-        await saveCrossScheduleCells(list);
-        reportSaved();
-      } catch (e) {
-        reportError(e);
-      }
-    },
-    [reportSaved, reportError]
-  );
-
-  const emptyCell = useCallback(
-    (rowId: string, date: string): CrossScheduleCell => ({
-      rowId,
-      date,
-      mark: "",
-      spanNo: "",
-      note: "",
-      colorBg: "",
-      colorFg: "",
-    }),
-    []
-  );
-
-  const cloneCell = useCallback((c: CrossScheduleCell | undefined | null): CrossScheduleCell | null => {
-    if (!c) return null;
-    return { ...c };
-  }, []);
-
-  const pushUndo = useCallback(
-    (prev: Record<string, CrossScheduleCell>, keys: string[]) => {
-      if (undoingRef.current || keys.length === 0) return;
-      const before: Record<string, CrossScheduleCell | null> = {};
-      for (const k of keys) before[k] = cloneCell(prev[k] ?? null);
-
-      const stack = undoStackRef.current;
-      const last = stack[stack.length - 1];
-      const now = Date.now();
-      // 詳細編集の連続入力は同じセルなら1操作にまとめる
-      if (
-        last &&
-        now - last.ts < 1000 &&
-        keys.length === 1 &&
-        Object.keys(last.before).length === 1 &&
-        keys[0] in last.before
-      ) {
-        last.ts = now;
-        return;
-      }
-
-      stack.push({ before, ts: now });
-      if (stack.length > 80) stack.shift();
-      setUndoDepth(stack.length);
-    },
-    [cloneCell]
-  );
-
-  const applyCell = useCallback(
-    (
-      rowId: string,
-      date: string,
-      patch: Partial<Pick<CrossScheduleCell, "mark" | "spanNo" | "note" | "colorBg" | "colorFg">>
-    ) => {
-      const key = cellKey(rowId, date);
-      const prev = cellsRef.current;
-      pushUndo(prev, [key]);
-      const cur = prev[key] ?? emptyCell(rowId, date);
-      const next: CrossScheduleCell = { ...cur, ...patch };
-      const out = { ...prev };
-      if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
-      else out[key] = next;
-      cellsRef.current = out;
-      setCells(out);
-      void persistCell(next);
-    },
-    [persistCell, emptyCell, pushUndo]
-  );
-
-  const applyCellsPatch = useCallback(
-    (
-      targets: { rowId: string; date: string }[],
-      patchFor: (cur: CrossScheduleCell) => Partial<CrossScheduleCell>
-    ) => {
-      if (targets.length === 0) return;
-      const prev = cellsRef.current;
-      const keys = targets.map((t) => cellKey(t.rowId, t.date));
-      pushUndo(prev, keys);
-      const out = { ...prev };
-      const nextList: CrossScheduleCell[] = [];
-      for (const t of targets) {
-        const key = cellKey(t.rowId, t.date);
-        const cur = prev[key] ?? emptyCell(t.rowId, t.date);
-        const next: CrossScheduleCell = { ...cur, ...patchFor(cur) };
-        if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
-        else out[key] = next;
-        nextList.push(next);
-      }
-      cellsRef.current = out;
-      setCells(out);
-      void persistCells(nextList);
-    },
-    [emptyCell, persistCells, pushUndo]
-  );
-
-  const undoLast = useCallback(() => {
-    if (readOnly) return;
-    const entry = undoStackRef.current.pop();
-    setUndoDepth(undoStackRef.current.length);
-    if (!entry) {
-      setClipNotice("戻せる操作がありません");
-      window.setTimeout(() => setClipNotice(null), 1500);
-      return;
-    }
-    undoingRef.current = true;
-    const prev = cellsRef.current;
-    const out = { ...prev };
-    const restored: CrossScheduleCell[] = [];
-    for (const [key, before] of Object.entries(entry.before)) {
-      const sep = key.indexOf("|");
-      const rowId = key.slice(0, sep);
-      const date = key.slice(sep + 1);
-      if (before === null) {
-        delete out[key];
-        restored.push(emptyCell(rowId, date));
-      } else {
-        out[key] = { ...before };
-        restored.push({ ...before });
-      }
-    }
-    cellsRef.current = out;
-    setCells(out);
-    void persistCells(restored).finally(() => {
-      undoingRef.current = false;
-    });
-    setClipNotice("元に戻しました");
-    window.setTimeout(() => setClipNotice(null), 1500);
-  }, [readOnly, emptyCell, persistCells]);
-
-  const fillSelectionWithPen = useCallback(
-    (targets: { rowId: string; date: string }[], mode: PenMode = pen) => {
-      if (readOnly || targets.length === 0) return;
-      if (mode.kind === "erase") {
-        applyCellsPatch(targets, () => ({
-          mark: "",
-          spanNo: "",
-          note: "",
-          colorBg: "",
-          colorFg: "",
-        }));
-        return;
-      }
-      if (mode.kind === "span") {
-        const n = String(nextSpanNo);
-        applyCellsPatch(targets, () => ({ spanNo: n }));
-        setNextSpanNo((x) => x + 1);
-        return;
-      }
-      if (mode.kind === "mark") {
-        applyCellsPatch(targets, (cur) => {
-          if (targets.length === 1 && cur.mark === mode.char) {
-            return { mark: "", colorBg: "", colorFg: "" };
-          }
-          return {
-            mark: mode.char,
-            colorBg: paintColor.bg,
-            colorFg: paintColor.fg,
-          };
-        });
-      }
-    },
-    [readOnly, pen, nextSpanNo, paintColor, applyCellsPatch]
-  );
-
-  const copySelection = useCallback(() => {
-    if (!selA || !selB || selectedTargets.length === 0) return;
-    const { r0, r1, d0, d1 } = rectRange(selA, selB);
-    const h = r1 - r0 + 1;
-    const w = d1 - d0 + 1;
-    const grid: (ClipCell | null)[][] = [];
-    for (let ri = r0; ri <= r1; ri++) {
-      const row: (ClipCell | null)[] = [];
-      for (let di = d0; di <= d1; di++) {
-        const fr = flatRows[ri];
-        const day = days[di];
-        if (!fr || !day) {
-          row.push(null);
-          continue;
-        }
-        const c = cells[cellKey(fr.id, day.date)];
-        if (!c || (!c.mark && !c.spanNo && !c.note && !c.colorBg)) {
-          row.push(null);
-        } else {
-          row.push({
-            mark: c.mark,
-            spanNo: c.spanNo,
-            note: c.note,
-            colorBg: c.colorBg,
-            colorFg: c.colorFg,
-          });
-        }
-      }
-      grid.push(row);
-    }
-    clipboardRef.current = { h, w, grid };
-    setClipNotice(`${h}×${w} セルをコピーしました`);
-    window.setTimeout(() => setClipNotice(null), 2000);
-  }, [selA, selB, selectedTargets, flatRows, days, cells]);
-
-  const pasteClipboard = useCallback(() => {
-    if (readOnly) return;
-    const clip = clipboardRef.current;
-    if (!clip) {
-      setClipNotice("コピーしたデータがありません");
-      window.setTimeout(() => setClipNotice(null), 2000);
-      return;
-    }
-    const origin = selA && selB ? { ri: Math.min(selA.ri, selB.ri), di: Math.min(selA.di, selB.di) } : selA;
-    if (!origin) return;
-    const targets: { rowId: string; date: string }[] = [];
-    const values: ClipCell[] = [];
-    for (let i = 0; i < clip.h; i++) {
-      for (let j = 0; j < clip.w; j++) {
-        const ri = origin.ri + i;
-        const di = origin.di + j;
-        const fr = flatRows[ri];
-        const day = days[di];
-        if (!fr || !day) continue;
-        const src = clip.grid[i]?.[j] ?? null;
-        targets.push({ rowId: fr.id, date: day.date });
-        values.push(
-          src ?? { mark: "", spanNo: "", note: "", colorBg: "", colorFg: "" }
-        );
-      }
-    }
-    if (targets.length === 0) return;
-    const prev = cellsRef.current;
-    pushUndo(
-      prev,
-      targets.map((t) => cellKey(t.rowId, t.date))
+    setSaveErrorMsg(
+      e instanceof Error && e.message === CROSS_VIEWER_FORBIDDEN_MSG
+        ? e.message
+        : e instanceof Error
+          ? e.message
+          : "保存に失敗しました"
     );
-    const out = { ...prev };
-    const nextList: CrossScheduleCell[] = [];
-    targets.forEach((t, idx) => {
-      const v = values[idx];
-      const next: CrossScheduleCell = {
-        rowId: t.rowId,
-        date: t.date,
-        mark: v.mark,
-        spanNo: v.spanNo,
-        note: v.note,
-        colorBg: v.colorBg,
-        colorFg: v.colorFg,
-      };
-      const key = cellKey(t.rowId, t.date);
-      if (!next.mark && !next.spanNo && !next.note && !next.colorBg) delete out[key];
-      else out[key] = next;
-      nextList.push(next);
-    });
-    cellsRef.current = out;
-    setCells(out);
-    void persistCells(nextList);
-    setSelA(origin);
-    setSelB({
-      ri: Math.min(flatRows.length - 1, origin.ri + clip.h - 1),
-      di: Math.min(days.length - 1, origin.di + clip.w - 1),
-    });
-    setClipNotice(`${targets.length} セルに貼り付けました`);
-    window.setTimeout(() => setClipNotice(null), 2000);
-  }, [readOnly, selA, selB, flatRows, days, persistCells, pushUndo]);
-
-  const clearSelectionCells = useCallback(() => {
-    if (readOnly || selectedTargets.length === 0) return;
-    applyCellsPatch(selectedTargets, () => ({
-      mark: "",
-      spanNo: "",
-      note: "",
-      colorBg: "",
-      colorFg: "",
-    }));
-  }, [readOnly, selectedTargets, applyCellsPatch]);
-
-  const finishPointerSelect = useCallback(() => {
-    const drag = dragSelRef.current;
-    if (!drag?.active) return;
-    const start = drag.start;
-    const end = drag.end;
-    const moved = drag.moved;
-    dragSelRef.current = null;
-    setSelA(start);
-    setSelB(end);
-    if (readOnly) return;
-
-    const targets: { rowId: string; date: string }[] = [];
-    const { r0, r1, d0, d1 } = rectRange(start, end);
-    for (let ri = r0; ri <= r1; ri++) {
-      for (let di = d0; di <= d1; di++) {
-        const row = flatRows[ri];
-        const day = days[di];
-        if (row && day) targets.push({ rowId: row.id, date: day.date });
-      }
-    }
-
-    if (pen.kind === "sticky") {
-      if (!moved && targets[0]) {
-        const t = targets[0];
-        const sticky: CrossScheduleSticky = {
-          id: genId(),
-          rowId: t.rowId,
-          date: t.date,
-          body: "",
-          color: stickyColor,
-          offsetX: 8,
-          offsetY: 8,
-          zIndex: stickies.reduce((m, s) => Math.max(m, s.zIndex), 0) + 1,
-        };
-        setStickies((prev) => [...prev, sticky]);
-        setEditingStickyId(sticky.id);
-        setSaveState("saving");
-        void upsertCrossScheduleSticky(sticky).then(reportSaved).catch(reportError);
-      }
-      return;
-    }
-
-    if (pen.kind === "mark" || pen.kind === "span" || pen.kind === "erase") {
-      fillSelectionWithPen(targets);
-    }
-  }, [
-    readOnly,
-    pen,
-    flatRows,
-    days,
-    stickyColor,
-    stickies,
-    fillSelectionWithPen,
-    reportSaved,
-    reportError,
-  ]);
-
-  useEffect(() => {
-    const onUp = () => finishPointerSelect();
-    window.addEventListener("mouseup", onUp);
-    return () => window.removeEventListener("mouseup", onUp);
-  }, [finishPointerSelect]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const inField = !!(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable));
-      const mod = e.ctrlKey || e.metaKey;
-
-      // Ctrl+Z は詳細モーダル中でも効かせる（注記入力中は除外）
-      if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) {
-        if (inField && editing) return;
-        e.preventDefault();
-        undoLast();
-        return;
-      }
-
-      if (inField) return;
-      if (editing || showMarkManager || editingStickyId) return;
-      if (mod && e.key.toLowerCase() === "c") {
-        e.preventDefault();
-        copySelection();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "v") {
-        e.preventDefault();
-        pasteClipboard();
-        return;
-      }
-      if ((e.key === "Delete" || e.key === "Backspace") && !readOnly) {
-        e.preventDefault();
-        clearSelectionCells();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [
-    editing,
-    showMarkManager,
-    editingStickyId,
-    copySelection,
-    pasteClipboard,
-    clearSelectionCells,
-    undoLast,
-    readOnly,
-  ]);
-
-  const onCellMouseDown = useCallback(
-    (ri: number, di: number, e: React.MouseEvent) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      setEditingStickyId(null);
-      const pos = { ri, di };
-      if (e.shiftKey && selA) {
-        setSelB(pos);
-        dragSelRef.current = null;
-        return;
-      }
-      setSelA(pos);
-      setSelB(pos);
-      dragSelRef.current = { active: true, start: pos, end: pos, moved: false };
-    },
-    [selA]
-  );
-
-  const onCellMouseEnter = useCallback((ri: number, di: number) => {
-    const drag = dragSelRef.current;
-    if (!drag?.active) return;
-    const pos = { ri, di };
-    if (ri !== drag.start.ri || di !== drag.start.di) drag.moved = true;
-    drag.end = pos;
-    setSelB(pos);
   }, []);
 
-  const onCellDoubleClick = useCallback(
-    (rowId: string, date: string) => {
-      if (readOnly) return;
-      setEditing({ rowId, date });
-    },
-    [readOnly]
-  );
-
-  const selectMarkPen = useCallback(
-    (char: string) => {
-      const mode: PenMode = { kind: "mark", char };
-      setPen(mode);
-      if (selectedCount >= 2) fillSelectionWithPen(selectedTargets, mode);
-    },
-    [selectedCount, selectedTargets, fillSelectionWithPen]
-  );
-
-  const selectErasePen = useCallback(() => {
-    const mode: PenMode = { kind: "erase" };
-    setPen(mode);
-    if (selectedCount >= 2) fillSelectionWithPen(selectedTargets, mode);
-  }, [selectedCount, selectedTargets, fillSelectionWithPen]);
-
-  const selectSpanPen = useCallback(() => {
-    const mode: PenMode = { kind: "span" };
-    setPen(mode);
-    if (selectedCount >= 2) fillSelectionWithPen(selectedTargets, mode);
-  }, [selectedCount, selectedTargets, fillSelectionWithPen]);
-
-  const persistSticky = useCallback(
-    async (sticky: CrossScheduleSticky) => {
-      setSaveState("saving");
-      try {
-        await upsertCrossScheduleSticky(sticky);
-        reportSaved();
-      } catch (e) {
-        reportError(e);
+  const stepMonths = useCallback(
+    (delta: number) => {
+      let y = year;
+      let m = month + delta;
+      while (m < 0) {
+        m += 12;
+        y -= 1;
       }
-    },
-    [reportSaved, reportError]
-  );
-
-  const updateSticky = useCallback(
-    (id: string, patch: Partial<CrossScheduleSticky>, persist = true) => {
-      setStickies((prev) => {
-        const next = prev.map((s) => (s.id === id ? { ...s, ...patch } : s));
-        const updated = next.find((s) => s.id === id);
-        if (persist && updated) void persistSticky(updated);
-        return next;
-      });
-    },
-    [persistSticky]
-  );
-
-  const removeSticky = useCallback(
-    async (id: string) => {
-      const backup = stickies;
-      setStickies((prev) => prev.filter((s) => s.id !== id));
-      if (editingStickyId === id) setEditingStickyId(null);
-      setSaveState("saving");
-      try {
-        await deleteCrossScheduleSticky(id);
-        reportSaved();
-      } catch (e) {
-        setStickies(backup);
-        reportError(e);
+      while (m > 11) {
+        m -= 12;
+        y += 1;
       }
+      setYear(y);
+      setMonth(m);
     },
-    [stickies, editingStickyId, reportSaved, reportError]
+    [year, month]
   );
 
-  const saveMark = useCallback(
-    async (mark: MarkDef & { id: string }) => {
-      setSaveState("saving");
-      try {
-        await upsertCrossScheduleMark(mark);
-        setCustomMarks((prev) => {
-          const i = prev.findIndex((m) => m.id === mark.id);
-          if (i >= 0) {
-            const next = [...prev];
-            next[i] = { ...mark, custom: true };
-            return next;
-          }
-          return [...prev, { ...mark, custom: true }];
-        });
-        reportSaved();
-      } catch (e) {
-        reportError(e);
-      }
-    },
-    [reportSaved, reportError]
-  );
+  const goToday = useCallback(() => {
+    const t = new Date();
+    setYear(t.getFullYear());
+    setMonth(t.getMonth());
+  }, []);
 
-  const removeMark = useCallback(
-    async (markId: string) => {
-      setSaveState("saving");
-      try {
-        await deleteCrossScheduleMark(markId);
-        setCustomMarks((prev) => prev.filter((m) => m.id !== markId));
-        reportSaved();
-      } catch (e) {
-        reportError(e);
-      }
-    },
-    [reportSaved, reportError]
-  );
-
-  // ── 行操作 ───────────────────────────────────────────────────────
   const addRow = useCallback(
     async (projectId: string) => {
+      if (readOnly) return;
       const same = rows.filter((r) => r.projectId === projectId);
+      if (same.length >= MAX_CREWS_PER_PROJECT) {
+        window.alert(`1案件あたり業者レーンは最大${MAX_CREWS_PER_PROJECT}までです。`);
+        return;
+      }
       const row: CrossScheduleRow = {
         id: genId(),
         projectId,
         crewName: "",
+        crewColor: CREW_COLOR_PALETTE[same.length % CREW_COLOR_PALETTE.length],
         sortOrder: same.reduce((m, r) => Math.max(m, r.sortOrder), -1) + 1,
       };
       setRows((prev) => [...prev, row]);
@@ -903,63 +356,226 @@ export default function CrossScheduleBoard() {
         reportError(e);
       }
     },
-    [rows, reportSaved, reportError]
+    [rows, readOnly, reportSaved, reportError]
   );
 
-  const crewSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const rowsRef = useRef<CrossScheduleRow[]>([]);
-  rowsRef.current = rows;
-
-  const updateCrewName = useCallback(
-    (rowId: string, crewName: string) => {
-      setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, crewName } : r)));
-      if (crewSaveTimers.current[rowId]) clearTimeout(crewSaveTimers.current[rowId]);
-      crewSaveTimers.current[rowId] = setTimeout(async () => {
-        const row = rowsRef.current.find((r) => r.id === rowId);
-        if (!row) return;
-        setSaveState("saving");
-        try {
-          await upsertCrossScheduleRow(row);
-          reportSaved();
-        } catch (e) {
-          reportError(e);
-        }
-      }, 700);
+  const persistRow = useCallback(
+    async (row: CrossScheduleRow) => {
+      setSaveState("saving");
+      try {
+        await upsertCrossScheduleRow(row);
+        reportSaved();
+      } catch (e) {
+        reportError(e);
+      }
     },
     [reportSaved, reportError]
   );
 
+  const updateCrew = useCallback(
+    (rowId: string, patch: Partial<Pick<CrossScheduleRow, "crewName" | "crewColor">>) => {
+      setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, ...patch } : r)));
+      if (crewTimers.current[rowId]) clearTimeout(crewTimers.current[rowId]);
+      crewTimers.current[rowId] = setTimeout(() => {
+        const row = rowsRef.current.find((r) => r.id === rowId);
+        if (row) void persistRow(row);
+      }, 600);
+    },
+    [persistRow]
+  );
+
   const removeRow = useCallback(
     async (rowId: string) => {
-      if (!window.confirm("この班行を削除しますか？（入力済みの日別セルも消えます）")) return;
+      if (readOnly) return;
+      if (!window.confirm("この業者レーンを削除しますか？（期間バーも消えます）")) return;
       const backup = rows;
+      const barsBackup = bars;
       setRows((prev) => prev.filter((r) => r.id !== rowId));
+      setBars((prev) => prev.filter((b) => b.rowId !== rowId));
       setSaveState("saving");
       try {
         await deleteCrossScheduleRow(rowId);
         reportSaved();
       } catch (e) {
         setRows(backup);
+        setBars(barsBackup);
         reportError(e);
       }
     },
-    [rows, reportSaved, reportError]
+    [rows, bars, readOnly, reportSaved, reportError]
   );
 
   const addProject = useCallback(async () => {
-    if (!addProjectId) return;
+    if (!addProjectId || readOnly) return;
     await addRow(addProjectId);
     setAddProjectId("");
-  }, [addProjectId, addRow]);
+  }, [addProjectId, addRow, readOnly]);
 
-  // ── PDF出力 ──────────────────────────────────────────────────────
+  const persistBar = useCallback(
+    async (bar: CrossScheduleBar) => {
+      setSaveState("saving");
+      try {
+        await upsertCrossScheduleBar(bar);
+        reportSaved();
+      } catch (e) {
+        reportError(e);
+      }
+    },
+    [reportSaved, reportError]
+  );
+
+  const openBarEdit = useCallback((bar: CrossScheduleBar) => {
+    setEditingBar({
+      id: bar.id,
+      rowId: bar.rowId,
+      startDate: bar.startDate,
+      endDate: bar.endDate,
+      workKindId: bar.workKindId,
+      label: bar.label,
+      note: bar.note,
+      plannedDays: bar.plannedDays != null ? String(bar.plannedDays) : "",
+    });
+  }, []);
+
+  const createBarFromDrag = useCallback(
+    async (rowId: string, d0: number, d1: number) => {
+      if (readOnly) return;
+      const a = Math.min(d0, d1);
+      const b = Math.max(d0, d1);
+      const start = days[a];
+      const end = days[b];
+      if (!start || !end) return;
+      const kind = workKindById(workKinds, activeKindId) ?? workKinds[0];
+      const cal = calendarDaysInclusive(start.date, end.date);
+      const planned =
+        kind?.kindKey === "rehab" || kind?.label === "管更生"
+          ? Math.ceil(cal * 1.4)
+          : null;
+      const bar: CrossScheduleBar = {
+        id: genId(),
+        rowId,
+        startDate: start.date,
+        endDate: end.date,
+        workKindId: kind?.id ?? "",
+        label: "",
+        note: "",
+        plannedDays: planned,
+      };
+      setBars((prev) => [...prev, bar]);
+      await persistBar(bar);
+      openBarEdit(bar);
+    },
+    [days, activeKindId, workKinds, readOnly, persistBar, openBarEdit]
+  );
+
+  const saveBarEdit = useCallback(async () => {
+    if (!editingBar || readOnly) return;
+    let start = editingBar.startDate;
+    let end = editingBar.endDate;
+    if (end < start) [start, end] = [end, start];
+    const plannedRaw = editingBar.plannedDays.trim();
+    const plannedDays =
+      plannedRaw === "" ? null : Math.max(1, Math.round(Number(plannedRaw)) || 1);
+    const bar: CrossScheduleBar = {
+      id: editingBar.id,
+      rowId: editingBar.rowId,
+      startDate: start,
+      endDate: end,
+      workKindId: editingBar.workKindId,
+      label: editingBar.label.trim(),
+      note: editingBar.note.trim(),
+      plannedDays,
+    };
+    setBars((prev) => {
+      const exists = prev.some((b) => b.id === bar.id);
+      return exists ? prev.map((b) => (b.id === bar.id ? bar : b)) : [...prev, bar];
+    });
+    setEditingBar(null);
+    await persistBar(bar);
+  }, [editingBar, readOnly, persistBar]);
+
+  const removeEditingBar = useCallback(async () => {
+    if (!editingBar || readOnly) return;
+    if (!window.confirm("この期間バーを削除しますか？")) return;
+    const id = editingBar.id;
+    setEditingBar(null);
+    setBars((prev) => prev.filter((b) => b.id !== id));
+    setSaveState("saving");
+    try {
+      await deleteCrossScheduleBar(id);
+      reportSaved();
+    } catch (e) {
+      reportError(e);
+    }
+  }, [editingBar, readOnly, reportSaved, reportError]);
+
+  useEffect(() => {
+    if (!drag) return;
+    const onMove = (e: PointerEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const diAttr =
+        el instanceof Element ? el.closest("[data-day-i]")?.getAttribute("data-day-i") : null;
+      if (diAttr == null) return;
+      const di = Number(diAttr);
+      if (Number.isNaN(di)) return;
+      setDrag((prev) => (prev ? { ...prev, endDi: di } : prev));
+    };
+    const onUp = () => {
+      setDrag((prev) => {
+        if (prev) void createBarFromDrag(prev.rowId, prev.startDi, prev.endDi);
+        return null;
+      });
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [drag, createBarFromDrag]);
+
+  const saveKind = useCallback(
+    async (kind: CrossWorkKind) => {
+      if (readOnly) return;
+      const id = kind.id.startsWith("default:") ? genId() : kind.id;
+      const saved: CrossWorkKind = { ...kind, id, custom: true };
+      setCustomKinds((prev) => {
+        const without = prev.filter((k) => k.label !== kind.label && k.id !== id);
+        return [...without, saved];
+      });
+      setSaveState("saving");
+      try {
+        await upsertCrossWorkKind(saved as CrossWorkKind & { id: string });
+        reportSaved();
+      } catch (e) {
+        reportError(e);
+      }
+    },
+    [readOnly, reportSaved, reportError]
+  );
+
+  const removeKind = useCallback(
+    async (kindId: string) => {
+      if (readOnly || kindId.startsWith("default:")) return;
+      setCustomKinds((prev) => prev.filter((k) => k.id !== kindId));
+      setSaveState("saving");
+      try {
+        await deleteCrossWorkKind(kindId);
+        reportSaved();
+      } catch (e) {
+        reportError(e);
+      }
+    },
+    [readOnly, reportSaved, reportError]
+  );
+
   const handleExportPdf = useCallback(async () => {
     const el = pdfAreaRef.current;
     if (!el) return;
     setPdfLoading(true);
     try {
       const canvas = await html2canvas(el, {
-        scale: 2,
+        scale: rangeMonths === 12 ? 1.25 : 2,
         useCORS: true,
         logging: false,
         backgroundColor: "#ffffff",
@@ -977,421 +593,105 @@ export default function CrossScheduleBoard() {
       pdf.save(`cross-schedule-${year}-${String(month + 1).padStart(2, "0")}-${rangeMonths}m.pdf`);
     } catch (e) {
       console.error("[CrossSchedule PDF]", e);
-      alert("PDFの作成に失敗しました");
     } finally {
       setPdfLoading(false);
     }
   }, [year, month, rangeMonths]);
 
-  // ── 月ヘッダー（colSpan 用）──────────────────────────────────────
-  const monthSpans = useMemo(() => {
-    const out: { label: string; count: number }[] = [];
-    for (const d of days) {
-      const label = `${d.year}年${MONTH_NAMES[d.monthIndex]}`;
-      const last = out[out.length - 1];
-      if (last && last.label === label) last.count += 1;
-      else out.push({ label, count: 1 });
-    }
-    return out;
-  }, [days]);
+  const gridWidth = leftTotal + days.length * dayW;
 
-  const stepMonths = useCallback(
-    (delta: number) => {
-      let m = month + delta;
-      let y = year;
-      while (m < 0) {
-        m += 12;
-        y -= 1;
-      }
-      while (m > 11) {
-        m -= 12;
-        y += 1;
-      }
-      setYear(y);
-      setMonth(m);
-    },
-    [year, month]
-  );
-
-  // ── セル描画 ─────────────────────────────────────────────────────
-  const renderDayCell = (
-    row: CrossScheduleRow,
-    d: DayCol,
-    project: Project | null,
-    ri: number,
-    di: number
-  ) => {
-    const cell = cells[cellKey(row.id, d.date)];
-    const def = cell?.mark ? markDefFromList(cell.mark, markDefs) : null;
-    const cellStickies = stickiesByCell.get(cellKey(row.id, d.date)) ?? [];
-    const selected = selectedKeySet.has(cellKey(row.id, d.date));
-    const style: React.CSSProperties = {
-      width: dayW,
-      minWidth: dayW,
-      maxWidth: dayW,
-      height: isMobile ? 32 : 26,
-      padding: 0,
-      textAlign: "center",
-      fontSize: isMobile ? 12 : 11,
-      fontWeight: 700,
-      cursor: readOnly ? "default" : "cell",
-      position: "relative",
-      overflow: "visible",
-      borderRight: `1px solid ${d.day === new Date(d.year, d.monthIndex + 1, 0).getDate() ? "#90a4ae" : "#e0e6ed"}`,
-      borderBottom: "1px solid #e0e6ed",
-      userSelect: "none",
-    };
-
-    // 背景の優先順: セル色（マーク等） > 週末 > 工期外 > 白
-    let bg = "#fff";
-    let fg = "#1a2535";
-    const inKoki =
-      (!project?.startDate || d.date >= project.startDate) &&
-      (!project?.endDate || d.date <= project.endDate);
-    if (!inKoki) bg = "#f1f3f5";
-    if (d.dow === 0) bg = "#ffebee";
-    if (d.dow === 6) bg = "#e8f1fb";
-    const painted = resolveCellColors(cell, markDefs);
-    if (painted) {
-      bg = painted.bg;
-      fg = painted.fg;
-    }
-    style.background = bg;
-    style.color = fg;
-    if (selected) {
-      style.outline = "2px solid #1565c0";
-      style.outlineOffset = -2;
-      style.zIndex = 1;
-    }
-    if (d.date === today) style.boxShadow = selected ? undefined : "inset 0 0 0 2px #f59e0b";
-    if (project?.endDate && d.date === project.endDate) style.borderRight = "2px solid #c62828";
-
-    const text = cell?.spanNo || cell?.mark || "";
-    const tipParts: string[] = [];
-    if (cell?.spanNo) tipParts.push(`スパン ${cell.spanNo}`);
-    if (cell?.mark) tipParts.push(def ? `${def.char}（${def.label}）` : cell.mark);
-    if (cell?.note) tipParts.push(cell.note);
-    if (cellStickies.length) tipParts.push(`付箋 ${cellStickies.length}件`);
-    if (project?.endDate && d.date === project.endDate) tipParts.push("工期末");
-    const title = tipParts.length ? `${d.date}\n${tipParts.join("\n")}` : d.date;
-
-    return (
-      <td
-        key={d.date}
-        style={style}
-        title={title}
-        onMouseDown={(e) => onCellMouseDown(ri, di, e)}
-        onMouseEnter={() => onCellMouseEnter(ri, di)}
-        onDoubleClick={() => onCellDoubleClick(row.id, d.date)}
-      >
-        {text}
-        {cell?.note ? (
-          <span
-            style={{
-              position: "absolute",
-              top: 0,
-              right: 0,
-              width: 0,
-              height: 0,
-              borderTop: "6px solid #c62828",
-              borderLeft: "6px solid transparent",
-            }}
-          />
-        ) : null}
-        {cellStickies.map((s) => (
-          <StickyNoteView
-            key={s.id}
-            sticky={s}
-            readOnly={readOnly}
-            selected={editingStickyId === s.id}
-            onSelect={() => setEditingStickyId(s.id)}
-            onChange={(patch, persist) => updateSticky(s.id, patch, persist)}
-            onRemove={() => void removeSticky(s.id)}
-          />
-        ))}
-      </td>
-    );
-  };
-
-  // ── レンダリング ─────────────────────────────────────────────────
   if (loading) {
-    return (
-      <div style={{ padding: 40, textAlign: "center", color: "#4a6280" }}>読み込み中…</div>
-    );
+    return <div style={{ padding: 24, color: "#64748b" }}>横断工程表を読み込み中…</div>;
   }
   if (loadError) {
     return (
-      <div style={{ padding: 40, textAlign: "center", color: "#c62828", fontSize: 13 }}>{loadError}</div>
+      <div style={{ padding: 24, color: "#b91c1c", lineHeight: 1.6 }}>
+        {loadError}
+      </div>
     );
   }
 
-  const leftCellBase: React.CSSProperties = {
-    borderRight: "1px solid #d0d8e4",
-    borderBottom: "1px solid #e0e6ed",
-    padding: isMobile ? "2px 4px" : "2px 6px",
-    fontSize: isMobile ? 11 : 12,
-    background: "#fff",
-    position: "sticky",
-    zIndex: 2,
-  };
-  const leftOffsets = leftCols.reduce<number[]>((acc, c, i) => {
-    acc.push(i === 0 ? 0 : acc[i - 1] + leftCols[i - 1].width);
-    return acc;
-  }, []);
-  const crewColIndex = leftCols.findIndex((c) => c.key === "crew");
-  const nameCol = leftCols.find((c) => c.key === "name")!;
-  const crewCol = leftCols.find((c) => c.key === "crew")!;
-  const clientCol = leftCols.find((c) => c.key === "client");
-  const personCol = leftCols.find((c) => c.key === "person");
-  const nameOffset = leftOffsets[leftCols.findIndex((c) => c.key === "name")] ?? 0;
-  const clientOffset = clientCol
-    ? leftOffsets[leftCols.findIndex((c) => c.key === "client")]
-    : 0;
-  const personOffset = personCol
-    ? leftOffsets[leftCols.findIndex((c) => c.key === "person")]
-    : 0;
-  const crewOffset = leftOffsets[crewColIndex] ?? 0;
-
-  const editingCell = editing ? cells[cellKey(editing.rowId, editing.date)] : null;
-  const editingRow = editing ? rows.find((r) => r.id === editing.rowId) : null;
-  const editingProject = editingRow ? projectById.get(editingRow.projectId) : null;
+  const editingCal =
+    editingBar != null ? calendarDaysInclusive(editingBar.startDate, editingBar.endDate) : 0;
 
   return (
-    <div style={{ padding: isMobile ? "0 8px 24px" : "0 16px 24px" }}>
-      {/* ── 操作バー ── */}
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
       <div
         className="cross-no-print"
         style={{
           display: "flex",
-          flexDirection: "column",
+          flexWrap: "wrap",
           gap: 8,
-          margin: "12px 0",
-          background: "#fff",
-          padding: isMobile ? 8 : 10,
-          borderRadius: 8,
-          border: "1px solid #d0d8e4",
+          alignItems: "center",
+          padding: "8px 4px",
+          borderBottom: "1px solid #e2e8f0",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" onClick={() => stepMonths(-rangeMonths)} style={navBtn}>
-            ◀ 前へ
-          </button>
-          <span style={{ fontWeight: 700, color: "#1565c0", fontFamily: "IBM Plex Mono, monospace", minWidth: 150, textAlign: "center" }}>
-            {year}年{month + 1}月
-            {rangeMonths > 1 ? ` 〜 ${days[days.length - 1].year}年${days[days.length - 1].monthIndex + 1}月` : ""}
-          </span>
-          <button type="button" onClick={() => stepMonths(rangeMonths)} style={navBtn}>
-            次へ ▶
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const t = new Date();
-              setYear(t.getFullYear());
-              setMonth(t.getMonth());
-            }}
-            style={navBtn}
-          >
-            今月
-          </button>
-          <select
-            value={rangeMonths}
-            onChange={(e) => setRangeMonths(Number(e.target.value) as 1 | 3)}
-            style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid #d0d8e4", fontSize: 12, fontFamily: "inherit", background: "#fff", cursor: "pointer" }}
-            aria-label="表示する月数"
-          >
-            <option value={1}>1か月</option>
-            <option value={3}>四半期（3か月）</option>
-          </select>
-          <span style={{ fontSize: 11, color: "#90a4ae" }}>|</span>
-          <button
-            type="button"
-            onClick={handleExportPdf}
-            disabled={pdfLoading}
-            style={{ ...navBtn, border: "1px solid #8b5cf6", background: "#f5f3ff", color: "#8b5cf6" }}
-          >
-            {pdfLoading ? "PDF作成中…" : "PDF（A3横）"}
-          </button>
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-            {saveState === "saving" && <span style={{ fontSize: 11, color: "#4a6280" }}>保存中…</span>}
-            {saveState === "saved" && <span style={{ fontSize: 11, color: "#2e7d32" }}>保存しました</span>}
-            {saveState === "error" && (
-              <span style={{ fontSize: 11, color: "#c62828" }}>{saveErrorMsg ?? "保存エラー"}</span>
-            )}
-          </div>
-        </div>
+        <button type="button" onClick={() => stepMonths(-rangeMonths)} style={navBtn}>
+          ‹
+        </button>
+        <strong style={{ fontSize: 15, minWidth: rangeMonths === 12 ? 72 : 160, textAlign: "center" }}>
+          {year}年{month + 1}月
+          {rangeMonths > 1
+            ? ` 〜 ${days[days.length - 1]?.year}年${(days[days.length - 1]?.monthIndex ?? 0) + 1}月`
+            : ""}
+        </strong>
+        <button type="button" onClick={() => stepMonths(rangeMonths)} style={navBtn}>
+          ›
+        </button>
+        <button type="button" onClick={goToday} style={ghostBtn}>
+          今日
+        </button>
 
-        {/* ── 入力パレット ── */}
-        {!readOnly && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #e8ecf2" }}>
-            <span style={{ fontSize: 11, color: "#607d8b", fontWeight: 600 }}>セル入力</span>
-            <PenButton
-              active={pen.kind === "detail"}
-              onClick={() => setPen({ kind: "detail" })}
-              label="選択"
-              title="ドラッグ／Shift+クリックで範囲選択。ダブルクリックで詳細編集。Ctrl+C / Ctrl+V でコピペ"
-            />
-            {markDefs.map((m) => (
-              <PenButton
-                key={m.char}
-                active={pen.kind === "mark" && pen.char === m.char}
-                onClick={() => selectMarkPen(m.char)}
-                label={`${m.char} ${m.label}`}
-                title={`ドラッグ／クリックで「${m.char}」を塗ります。複数選択中なら一気に塗ります`}
-              />
-            ))}
-            {(pen.kind === "mark" || pen.kind === "detail") && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 4 }}>
-                <span style={{ fontSize: 11, color: "#607d8b" }}>塗り色</span>
-                {CELL_COLOR_PRESETS.map((p) => (
-                  <button
-                    key={p.bg}
-                    type="button"
-                    aria-label={`塗り色 ${p.label}`}
-                    title={p.label}
-                    onClick={() => {
-                      setPaintColor(p);
-                      if (selectedCount >= 1 && pen.kind === "mark") {
-                        applyCellsPatch(selectedTargets, () => ({
-                          mark: pen.char,
-                          colorBg: p.bg,
-                          colorFg: p.fg,
-                        }));
-                      }
-                    }}
-                    style={{
-                      width: 18,
-                      height: 18,
-                      borderRadius: 3,
-                      background: p.bg,
-                      border: paintColor.bg === p.bg ? "2px solid #1a2535" : "1px solid #b0bec5",
-                      cursor: "pointer",
-                      padding: 0,
-                    }}
-                  />
-                ))}
-              </span>
-            )}
+        <select
+          value={rangeMonths}
+          onChange={(e) => setRangeMonths(Number(e.target.value) as RangeMonths)}
+          style={selectStyle}
+          aria-label="表示期間"
+        >
+          <option value={1}>1ヶ月</option>
+          <option value={3}>3ヶ月</option>
+          <option value={12}>1年</option>
+        </select>
+
+        <span style={{ width: 1, height: 22, background: "#e2e8f0", margin: "0 4px" }} />
+
+        <span style={{ fontSize: 12, color: "#64748b" }}>工種:</span>
+        {workKinds.map((k) => {
+          const on = activeKindId === k.id;
+          return (
             <button
+              key={k.id}
               type="button"
-              onClick={() => setShowMarkManager(true)}
-              title="マーク項目の追加"
+              onClick={() => setActiveKindId(k.id)}
+              title={`${k.label}（ドラッグで期間を塗る）`}
               style={{
-                padding: "4px 10px",
-                borderRadius: 4,
-                border: "1px dashed #90a4ae",
-                background: "#fff",
-                color: "#4a6280",
-                cursor: "pointer",
-                fontSize: 11,
-                fontFamily: "inherit",
+                ...chipBtn,
+                background: k.color,
+                color: contrastFg(k.color),
+                outline: on ? "2px solid #0f172a" : "2px solid transparent",
+                outlineOffset: 1,
+                opacity: on ? 1 : 0.75,
               }}
             >
-              ＋項目
+              {k.label}
             </button>
-            <PenButton
-              active={pen.kind === "span"}
-              onClick={selectSpanPen}
-              label="番号"
-              title="選択範囲／ドラッグした範囲にスパン番号を入れます"
-            />
-            {pen.kind === "span" && (
-              <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#607d8b" }}>
-                次の番号
-                <input
-                  type="number"
-                  min={1}
-                  value={nextSpanNo}
-                  onChange={(e) => setNextSpanNo(Math.max(1, Number(e.target.value) || 1))}
-                  style={{ width: 56, padding: "3px 6px", borderRadius: 4, border: "1px solid #d0d8e4", fontFamily: "inherit", fontSize: 12 }}
-                />
-              </label>
-            )}
-            <PenButton
-              active={pen.kind === "sticky"}
-              onClick={() => setPen({ kind: "sticky" })}
-              label="付箋"
-              title="クリックしたセルに付箋メモを貼ります。ドラッグで移動できます"
-              bg="#fff59d"
-              fg="#5d4037"
-            />
-            {pen.kind === "sticky" && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                {STICKY_COLORS.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    aria-label={`付箋色 ${c}`}
-                    onClick={() => setStickyColor(c)}
-                    style={{
-                      width: 18,
-                      height: 18,
-                      borderRadius: 3,
-                      background: c,
-                      border: stickyColor === c ? "2px solid #1a2535" : "1px solid #b0bec5",
-                      cursor: "pointer",
-                      padding: 0,
-                    }}
-                  />
-                ))}
-              </span>
-            )}
-            <PenButton
-              active={pen.kind === "erase"}
-              onClick={selectErasePen}
-              label="消す"
-              title="選択範囲／ドラッグした範囲のマーク・番号・注記を消します"
-            />
-            <span style={{ fontSize: 11, color: "#90a4ae" }}>|</span>
-            <button
-              type="button"
-              onClick={copySelection}
-              disabled={selectedCount === 0}
-              style={{ ...navBtn, opacity: selectedCount ? 1 : 0.5 }}
-              title="Ctrl+C"
-            >
-              コピー
-            </button>
-            <button
-              type="button"
-              onClick={pasteClipboard}
-              style={navBtn}
-              title="Ctrl+V（選択の左上から貼り付け）"
-            >
-              貼り付け
-            </button>
-            <button
-              type="button"
-              onClick={undoLast}
-              disabled={undoDepth === 0}
-              style={{ ...navBtn, opacity: undoDepth ? 1 : 0.5 }}
-              title="Ctrl+Z"
-            >
-              元に戻す
-            </button>
-            {selectedCount > 0 && (
-              <span style={{ fontSize: 11, color: "#1565c0", fontWeight: 600 }}>
-                {selectedCount}セル選択中
-              </span>
-            )}
-            {clipNotice && <span style={{ fontSize: 11, color: "#2e7d32" }}>{clipNotice}</span>}
-            <span style={{ fontSize: 10, color: "#90a4ae", width: "100%" }}>
-              ドラッグで範囲選択／Shift+クリックで拡張／Ctrl+C・Vでコピペ／Ctrl+Zで戻す／Deleteで消去／ダブルクリックで詳細
-            </span>
-          </div>
-        )}
+          );
+        })}
+        <button type="button" onClick={() => setShowKindManager(true)} style={ghostBtn}>
+          工種の色…
+        </button>
 
-        {/* ── 案件追加 ── */}
+        <span style={{ flex: 1 }} />
+
         {!readOnly && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #e8ecf2" }}>
-            <span style={{ fontSize: 11, color: "#607d8b", fontWeight: 600 }}>案件を追加</span>
+          <>
             <select
               value={addProjectId}
               onChange={(e) => setAddProjectId(e.target.value)}
-              style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid #d0d8e4", fontSize: 12, fontFamily: "inherit", background: "#fff", maxWidth: 360 }}
-              aria-label="横断工程表に追加する案件"
+              style={{ ...selectStyle, maxWidth: 200 }}
             >
-              <option value="">案件を選択…</option>
+              <option value="">案件を追加…</option>
               {projectsNotOnBoard.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.managementNumber ? `${p.managementNumber} ` : ""}
@@ -1401,913 +701,811 @@ export default function CrossScheduleBoard() {
             </select>
             <button
               type="button"
-              onClick={addProject}
+              onClick={() => void addProject()}
               disabled={!addProjectId}
-              style={{ ...navBtn, border: "1px solid #1565c0", background: addProjectId ? "#e3f2fd" : "#f5f7fa", color: "#1565c0", cursor: addProjectId ? "pointer" : "default" }}
+              style={primaryBtn}
             >
-              ＋ 追加
+              追加
             </button>
-            <span style={{ fontSize: 11, color: "#90a4ae" }}>
-              追加すると班行が1行できます。班行は工事名セルの「＋班」で増やせます。
-            </span>
-          </div>
+          </>
         )}
-        {readOnly && (
-          <div style={{ fontSize: 11, color: "#c62828" }}>{CROSS_VIEWER_FORBIDDEN_MSG}</div>
-        )}
-      </div>
 
-      {isMobile && (
-        <div
-          className="cross-no-print"
+        <button
+          type="button"
+          onClick={() => void handleExportPdf()}
+          disabled={pdfLoading}
+          style={ghostBtn}
+        >
+          {pdfLoading ? "PDF…" : "PDF"}
+        </button>
+
+        <span
           style={{
-            fontSize: 12,
-            color: "#1565c0",
-            background: "#e3f2fd",
-            border: "1px solid #90caf9",
-            borderRadius: 6,
-            padding: "8px 10px",
-            marginBottom: 8,
-            fontWeight: 600,
+            fontSize: 11,
+            color: saveState === "error" ? "#b91c1c" : "#64748b",
+            minWidth: 72,
           }}
         >
-          ←→ 表を左右にスワイプすると日付カレンダーが表示されます
-        </div>
-      )}
+          {saveState === "saving" && "保存中…"}
+          {saveState === "saved" && "保存済"}
+          {saveState === "error" && (saveErrorMsg ?? "エラー")}
+        </span>
+      </div>
 
-      {/* ── 本体テーブル ── */}
+      <p style={{ margin: 0, fontSize: 12, color: "#64748b" }}>
+        レーン上をドラッグして期間バーを作成。バーをクリックで日数・メモを編集。業者・工種ごとに色を固定します（人工・原価とは連動しません）。
+      </p>
+
       <div
-        ref={pdfAreaRef}
-        className="cross-schedule-scroll"
-        onClick={() => setEditingStickyId(null)}
         style={{
-          background: "#fff",
-          borderRadius: 8,
-          border: "1px solid #d0d8e4",
           overflow: "auto",
-          WebkitOverflowScrolling: "touch",
-          touchAction: "pan-x pan-y",
-          maxHeight: isMobile ? "calc(100dvh - 280px)" : "calc(100vh - 210px)",
-          width: "100%",
-          maxWidth: "100%",
+          border: "1px solid #cbd5e1",
+          borderRadius: 6,
+          background: "#fff",
         }}
       >
-        <table
-          style={{
-            borderCollapse: "separate",
-            borderSpacing: 0,
-            minWidth: leftTotal + days.length * dayW,
-            width: leftTotal + days.length * dayW,
-          }}
-        >
-          <thead>
-            {/* 月ヘッダー */}
-            <tr>
-              {leftCols.map((c, i) => (
-                <th
-                  key={c.key}
-                  style={{
-                    ...headCell,
-                    width: c.width,
-                    minWidth: c.width,
-                    maxWidth: c.width,
-                    left: leftOffsets[i],
-                    zIndex: 5,
-                    top: 0,
-                  }}
-                  rowSpan={2}
-                >
-                  {c.label}
-                </th>
-              ))}
-              {monthSpans.map((m) => (
-                <th key={m.label} colSpan={m.count} style={{ ...headCell, top: 0, zIndex: 3, background: "#e3f2fd", color: "#1565c0" }}>
-                  {m.label}
-                </th>
-              ))}
-            </tr>
-            {/* 日ヘッダー */}
-            <tr>
-              {days.map((d) => (
-                <th
-                  key={d.date}
-                  style={{
-                    ...headCell,
-                    top: 25,
-                    zIndex: 3,
-                    width: dayW,
-                    minWidth: dayW,
-                    maxWidth: dayW,
-                    padding: "1px 0",
-                    fontSize: 10,
-                    background: d.dow === 0 ? "#ffebee" : d.dow === 6 ? "#e8f1fb" : "#f5f7fa",
-                    color: d.dow === 0 ? "#c62828" : d.dow === 6 ? "#1565c0" : "#4a6280",
-                    boxShadow: d.date === today ? "inset 0 0 0 2px #f59e0b" : undefined,
-                  }}
-                >
-                  <div style={{ fontWeight: 700 }}>{d.day}</div>
-                  <div style={{ fontSize: 8 }}>{DOW[d.dow]}</div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {groups.length === 0 && (
-              <tr>
-                <td colSpan={leftCols.length + days.length} style={{ padding: 24, textAlign: "center", color: "#90a4ae", fontSize: 13 }}>
-                  まだ案件がありません。上の「案件を追加」から選んでください。
-                </td>
-              </tr>
-            )}
-            {groups.map((g) =>
-              g.rows.map((row, ri) => (
-                <tr key={row.id}>
-                  {ri === 0 && (
-                    <>
-                      <td
-                        rowSpan={g.rows.length}
-                        style={{
-                          ...leftCellBase,
-                          left: nameOffset,
-                          width: nameCol.width,
-                          minWidth: nameCol.width,
-                          maxWidth: nameCol.width,
-                          fontWeight: 700,
-                          verticalAlign: "top",
-                          borderBottom: "1px solid #b8c4d4",
-                        }}
-                      >
-                        <div
-                          style={{
-                            overflow: "hidden",
-                            display: "-webkit-box",
-                            WebkitLineClamp: isMobile ? 3 : 6,
-                            WebkitBoxOrient: "vertical",
-                            lineHeight: 1.25,
-                          }}
-                          title={g.project?.name ?? ""}
-                        >
-                          {g.project?.name ?? "（削除済み案件）"}
-                        </div>
-                        {g.project?.managementNumber && (
-                          <div style={{ fontSize: 10, color: "#90a4ae", fontWeight: 400 }}>{g.project.managementNumber}</div>
-                        )}
-                        {isMobile && (g.project?.client || g.project?.personInCharge) && (
-                          <div style={{ fontSize: 9, color: "#90a4ae", fontWeight: 400, marginTop: 2 }}>
-                            {[g.project?.client, g.project?.personInCharge].filter(Boolean).join(" / ")}
-                          </div>
-                        )}
-                        {!readOnly && (
-                          <button
-                            type="button"
-                            className="cross-no-print"
-                            onClick={() => addRow(g.projectId)}
-                            style={{ marginTop: 4, padding: "2px 8px", borderRadius: 4, border: "1px dashed #90a4ae", background: "#fff", color: "#4a6280", cursor: "pointer", fontSize: 10 }}
-                          >
-                            ＋班
-                          </button>
-                        )}
-                      </td>
-                      {showExtraLeft && clientCol && (
-                        <td
-                          rowSpan={g.rows.length}
-                          style={{
-                            ...leftCellBase,
-                            left: clientOffset,
-                            width: clientCol.width,
-                            minWidth: clientCol.width,
-                            verticalAlign: "top",
-                            color: "#4a6280",
-                            borderBottom: "1px solid #b8c4d4",
-                          }}
-                        >
-                          {g.project?.client ?? ""}
-                        </td>
-                      )}
-                      {showExtraLeft && personCol && (
-                        <td
-                          rowSpan={g.rows.length}
-                          style={{
-                            ...leftCellBase,
-                            left: personOffset,
-                            width: personCol.width,
-                            minWidth: personCol.width,
-                            verticalAlign: "top",
-                            color: "#4a6280",
-                            borderBottom: "1px solid #b8c4d4",
-                          }}
-                        >
-                          {g.project?.personInCharge ?? ""}
-                        </td>
-                      )}
-                    </>
-                  )}
-                  <td
-                    style={{
-                      ...leftCellBase,
-                      left: crewOffset,
-                      width: crewCol.width,
-                      minWidth: crewCol.width,
-                      maxWidth: crewCol.width,
-                      padding: "0 2px",
-                      borderBottom: ri === g.rows.length - 1 ? "1px solid #b8c4d4" : "1px solid #e0e6ed",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                      <input
-                        value={row.crewName}
-                        onChange={(e) => updateCrewName(row.id, e.target.value)}
-                        placeholder="班名"
-                        disabled={readOnly}
-                        style={{ width: "100%", border: "none", outline: "none", fontSize: isMobile ? 11 : 12, fontFamily: "inherit", background: "transparent", padding: "4px 2px", color: "#1a2535" }}
-                        aria-label={`${g.project?.name ?? ""}の施工班名`}
-                      />
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          className="cross-no-print"
-                          onClick={() => removeRow(row.id)}
-                          title="この班行を削除"
-                          style={{ border: "none", background: "transparent", color: "#c62828", cursor: "pointer", fontSize: 12, padding: "0 2px" }}
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                  {days.map((d, di) =>
-                    renderDayCell(row, d, g.project, rowIndexById.get(row.id) ?? 0, di)
-                  )}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* ── 凡例 ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 8, fontSize: 11, color: "#4a6280" }}>
-        <span style={{ fontWeight: 600 }}>凡例:</span>
-        {markDefs.map((m) => (
-          <span key={m.char} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-            <span
+        <div ref={pdfAreaRef} style={{ width: gridWidth, minWidth: "100%" }}>
+          <div
+            style={{
+              display: "flex",
+              position: "sticky",
+              top: 0,
+              zIndex: 5,
+              background: "#f8fafc",
+            }}
+          >
+            <div
               style={{
-                width: 16,
-                height: 16,
-                borderRadius: 3,
-                background: "#fff",
-                color: "#1a2535",
-                border: "1px solid #b0bec5",
-                fontSize: 10,
-                fontWeight: 700,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
+                width: leftTotal,
+                minWidth: leftTotal,
+                position: "sticky",
+                left: 0,
+                zIndex: 6,
+                background: "#f1f5f9",
+                borderBottom: "1px solid #cbd5e1",
+                borderRight: "1px solid #cbd5e1",
+                display: "flex",
+                height: HEADER_H,
               }}
             >
-              {m.char}
-            </span>
-            {m.label}
-          </span>
-        ))}
-        <span style={{ fontSize: 10, color: "#90a4ae" }}>（色はセルごとに「塗り色」で指定）</span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-          <span style={{ width: 16, height: 16, borderRadius: 3, border: "2px solid #c62828", boxSizing: "border-box" }} />
-          工期末（案件の終了日）
-        </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-          <span style={{ width: 0, height: 0, borderTop: "8px solid #c62828", borderLeft: "8px solid transparent" }} />
-          注記あり（セルにカーソルで表示）
-        </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-          <span style={{ width: 16, height: 12, borderRadius: 2, background: "#fff59d", border: "1px solid #f0c040", boxShadow: "1px 1px 0 rgba(0,0,0,.08)" }} />
-          付箋メモ
-        </span>
-      </div>
-
-      {/* ── セル詳細エディタ ── */}
-      {editing && !readOnly && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setEditing(null)}
-          style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.35)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center" }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: "#fff", borderRadius: 10, padding: 18, width: 360, maxWidth: "92vw", boxShadow: "0 8px 30px rgba(0,0,0,.18)" }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>
-              {editingProject?.name ?? ""} {editingRow?.crewName ? `／${editingRow.crewName}` : ""}
+              {leftCols.map((c) => (
+                <div
+                  key={c.key}
+                  style={{
+                    width: c.width,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: "#475569",
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "0 6px",
+                    borderRight: "1px solid #e2e8f0",
+                  }}
+                >
+                  {c.label}
+                </div>
+              ))}
             </div>
-            <div style={{ fontSize: 12, color: "#4a6280", marginBottom: 10 }}>{editing.date}</div>
-
-            <div style={{ fontSize: 11, color: "#607d8b", fontWeight: 600, marginBottom: 4 }}>マーク</div>
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 10 }}>
-              {markDefs.map((m) => {
-                const active = editingCell?.mark === m.char;
-                return (
-                  <button
-                    key={m.char}
-                    type="button"
-                    onClick={() =>
-                      applyCell(editing.rowId, editing.date, {
-                        mark: active ? "" : m.char,
-                        colorBg: active ? "" : paintColor.bg,
-                        colorFg: active ? "" : paintColor.fg,
-                      })
-                    }
+            <div style={{ display: "flex", flexDirection: "column", height: HEADER_H }}>
+              <div style={{ display: "flex", height: 18 }}>
+                {monthBands.map((b) => (
+                  <div
+                    key={b.key}
                     style={{
-                      padding: "4px 8px",
-                      borderRadius: 4,
-                      border: active ? "2px solid #1a2535" : "1px solid #d0d8e4",
-                      background: active
-                        ? editingCell?.colorBg || paintColor.bg
-                        : "#fff",
-                      color: active
-                        ? editingCell?.colorFg || paintColor.fg
-                        : "#4a6280",
-                      fontWeight: 700,
-                      fontSize: 12,
-                      cursor: "pointer",
+                      width: b.span * dayW,
+                      fontSize: rangeMonths === 12 ? 10 : 11,
+                      fontWeight: 600,
+                      textAlign: "center",
+                      borderRight: "1px solid #94a3b8",
+                      borderBottom: "1px solid #e2e8f0",
+                      background: "#e2e8f0",
+                      color: "#334155",
                     }}
                   >
-                    {m.char}
-                  </button>
-                );
-              })}
+                    {b.label}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", height: HEADER_H - 18 }}>
+                {days.map((d, di) => {
+                  const isToday = d.date === today;
+                  const weekend = d.dow === 0 || d.dow === 6;
+                  return (
+                    <div
+                      key={d.date}
+                      title={`${d.date}（${DOW[d.dow]}）`}
+                      style={{
+                        width: dayW,
+                        fontSize: rangeMonths === 12 ? 8 : 10,
+                        textAlign: "center",
+                        lineHeight: 1.1,
+                        borderRight:
+                          d.day === 1 && di > 0 ? "1px solid #94a3b8" : "1px solid #e2e8f0",
+                        background: isToday ? "#fef08a" : weekend ? "#f1f5f9" : "#fff",
+                        color: d.dow === 0 ? "#dc2626" : d.dow === 6 ? "#2563eb" : "#334155",
+                        paddingTop: 2,
+                      }}
+                    >
+                      {rangeMonths === 12 ? (d.day === 1 || d.day % 5 === 0 ? d.day : "") : d.day}
+                      {rangeMonths !== 12 && (
+                        <div style={{ fontSize: 8, opacity: 0.75 }}>{DOW[d.dow]}</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
+          </div>
 
-            <div style={{ fontSize: 11, color: "#607d8b", fontWeight: 600, marginBottom: 4 }}>セルの色</div>
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
-              {CELL_COLOR_PRESETS.map((p) => {
-                const active = (editingCell?.colorBg || paintColor.bg) === p.bg;
-                return (
-                  <button
-                    key={p.bg}
-                    type="button"
-                    title={p.label}
-                    onClick={() => {
-                      setPaintColor(p);
-                      if (editingCell?.mark || editingCell?.spanNo) {
-                        applyCell(editing.rowId, editing.date, {
-                          colorBg: p.bg,
-                          colorFg: p.fg,
-                        });
+          {groups.length === 0 ? (
+            <div style={{ padding: 32, color: "#64748b", fontSize: 13 }}>
+              上の「案件を追加」から案件を載せてください。1案件あたり最大{MAX_CREWS_PER_PROJECT}
+              業者までレーンを追加できます。
+            </div>
+          ) : (
+            groups.map((g) => {
+              const p = g.project;
+              return (
+                <div key={g.projectId} style={{ borderBottom: "2px solid #94a3b8" }}>
+                  {g.rows.map((row, laneIdx) => {
+                    const crewColor = crewColorForName(row.crewName, row.crewColor);
+                    const rowBars = barsByRow.get(row.id) ?? [];
+                    const isFirst = laneIdx === 0;
+                    return (
+                      <div key={row.id} style={{ display: "flex", height: LANE_H }}>
+                        <div
+                          style={{
+                            width: leftTotal,
+                            minWidth: leftTotal,
+                            position: "sticky",
+                            left: 0,
+                            zIndex: 3,
+                            background: "#fff",
+                            borderRight: "1px solid #cbd5e1",
+                            borderBottom: "1px solid #e2e8f0",
+                            display: "flex",
+                            height: LANE_H,
+                          }}
+                        >
+                          {leftCols.map((c) => {
+                            if (c.key === "name") {
+                              return (
+                                <div
+                                  key={c.key}
+                                  style={{
+                                    width: c.width,
+                                    fontSize: 11,
+                                    padding: "2px 6px",
+                                    borderRight: "1px solid #e2e8f0",
+                                    overflow: "hidden",
+                                    lineHeight: 1.2,
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    justifyContent: "center",
+                                    background: isFirst ? "#f8fafc" : "#fff",
+                                  }}
+                                >
+                                  {isFirst ? (
+                                    <span style={{ fontWeight: 600, color: "#0f172a" }}>
+                                      {p?.managementNumber ? `${p.managementNumber} ` : ""}
+                                      {p?.name ?? "(不明な案件)"}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: "#cbd5e1" }}>—</span>
+                                  )}
+                                </div>
+                              );
+                            }
+                            if (c.key === "client") {
+                              return (
+                                <div
+                                  key={c.key}
+                                  style={{
+                                    width: c.width,
+                                    fontSize: 10,
+                                    padding: "0 4px",
+                                    borderRight: "1px solid #e2e8f0",
+                                    overflow: "hidden",
+                                    whiteSpace: "nowrap",
+                                    textOverflow: "ellipsis",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    color: "#475569",
+                                  }}
+                                >
+                                  {isFirst ? (p?.client ?? "") : ""}
+                                </div>
+                              );
+                            }
+                            if (c.key === "person") {
+                              return (
+                                <div
+                                  key={c.key}
+                                  style={{
+                                    width: c.width,
+                                    fontSize: 10,
+                                    padding: "0 4px",
+                                    borderRight: "1px solid #e2e8f0",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    color: "#475569",
+                                  }}
+                                >
+                                  {isFirst ? (p?.personInCharge ?? "") : ""}
+                                </div>
+                              );
+                            }
+                            return (
+                              <div
+                                key={c.key}
+                                style={{
+                                  width: c.width,
+                                  padding: "2px 4px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  borderRight: "1px solid #e2e8f0",
+                                }}
+                              >
+                                <input
+                                  type="color"
+                                  value={crewColor}
+                                  disabled={readOnly}
+                                  title="業者の色"
+                                  onChange={(e) => updateCrew(row.id, { crewColor: e.target.value })}
+                                  style={{
+                                    width: 18,
+                                    height: 18,
+                                    padding: 0,
+                                    border: "1px solid #cbd5e1",
+                                    borderRadius: 3,
+                                    cursor: readOnly ? "default" : "pointer",
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  value={row.crewName}
+                                  disabled={readOnly}
+                                  placeholder="業者名"
+                                  onChange={(e) => updateCrew(row.id, { crewName: e.target.value })}
+                                  style={{
+                                    flex: 1,
+                                    minWidth: 0,
+                                    fontSize: 11,
+                                    border: "1px solid #e2e8f0",
+                                    borderRadius: 3,
+                                    padding: "2px 4px",
+                                    borderLeft: `3px solid ${crewColor}`,
+                                  }}
+                                />
+                                {!readOnly && (
+                                  <button
+                                    type="button"
+                                    className="cross-no-print"
+                                    title="レーン削除"
+                                    onClick={() => void removeRow(row.id)}
+                                    style={{
+                                      border: "none",
+                                      background: "transparent",
+                                      color: "#94a3b8",
+                                      cursor: "pointer",
+                                      fontSize: 12,
+                                      padding: 0,
+                                      lineHeight: 1,
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div
+                          style={{
+                            position: "relative",
+                            width: days.length * dayW,
+                            height: LANE_H,
+                            borderBottom: "1px solid #e2e8f0",
+                            background: "#fff",
+                          }}
+                        >
+                          <div style={{ display: "flex", position: "absolute", inset: 0 }}>
+                            {days.map((d, di) => {
+                              const weekend = d.dow === 0 || d.dow === 6;
+                              const inDrag =
+                                drag &&
+                                drag.rowId === row.id &&
+                                di >= Math.min(drag.startDi, drag.endDi) &&
+                                di <= Math.max(drag.startDi, drag.endDi);
+                              return (
+                                <div
+                                  key={d.date}
+                                  data-day-i={di}
+                                  onPointerDown={(e) => {
+                                    if (readOnly || e.button !== 0) return;
+                                    e.preventDefault();
+                                    setDrag({ rowId: row.id, startDi: di, endDi: di });
+                                  }}
+                                  style={{
+                                    width: dayW,
+                                    height: "100%",
+                                    borderRight:
+                                      d.day === 1 && di > 0
+                                        ? "1px solid #cbd5e1"
+                                        : "1px solid #f1f5f9",
+                                    background: inDrag
+                                      ? "rgba(37,99,235,0.2)"
+                                      : d.date === today
+                                        ? "rgba(254,240,138,0.45)"
+                                        : weekend
+                                          ? "rgba(241,245,249,0.8)"
+                                          : "transparent",
+                                    cursor: readOnly ? "default" : "crosshair",
+                                  }}
+                                />
+                              );
+                            })}
+                          </div>
+
+                          {rowBars.map((bar) => {
+                            if (bar.endDate < rangeStart || bar.startDate > rangeEnd) return null;
+                            const sIdx = dateIndex.get(bar.startDate);
+                            const eIdx = dateIndex.get(bar.endDate);
+                            const leftDi = sIdx == null || bar.startDate < rangeStart ? 0 : sIdx;
+                            const rightDi =
+                              eIdx == null || bar.endDate > rangeEnd ? days.length - 1 : eIdx;
+                            const left = leftDi * dayW;
+                            const width = Math.max(dayW, (rightDi - leftDi + 1) * dayW);
+                            const kind = workKindById(workKinds, bar.workKindId);
+                            const bg = kind?.color ?? "#90caf9";
+                            const fg = contrastFg(bg);
+                            const daysLabel = barDisplayDays(bar);
+                            const titleText = bar.label || kind?.label || "作業";
+                            const showText = width >= (rangeMonths === 12 ? 28 : 40);
+                            return (
+                              <button
+                                key={bar.id}
+                                type="button"
+                                title={`${titleText} ${bar.startDate}〜${bar.endDate}（${daysLabel}日）${
+                                  bar.note ? `\n${bar.note}` : ""
+                                }`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openBarEdit(bar);
+                                }}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                style={{
+                                  position: "absolute",
+                                  left: left + 1,
+                                  top: 4,
+                                  width: width - 2,
+                                  height: LANE_H - 8,
+                                  borderRadius: 4,
+                                  border: `1px solid ${crewColor}`,
+                                  background: bg,
+                                  color: fg,
+                                  fontSize: rangeMonths === 12 ? 9 : 11,
+                                  fontWeight: 600,
+                                  padding: "0 4px",
+                                  overflow: "hidden",
+                                  whiteSpace: "nowrap",
+                                  textOverflow: "ellipsis",
+                                  textAlign: "left",
+                                  cursor: "pointer",
+                                  zIndex: 2,
+                                  boxShadow: "0 1px 2px rgba(15,23,42,0.12)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                }}
+                              >
+                                {showText && (
+                                  <>
+                                    <span
+                                      style={{ overflow: "hidden", textOverflow: "ellipsis" }}
+                                    >
+                                      {titleText}
+                                    </span>
+                                    <span
+                                      style={{
+                                        marginLeft: "auto",
+                                        flexShrink: 0,
+                                        opacity: 0.95,
+                                        fontVariantNumeric: "tabular-nums",
+                                      }}
+                                    >
+                                      {daysLabel}日
+                                    </span>
+                                  </>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {!readOnly && g.rows.length < MAX_CREWS_PER_PROJECT && (
+                    <div className="cross-no-print" style={{ display: "flex", height: 24 }}>
+                      <div
+                        style={{
+                          width: leftTotal,
+                          minWidth: leftTotal,
+                          position: "sticky",
+                          left: 0,
+                          zIndex: 3,
+                          background: "#f8fafc",
+                          borderRight: "1px solid #e2e8f0",
+                          paddingLeft: 8,
+                          display: "flex",
+                          alignItems: "center",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => void addRow(g.projectId)}
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            color: "#2563eb",
+                            fontSize: 11,
+                            cursor: "pointer",
+                            padding: 0,
+                          }}
+                        >
+                          ＋ 業者レーン（{g.rows.length}/{MAX_CREWS_PER_PROJECT}）
+                        </button>
+                      </div>
+                      <div style={{ flex: 1, background: "#f8fafc" }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {editingBar && (
+        <div style={modalOverlay} onClick={() => setEditingBar(null)}>
+          <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: "0 0 12px", fontSize: 16 }}>期間バー</h3>
+            <label style={fieldLabel}>
+              工種
+              <select
+                value={editingBar.workKindId}
+                disabled={readOnly}
+                onChange={(e) => setEditingBar({ ...editingBar, workKindId: e.target.value })}
+                style={fieldInput}
+              >
+                {workKinds.map((k) => (
+                  <option key={k.id} value={k.id}>
+                    {k.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={fieldLabel}>
+              表示名（任意）
+              <input
+                value={editingBar.label}
+                disabled={readOnly}
+                placeholder="空なら工種名"
+                onChange={(e) => setEditingBar({ ...editingBar, label: e.target.value })}
+                style={fieldInput}
+              />
+            </label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <label style={{ ...fieldLabel, flex: 1 }}>
+                開始
+                <input
+                  type="date"
+                  value={editingBar.startDate}
+                  disabled={readOnly}
+                  onChange={(e) => setEditingBar({ ...editingBar, startDate: e.target.value })}
+                  style={fieldInput}
+                />
+              </label>
+              <label style={{ ...fieldLabel, flex: 1 }}>
+                終了
+                <input
+                  type="date"
+                  value={editingBar.endDate}
+                  disabled={readOnly}
+                  onChange={(e) => setEditingBar({ ...editingBar, endDate: e.target.value })}
+                  style={fieldInput}
+                />
+              </label>
+            </div>
+            <label style={fieldLabel}>
+              目安日数（空＝暦日 {editingCal} 日）
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input
+                  type="number"
+                  min={1}
+                  value={editingBar.plannedDays}
+                  disabled={readOnly}
+                  placeholder={String(editingCal || "")}
+                  onChange={(e) => setEditingBar({ ...editingBar, plannedDays: e.target.value })}
+                  style={{ ...fieldInput, flex: 1 }}
+                />
+                {!readOnly && (
+                  <>
+                    <button
+                      type="button"
+                      style={ghostBtn}
+                      title="暦日のまま"
+                      onClick={() =>
+                        setEditingBar({ ...editingBar, plannedDays: String(editingCal || 1) })
                       }
-                    }}
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: 3,
-                      background: p.bg,
-                      border: active ? "2px solid #1a2535" : "1px solid #b0bec5",
-                      cursor: "pointer",
-                      padding: 0,
-                    }}
-                  />
-                );
-              })}
-              {editingCell?.colorBg && (
-                <button
-                  type="button"
-                  onClick={() => applyCell(editing.rowId, editing.date, { colorBg: "", colorFg: "" })}
-                  style={{ fontSize: 10, border: "1px solid #d0d8e4", background: "#fff", borderRadius: 4, padding: "3px 8px", cursor: "pointer", color: "#607d8b" }}
-                >
-                  色をクリア
+                    >
+                      =暦
+                    </button>
+                    <button
+                      type="button"
+                      style={ghostBtn}
+                      title="管更生目安（×1.4）"
+                      onClick={() =>
+                        setEditingBar({
+                          ...editingBar,
+                          plannedDays: String(Math.ceil((editingCal || 1) * 1.4)),
+                        })
+                      }
+                    >
+                      ×1.4
+                    </button>
+                  </>
+                )}
+              </div>
+            </label>
+            <label style={fieldLabel}>
+              作業内容・メモ
+              <textarea
+                value={editingBar.note}
+                disabled={readOnly}
+                rows={4}
+                placeholder="ここに作業内容を記入"
+                onChange={(e) => setEditingBar({ ...editingBar, note: e.target.value })}
+                style={{ ...fieldInput, resize: "vertical", minHeight: 80 }}
+              />
+            </label>
+            <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "space-between" }}>
+              {!readOnly && (
+                <button type="button" onClick={() => void removeEditingBar()} style={dangerBtn}>
+                  削除
+                </button>
+              )}
+              <span style={{ flex: 1 }} />
+              <button type="button" onClick={() => setEditingBar(null)} style={ghostBtn}>
+                閉じる
+              </button>
+              {!readOnly && (
+                <button type="button" onClick={() => void saveBarEdit()} style={primaryBtn}>
+                  保存
                 </button>
               )}
             </div>
-
-            <label style={{ display: "block", fontSize: 11, color: "#607d8b", fontWeight: 600, marginBottom: 4 }}>
-              スパン番号（表示テキスト）
-              <input
-                value={editingCell?.spanNo ?? ""}
-                onChange={(e) => applyCell(editing.rowId, editing.date, { spanNo: e.target.value })}
-                placeholder="例: 12"
-                style={{ display: "block", width: "100%", marginTop: 4, padding: "6px 8px", borderRadius: 4, border: "1px solid #d0d8e4", fontFamily: "inherit", fontSize: 13, boxSizing: "border-box" }}
-              />
-            </label>
-
-            <label style={{ display: "block", fontSize: 11, color: "#607d8b", fontWeight: 600, margin: "10px 0 4px" }}>
-              注記（セルにカーソルを合わせると表示）
-              <textarea
-                value={editingCell?.note ?? ""}
-                onChange={(e) => applyCell(editing.rowId, editing.date, { note: e.target.value })}
-                rows={3}
-                placeholder="例: 水道工事が入るため夜間更生に変更"
-                style={{ display: "block", width: "100%", marginTop: 4, padding: "6px 8px", borderRadius: 4, border: "1px solid #d0d8e4", fontFamily: "inherit", fontSize: 13, resize: "vertical", boxSizing: "border-box" }}
-              />
-            </label>
-
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  applyCell(editing.rowId, editing.date, {
-                    mark: "",
-                    spanNo: "",
-                    note: "",
-                    colorBg: "",
-                    colorFg: "",
-                  });
-                  setEditing(null);
-                }}
-                style={{ padding: "6px 12px", borderRadius: 4, border: "1px solid #ef9a9a", background: "#ffebee", color: "#c62828", cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}
-              >
-                このセルを消す
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditing(null)}
-                style={{ padding: "6px 16px", borderRadius: 4, border: "1px solid #1565c0", background: "#e3f2fd", color: "#1565c0", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit" }}
-              >
-                閉じる
-              </button>
-            </div>
           </div>
         </div>
       )}
 
-      {showMarkManager && !readOnly && (
-        <MarkManagerModal
-          markDefs={markDefs}
-          customMarks={customMarks}
-          onClose={() => setShowMarkManager(false)}
-          onSave={saveMark}
-          onDelete={removeMark}
+      {showKindManager && (
+        <KindManagerModal
+          kinds={workKinds}
+          readOnly={readOnly}
+          onClose={() => setShowKindManager(false)}
+          onSave={(k) => void saveKind(k)}
+          onDelete={(id) => void removeKind(id)}
         />
       )}
     </div>
   );
 }
 
-const navBtn: React.CSSProperties = {
-  padding: "5px 12px",
-  borderRadius: 4,
-  border: "1px solid #d0d8e4",
-  background: "#fff",
-  color: "#4a6280",
-  cursor: "pointer",
-  fontFamily: "inherit",
-  fontSize: 12,
-};
-
-const headCell: React.CSSProperties = {
-  position: "sticky",
-  background: "#f5f7fa",
-  borderRight: "1px solid #d0d8e4",
-  borderBottom: "1px solid #b8c4d4",
-  padding: "4px 6px",
-  fontSize: 11,
-  fontWeight: 700,
-  color: "#4a6280",
-  whiteSpace: "nowrap",
-};
-
-function PenButton({
-  active,
-  onClick,
-  label,
-  title,
-  bg,
-  fg,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  title?: string;
-  bg?: string;
-  fg?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      style={{
-        padding: "4px 10px",
-        borderRadius: 4,
-        border: active ? "2px solid #1a2535" : "1px solid #d0d8e4",
-        background: bg ?? (active ? "#e3f2fd" : "#fff"),
-        color: fg ?? (active ? "#1565c0" : "#4a6280"),
-        cursor: "pointer",
-        fontSize: 11,
-        fontWeight: active ? 700 : 500,
-        fontFamily: "inherit",
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-/** セル上の付箋（ドラッグで移動・テキスト編集） */
-function StickyNoteView({
-  sticky,
+function KindManagerModal({
+  kinds,
   readOnly,
-  selected,
-  onSelect,
-  onChange,
-  onRemove,
-}: {
-  sticky: CrossScheduleSticky;
-  readOnly: boolean;
-  selected: boolean;
-  onSelect: () => void;
-  onChange: (patch: Partial<CrossScheduleSticky>, persist?: boolean) => void;
-  onRemove: () => void;
-}) {
-  const dragRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
-  const [draft, setDraft] = useState(sticky.body);
-  useEffect(() => setDraft(sticky.body), [sticky.body]);
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (readOnly) return;
-    // セルの mousedown 選択・選択解除に奪われないよう止める
-    e.stopPropagation();
-    onSelect();
-    const target = e.target as HTMLElement;
-    if (target.tagName === "TEXTAREA" || target.tagName === "BUTTON" || target.closest("button")) return;
-    if (e.button !== 0) return;
-    dragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      ox: sticky.offsetX,
-      oy: sticky.offsetY,
-    };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    e.stopPropagation();
-    const dx = e.clientX - dragRef.current.startX;
-    const dy = e.clientY - dragRef.current.startY;
-    onChange(
-      {
-        offsetX: Math.round(dragRef.current.ox + dx),
-        offsetY: Math.round(dragRef.current.oy + dy),
-      },
-      false
-    );
-  };
-
-  const onPointerUp = (e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    e.stopPropagation();
-    const dx = e.clientX - dragRef.current.startX;
-    const dy = e.clientY - dragRef.current.startY;
-    const next = {
-      offsetX: Math.round(dragRef.current.ox + dx),
-      offsetY: Math.round(dragRef.current.oy + dy),
-    };
-    dragRef.current = null;
-    onChange(next, true);
-  };
-
-  return (
-    <div
-      className="cross-sticky"
-      onClick={(e) => e.stopPropagation()}
-      onMouseDown={(e) => {
-        // pointer だけ止めても mouse はセルに届くため、両方止める
-        e.stopPropagation();
-      }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      style={{
-        position: "absolute",
-        left: sticky.offsetX,
-        top: sticky.offsetY,
-        zIndex: 20 + sticky.zIndex + (selected ? 50 : 0),
-        width: selected ? 140 : 78,
-        minHeight: selected ? 72 : 28,
-        padding: selected ? "6px 22px 6px 6px" : "4px 20px 4px 5px",
-        background: sticky.color,
-        border: selected ? "1.5px solid #5d4037" : "1px solid rgba(0,0,0,.15)",
-        borderRadius: 2,
-        boxShadow: "2px 2px 4px rgba(0,0,0,.12)",
-        cursor: readOnly ? "default" : "grab",
-        fontSize: 10,
-        color: "#3e2723",
-        lineHeight: 1.3,
-        textAlign: "left",
-        fontWeight: 400,
-        whiteSpace: selected ? "normal" : "nowrap",
-        overflow: selected ? "visible" : "hidden",
-        textOverflow: "ellipsis",
-        boxSizing: "border-box",
-      }}
-      title={sticky.body || "（空の付箋）"}
-    >
-      {!readOnly && (
-        <button
-          type="button"
-          aria-label="付箋を削除"
-          title="削除"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-          style={{
-            position: "absolute",
-            top: 1,
-            right: 1,
-            width: 16,
-            height: 16,
-            border: "none",
-            borderRadius: 2,
-            background: "rgba(0,0,0,.08)",
-            color: "#c62828",
-            cursor: "pointer",
-            fontSize: 12,
-            lineHeight: "16px",
-            padding: 0,
-            fontWeight: 700,
-          }}
-        >
-          ×
-        </button>
-      )}
-      {selected && !readOnly ? (
-        <>
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={() => onChange({ body: draft }, true)}
-            placeholder="メモを入力…"
-            rows={3}
-            style={{
-              width: "100%",
-              border: "none",
-              outline: "none",
-              resize: "none",
-              background: "transparent",
-              fontFamily: "inherit",
-              fontSize: 11,
-              color: "#3e2723",
-              boxSizing: "border-box",
-            }}
-            autoFocus
-          />
-          <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 4, paddingRight: 2 }}>
-            {STICKY_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => onChange({ color: c }, true)}
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: 2,
-                  background: c,
-                  border: sticky.color === c ? "1.5px solid #1a2535" : "1px solid #999",
-                  cursor: "pointer",
-                  padding: 0,
-                }}
-              />
-            ))}
-          </div>
-        </>
-      ) : (
-        <span>{sticky.body || "…"}</span>
-      )}
-    </div>
-  );
-}
-
-const MARK_COLOR_PRESETS = [
-  { bg: "#c8e6c9", fg: "#1b5e20" },
-  { bg: "#bbdefb", fg: "#0d47a1" },
-  { bg: "#ffe0b2", fg: "#e65100" },
-  { bg: "#b3e5fc", fg: "#01579b" },
-  { bg: "#eceff1", fg: "#546e7a" },
-  { bg: "#d1c4e9", fg: "#4527a0" },
-  { bg: "#f0f4c3", fg: "#827717" },
-  { bg: "#b2dfdb", fg: "#00695c" },
-  { bg: "#f8bbd0", fg: "#880e4f" },
-  { bg: "#ffcdd2", fg: "#b71c1c" },
-  { bg: "#fff9c4", fg: "#5d4037" },
-  { bg: "#d7ccc8", fg: "#4e342e" },
-];
-
-function MarkManagerModal({
-  markDefs,
-  customMarks,
   onClose,
   onSave,
   onDelete,
 }: {
-  markDefs: MarkDef[];
-  customMarks: MarkDef[];
+  kinds: CrossWorkKind[];
+  readOnly: boolean;
   onClose: () => void;
-  onSave: (mark: MarkDef & { id: string }) => Promise<void>;
-  onDelete: (markId: string) => Promise<void>;
+  onSave: (k: CrossWorkKind) => void;
+  onDelete: (id: string) => void;
 }) {
-  const [char, setChar] = useState("");
-  const [label, setLabel] = useState("");
-  const [bg, setBg] = useState("#fff9c4");
-  const [fg, setFg] = useState("#5d4037");
-  const [editingId, setEditingId] = useState<string | null>(null);
-
-  const startEdit = (m: MarkDef) => {
-    if (!m.id) {
-      // 既定マークをカスタム化して上書き
-      setEditingId(null);
-      setChar(m.char);
-      setLabel(m.label);
-      setBg(m.bg);
-      setFg(m.fg);
-      return;
-    }
-    setEditingId(m.id);
-    setChar(m.char);
-    setLabel(m.label);
-    setBg(m.bg);
-    setFg(m.fg);
-  };
-
-  const handleSave = async () => {
-    const c = char.trim().slice(0, 2);
-    if (!c) {
-      alert("表示文字を入力してください（1〜2文字）");
-      return;
-    }
-    const id = editingId ?? genId();
-    const sortOrder =
-      customMarks.find((m) => m.id === id)?.sortOrder ??
-      DEFAULT_MARK_DEFS.length + customMarks.length;
-    await onSave({
-      id,
-      char: c,
-      label: label.trim() || c,
-      bg,
-      fg,
-      sortOrder,
-      custom: true,
-    });
-    setEditingId(null);
-    setChar("");
-    setLabel("");
-    setBg("#fff9c4");
-    setFg("#5d4037");
-  };
+  const [draftLabel, setDraftLabel] = useState("");
+  const [draftColor, setDraftColor] = useState("#78909c");
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.35)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center" }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ background: "#fff", borderRadius: 10, padding: 18, width: 440, maxWidth: "94vw", maxHeight: "85vh", overflow: "auto", boxShadow: "0 8px 30px rgba(0,0,0,.18)" }}
-      >
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>マーク項目・色の編集</div>
-        <p style={{ fontSize: 11, color: "#607d8b", margin: "0 0 12px" }}>
-          新しい項目を追加したり、色を変えたりできます。既定項目をクリックして色を変えて保存すると、会社用の上書きとして残ります。
+    <div style={modalOverlay} onClick={onClose}>
+      <div style={{ ...modalCard, maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>工種の色</h3>
+        <p style={{ margin: "0 0 12px", fontSize: 12, color: "#64748b" }}>
+          既定の工種は色を上書きできます。会社専用の工種も追加できます。
         </p>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
-          {markDefs.map((m) => (
-            <div
-              key={m.char + (m.id ?? "")}
-              style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", border: "1px solid #e8ecf2", borderRadius: 6 }}
+        <ul
+          style={{
+            listStyle: "none",
+            margin: 0,
+            padding: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          {kinds.map((k) => (
+            <li
+              key={k.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 8px",
+                background: "#f8fafc",
+                borderRadius: 6,
+              }}
             >
-              <span
+              <input
+                type="color"
+                value={k.color}
+                disabled={readOnly}
+                onChange={(e) => onSave({ ...k, color: e.target.value })}
                 style={{
                   width: 28,
                   height: 28,
-                  borderRadius: 4,
-                  background: m.bg,
-                  color: m.fg,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: 700,
-                  fontSize: 13,
+                  border: "none",
+                  cursor: readOnly ? "default" : "pointer",
                 }}
-              >
-                {m.char}
-              </span>
-              <span style={{ flex: 1, fontSize: 12 }}>
-                {m.label}
-                {m.custom ? (
-                  <span style={{ marginLeft: 6, fontSize: 10, color: "#1565c0" }}>カスタム</span>
-                ) : (
-                  <span style={{ marginLeft: 6, fontSize: 10, color: "#90a4ae" }}>既定</span>
-                )}
-              </span>
-              <button type="button" onClick={() => startEdit(m)} style={{ ...navBtn, fontSize: 11, padding: "3px 8px" }}>
-                色・編集
-              </button>
-              {m.id && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (window.confirm(`「${m.char} ${m.label}」を削除しますか？`)) void onDelete(m.id!);
-                  }}
-                  style={{ border: "none", background: "transparent", color: "#c62828", cursor: "pointer", fontSize: 11 }}
-                >
+              />
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{k.label}</span>
+              {k.custom && !readOnly && (
+                <button type="button" onClick={() => onDelete(k.id)} style={ghostBtn}>
                   削除
                 </button>
               )}
-            </div>
+            </li>
           ))}
-        </div>
-
-        <div style={{ borderTop: "1px solid #e8ecf2", paddingTop: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
-            {editingId ? "項目を更新" : "新しい項目を追加 / 既定を上書き"}
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-            <label style={{ fontSize: 11, color: "#607d8b" }}>
-              文字
-              <input
-                value={char}
-                onChange={(e) => setChar(e.target.value.slice(0, 2))}
-                maxLength={2}
-                placeholder="例: 移"
-                style={{ display: "block", width: 64, marginTop: 3, padding: "5px 6px", borderRadius: 4, border: "1px solid #d0d8e4", fontFamily: "inherit" }}
-              />
-            </label>
-            <label style={{ fontSize: 11, color: "#607d8b", flex: 1, minWidth: 120 }}>
-              名称
-              <input
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="例: 移設"
-                style={{ display: "block", width: "100%", marginTop: 3, padding: "5px 6px", borderRadius: 4, border: "1px solid #d0d8e4", fontFamily: "inherit", boxSizing: "border-box" }}
-              />
-            </label>
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 4,
-                background: bg,
-                color: fg,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: 700,
-                border: "1px solid #d0d8e4",
-                alignSelf: "flex-end",
-              }}
-            >
-              {char || "?"}
-            </div>
-          </div>
-          <div style={{ fontSize: 11, color: "#607d8b", marginBottom: 4 }}>色のプリセット</div>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
-            {MARK_COLOR_PRESETS.map((p) => (
-              <button
-                key={p.bg}
-                type="button"
-                onClick={() => {
-                  setBg(p.bg);
-                  setFg(p.fg);
-                }}
-                style={{
-                  width: 28,
-                  height: 22,
-                  borderRadius: 3,
-                  background: p.bg,
-                  border: bg === p.bg ? "2px solid #1a2535" : "1px solid #b0bec5",
-                  cursor: "pointer",
-                }}
-              />
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <label style={{ fontSize: 11, color: "#607d8b" }}>
-              背景
-              <input type="color" value={bg} onChange={(e) => setBg(e.target.value)} style={{ display: "block", marginTop: 3, width: 48, height: 28, border: "none", padding: 0, background: "transparent" }} />
-            </label>
-            <label style={{ fontSize: 11, color: "#607d8b" }}>
-              文字色
-              <input type="color" value={fg} onChange={(e) => setFg(e.target.value)} style={{ display: "block", marginTop: 3, width: 48, height: 28, border: "none", padding: 0, background: "transparent" }} />
-            </label>
-          </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <button type="button" onClick={onClose} style={navBtn}>
-              閉じる
-            </button>
+        </ul>
+        {!readOnly && (
+          <div style={{ display: "flex", gap: 6, marginTop: 14, alignItems: "center" }}>
+            <input
+              type="color"
+              value={draftColor}
+              onChange={(e) => setDraftColor(e.target.value)}
+              style={{ width: 28, height: 28 }}
+            />
+            <input
+              value={draftLabel}
+              placeholder="新しい工種名"
+              onChange={(e) => setDraftLabel(e.target.value)}
+              style={{ ...fieldInput, flex: 1, marginTop: 0 }}
+            />
             <button
               type="button"
-              onClick={() => void handleSave()}
-              style={{ ...navBtn, border: "1px solid #1565c0", background: "#e3f2fd", color: "#1565c0", fontWeight: 700 }}
+              style={primaryBtn}
+              disabled={!draftLabel.trim()}
+              onClick={() => {
+                const label = draftLabel.trim();
+                if (!label) return;
+                onSave({
+                  id: genId(),
+                  kindKey: "",
+                  label,
+                  color: draftColor,
+                  sortOrder: 100 + kinds.length,
+                  custom: true,
+                });
+                setDraftLabel("");
+              }}
             >
-              保存
+              追加
             </button>
           </div>
+        )}
+        <div style={{ marginTop: 16, textAlign: "right" }}>
+          <button type="button" onClick={onClose} style={ghostBtn}>
+            閉じる
+          </button>
         </div>
       </div>
     </div>
   );
 }
+
+const navBtn: React.CSSProperties = {
+  border: "1px solid #cbd5e1",
+  background: "#fff",
+  borderRadius: 6,
+  width: 32,
+  height: 32,
+  cursor: "pointer",
+  fontSize: 18,
+  lineHeight: 1,
+};
+const ghostBtn: React.CSSProperties = {
+  border: "1px solid #cbd5e1",
+  background: "#fff",
+  borderRadius: 6,
+  padding: "4px 10px",
+  fontSize: 12,
+  cursor: "pointer",
+  color: "#334155",
+};
+const primaryBtn: React.CSSProperties = {
+  border: "none",
+  background: "#2563eb",
+  color: "#fff",
+  borderRadius: 6,
+  padding: "5px 12px",
+  fontSize: 12,
+  cursor: "pointer",
+  fontWeight: 600,
+};
+const dangerBtn: React.CSSProperties = {
+  border: "1px solid #fecaca",
+  background: "#fef2f2",
+  color: "#b91c1c",
+  borderRadius: 6,
+  padding: "5px 12px",
+  fontSize: 12,
+  cursor: "pointer",
+};
+const chipBtn: React.CSSProperties = {
+  border: "none",
+  borderRadius: 6,
+  padding: "4px 10px",
+  fontSize: 12,
+  cursor: "pointer",
+  fontWeight: 600,
+};
+const selectStyle: React.CSSProperties = {
+  border: "1px solid #cbd5e1",
+  borderRadius: 6,
+  padding: "4px 8px",
+  fontSize: 12,
+  background: "#fff",
+};
+const modalOverlay: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(15,23,42,0.4)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 1000,
+  padding: 16,
+};
+const modalCard: React.CSSProperties = {
+  background: "#fff",
+  borderRadius: 10,
+  padding: 20,
+  width: "100%",
+  maxWidth: 440,
+  boxShadow: "0 20px 40px rgba(15,23,42,0.2)",
+  maxHeight: "90vh",
+  overflow: "auto",
+};
+const fieldLabel: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  fontSize: 12,
+  fontWeight: 600,
+  color: "#475569",
+  marginBottom: 10,
+};
+const fieldInput: React.CSSProperties = {
+  border: "1px solid #cbd5e1",
+  borderRadius: 6,
+  padding: "6px 8px",
+  fontSize: 13,
+  fontWeight: 400,
+  color: "#0f172a",
+  marginTop: 2,
+};

@@ -1,57 +1,73 @@
 // ================================================================
-// 横断工程表（日別ビュー）の型定義
+// 横断工程表（日別ビュー）の型定義 — 期間バー中心
 // ================================================================
 
-/** 行 = 案件 × 施工班 */
+/** 1案件あたりの施工班（レーン）上限 */
+export const MAX_CREWS_PER_PROJECT = 5
+
+/** 行 = 案件 × 施工班（レーン） */
 export type CrossScheduleRow = {
   id: string
   projectId: string
   /** 施工班・協力会社名（例: トキトA / 藤澤班 / 大阪設備） */
   crewName: string
+  /** 業者固定色。空なら名前から自動割当 */
+  crewColor: string
   sortOrder: number
 }
 
-/** セル = 行 × 日付 */
+/** @deprecated 旧セル塗り。互換のため型のみ残す */
 export type CrossScheduleCell = {
   rowId: string
-  /** YYYY-MM-DD */
   date: string
-  /** マーク種別（完 / 予 / 仕 / 雨 / 休 / 夜 など） */
   mark: string
-  /** スパン番号などの表示テキスト（例: "12"） */
   spanNo: string
-  /** 注記（ツールチップ表示） */
   note: string
-  /** セル個別の背景色（空ならフォールバック） */
   colorBg: string
-  /** セル個別の文字色 */
   colorFg: string
 }
 
-export type MarkDef = {
-  /** DB id。既定マークは undefined */
-  id?: string
-  /** セルに表示する文字（DB上のキーでもある） */
-  char: string
+/** 工種（調査・処理・管更生など） */
+export type CrossWorkKind = {
+  id: string
+  kindKey: string
   label: string
-  /** セル背景色 */
-  bg: string
-  /** 文字色 */
-  fg: string
-  sortOrder?: number
-  /** 会社が追加・編集したマーク */
+  color: string
+  sortOrder: number
+  /** 会社カスタム */
   custom?: boolean
 }
 
-/** セル上の付箋メモ */
+/** 期間バー（開始〜終了の帯） */
+export type CrossScheduleBar = {
+  id: string
+  rowId: string
+  startDate: string
+  endDate: string
+  workKindId: string
+  /** 帯上の短い表示名（空なら工種名） */
+  label: string
+  note: string
+  /** 表示用の目安日数。未設定なら暦日数 */
+  plannedDays: number | null
+}
+
+export type MarkDef = {
+  id?: string
+  char: string
+  label: string
+  bg: string
+  fg: string
+  sortOrder?: number
+  custom?: boolean
+}
+
 export type CrossScheduleSticky = {
   id: string
   rowId: string
   date: string
   body: string
-  /** 付箋の紙色 */
   color: string
-  /** セル左上からの相対位置(px) */
   offsetX: number
   offsetY: number
   zIndex: number
@@ -67,7 +83,94 @@ export const STICKY_COLORS = [
   "#f5f5f5",
 ] as const
 
-/** エクセル運用で使われていた既定マーク */
+/** 既定の工種（色固定） */
+export const DEFAULT_WORK_KINDS: Omit<CrossWorkKind, "id" | "custom">[] = [
+  { kindKey: "survey", label: "調査", color: "#00897b", sortOrder: 10 },
+  { kindKey: "prep", label: "処理", color: "#9e9d24", sortOrder: 20 },
+  { kindKey: "rehab", label: "管更生", color: "#1565c0", sortOrder: 30 },
+  { kindKey: "finish", label: "仕上", color: "#ef6c00", sortOrder: 40 },
+  { kindKey: "inspect", label: "検査", color: "#c62828", sortOrder: 50 },
+  { kindKey: "other", label: "その他", color: "#78909c", sortOrder: 90 },
+]
+
+/** 業者色の自動割当パレット */
+export const CREW_COLOR_PALETTE = [
+  "#1565c0",
+  "#6a1b9a",
+  "#c62828",
+  "#2e7d32",
+  "#ef6c00",
+  "#00838f",
+  "#ad1457",
+  "#4527a0",
+  "#558b2f",
+  "#4e342e",
+] as const
+
+export function crewColorForName(name: string, explicit?: string): string {
+  if (explicit && /^#[0-9a-fA-F]{6}$/.test(explicit)) return explicit
+  const key = name.trim() || "?"
+  let h = 0
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0
+  return CREW_COLOR_PALETTE[h % CREW_COLOR_PALETTE.length]
+}
+
+export function mergeWorkKinds(custom: CrossWorkKind[]): CrossWorkKind[] {
+  const byLabel = new Map<string, CrossWorkKind>()
+  for (const k of DEFAULT_WORK_KINDS) {
+    byLabel.set(k.label, {
+      id: `default:${k.kindKey}`,
+      kindKey: k.kindKey,
+      label: k.label,
+      color: k.color,
+      sortOrder: k.sortOrder,
+    })
+  }
+  for (const k of custom) {
+    byLabel.set(k.label, { ...k, custom: true })
+  }
+  return [...byLabel.values()].sort((a, b) => {
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
+    return a.label.localeCompare(b.label, "ja")
+  })
+}
+
+export function workKindById(kinds: CrossWorkKind[], id: string): CrossWorkKind | null {
+  if (!id) return null
+  const direct = kinds.find((k) => k.id === id)
+  if (direct) return direct
+  // 既定ID（default:survey 等）→ 同名のカスタム上書きを拾う
+  if (id.startsWith("default:")) {
+    const key = id.slice("default:".length)
+    return kinds.find((k) => k.kindKey === key) ?? null
+  }
+  return null
+}
+
+/** 暦日数（両端含む） */
+export function calendarDaysInclusive(startDate: string, endDate: string): number {
+  const a = new Date(startDate + "T12:00:00")
+  const b = new Date(endDate + "T12:00:00")
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0
+  const diff = Math.round((b.getTime() - a.getTime()) / 86400000)
+  return Math.max(0, diff) + 1
+}
+
+export function barDisplayDays(bar: Pick<CrossScheduleBar, "startDate" | "endDate" | "plannedDays">): number {
+  if (bar.plannedDays != null && bar.plannedDays > 0) return bar.plannedDays
+  return calendarDaysInclusive(bar.startDate, bar.endDate)
+}
+
+export function addCalendarDays(startDate: string, days: number): string {
+  const d = new Date(startDate + "T12:00:00")
+  d.setDate(d.getDate() + Math.max(0, days - 1))
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
+/** 旧マーク定義（互換） */
 export const DEFAULT_MARK_DEFS: MarkDef[] = [
   { char: "完", label: "完了", bg: "#c8e6c9", fg: "#1b5e20" },
   { char: "予", label: "予定", bg: "#bbdefb", fg: "#0d47a1" },
@@ -81,16 +184,12 @@ export const DEFAULT_MARK_DEFS: MarkDef[] = [
   { char: "検", label: "検査", bg: "#ffcdd2", fg: "#b71c1c" },
 ]
 
-/** @deprecated 互換用。DEFAULT_MARK_DEFS と同じ */
 export const MARK_DEFS = DEFAULT_MARK_DEFS
 
-/** 既定 + 会社カスタムをマージ（同じ char はカスタム優先） */
 export function mergeMarkDefs(custom: MarkDef[]): MarkDef[] {
   const byChar = new Map<string, MarkDef>()
   for (const m of DEFAULT_MARK_DEFS) byChar.set(m.char, { ...m })
-  for (const m of custom) {
-    byChar.set(m.char, { ...m, custom: true })
-  }
+  for (const m of custom) byChar.set(m.char, { ...m, custom: true })
   return [...byChar.values()].sort((a, b) => {
     const ao = a.sortOrder ?? 999
     const bo = b.sortOrder ?? 999
@@ -108,10 +207,8 @@ export function markDef(mark: string): MarkDef | null {
   return markDefFromList(mark, DEFAULT_MARK_DEFS)
 }
 
-/** マーク未登録・色未指定のときのフォールバック */
 export const FREE_MARK_STYLE = { bg: "#fff9c4", fg: "#5d4037" }
 
-/** セルに塗るときの色プリセット（マーク名とは独立） */
 export const CELL_COLOR_PRESETS: { bg: string; fg: string; label: string }[] = [
   { bg: "#c8e6c9", fg: "#1b5e20", label: "緑" },
   { bg: "#bbdefb", fg: "#0d47a1", label: "青" },
@@ -127,15 +224,12 @@ export const CELL_COLOR_PRESETS: { bg: string; fg: string; label: string }[] = [
   { bg: "#d7ccc8", fg: "#4e342e", label: "茶" },
 ]
 
-/** セル表示色を解決（セル個別色 > マーク既定 > フォールバック） */
 export function resolveCellColors(
   cell: Pick<CrossScheduleCell, "mark" | "colorBg" | "colorFg"> | null | undefined,
   marks: MarkDef[]
 ): { bg: string; fg: string } | null {
   if (!cell?.mark && !cell?.colorBg) return null
-  if (cell.colorBg) {
-    return { bg: cell.colorBg, fg: cell.colorFg || FREE_MARK_STYLE.fg }
-  }
+  if (cell.colorBg) return { bg: cell.colorBg, fg: cell.colorFg || FREE_MARK_STYLE.fg }
   if (cell.mark) {
     const def = markDefFromList(cell.mark, marks)
     return def ? { bg: def.bg, fg: def.fg } : FREE_MARK_STYLE
