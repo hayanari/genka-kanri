@@ -6,7 +6,7 @@
 CREATE TABLE IF NOT EXISTS estimates (
   id              text PRIMARY KEY,
   company_id      uuid NOT NULL REFERENCES public.companies(id),
-  project_id      text NOT NULL,
+  project_id      text NOT NULL DEFAULT '',
   estimate_no     text NOT NULL DEFAULT '',
   status          text NOT NULL DEFAULT 'draft'
                     CHECK (status IN ('draft', 'confirmed', 'lost')),

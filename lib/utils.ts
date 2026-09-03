@@ -338,6 +338,52 @@ export const bidScheduleToProject = (b: BidSchedule, id: string): Project => {
   };
 };
 
+/** 確定見積から案件を起こす（金額は税抜小計を当初契約額に） */
+export const estimateToProject = (
+  e: {
+    workName: string;
+    clientName: string;
+    siteLocation?: string;
+    notes?: string;
+    subtotal: number;
+    totalAmount: number;
+    issueDate?: string;
+  },
+  id: string
+): Project => {
+  const amount = Math.round(e.subtotal || e.totalAmount || 0);
+  return {
+    id,
+    name: e.workName || "見積案件",
+    client: e.clientName.replace(/\s*様\s*$/, "").trim() || "",
+    category: "工事",
+    contractAmount: amount,
+    originalAmount: amount,
+    budget: amount > 0 ? Math.round(amount * 0.9) : 0,
+    status: "ordered",
+    startDate: e.issueDate || new Date().toISOString().slice(0, 10),
+    endDate: "",
+    progress: 0,
+    billedAmount: 0,
+    paidAmount: 0,
+    notes:
+      [
+        e.siteLocation ? `工事場所: ${e.siteLocation}` : "",
+        e.notes || "",
+        "見積書より案件登録",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    mode: "normal",
+    marginRate: 0,
+    subcontractAmount: 0,
+    subcontractVendor: "",
+    payments: [],
+    changes: [],
+    personInCharge: "",
+  };
+};
+
 /** 初回・空DB時に使用する空データ（プリセット案件は含めない） */
 export const createEmptyData = () => ({
   vehicles: [...DEFAULT_VEHICLES],

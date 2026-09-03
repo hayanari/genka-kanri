@@ -29,6 +29,7 @@ export type EstimateItem = {
 
 export type Estimate = {
   id: string;
+  /** 空文字 = 案件化前（未紐づけ） */
   projectId: string;
   estimateNo: string;
   status: EstimateStatus;
@@ -89,6 +90,7 @@ export const ESTIMATE_EVENT_LABEL: Record<string, string> = {
   reopen: "下書きに戻す",
   pdf: "PDF出力",
   emailed: "メール送信",
+  linked: "案件に紐づけ",
 };
 
 /** トキト既定の発行元（会社ごとに編集可・見積ごとにスナップショット保存） */

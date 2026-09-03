@@ -84,7 +84,7 @@ function mapEstimate(
 ): Estimate {
   return {
     id: String(r.id),
-    projectId: String(r.project_id),
+    projectId: String(r.project_id ?? ""),
     estimateNo: String(r.estimate_no ?? ""),
     status: (String(r.status ?? "draft") as EstimateStatus) || "draft",
     issueDate: r.issue_date ? String(r.issue_date).slice(0, 10) : "",
@@ -135,15 +135,20 @@ async function appendEvent(
   if (error) console.error("[estimate] event", error);
 }
 
-export async function loadEstimatesForProject(projectId: string): Promise<Estimate[]> {
+async function loadEstimatesByFilter(
+  filter: { projectId?: string } = {}
+): Promise<Estimate[]> {
   const supabase = createClient();
   const companyId = await requireCompanyId();
-  const { data, error } = await supabase
+  let q = supabase
     .from("estimates")
     .select("*")
     .eq("company_id", companyId)
-    .eq("project_id", projectId)
     .order("created_at", { ascending: false });
+  if (filter.projectId != null) {
+    q = q.eq("project_id", filter.projectId);
+  }
+  const { data, error } = await q;
   if (error) {
     if (/estimates|schema cache|does not exist/i.test(error.message)) return [];
     throw error;
@@ -168,6 +173,37 @@ export async function loadEstimatesForProject(projectId: string): Promise<Estima
     byEst.set(eid, list);
   }
   return rows.map((r) => mapEstimate(r as Record<string, unknown>, byEst.get(String(r.id)) ?? []));
+}
+
+/** 会社の全見積（案件化前含む） */
+export async function loadAllEstimates(): Promise<Estimate[]> {
+  return loadEstimatesByFilter();
+}
+
+export async function loadEstimatesForProject(projectId: string): Promise<Estimate[]> {
+  return loadEstimatesByFilter({ projectId });
+}
+
+/** 確定見積を案件に紐づけ */
+export async function linkEstimateToProject(
+  estimateId: string,
+  projectId: string
+): Promise<void> {
+  await assertWritable();
+  const actor = await resolveEstimateActor();
+  const supabase = createClient();
+  const companyId = await requireCompanyId();
+  const { error } = await supabase
+    .from("estimates")
+    .update({
+      project_id: projectId,
+      updated_by_email: actor.email,
+      updated_by_name: actor.name,
+    })
+    .eq("company_id", companyId)
+    .eq("id", estimateId);
+  if (error) throw error;
+  await appendEvent(estimateId, "linked", actor, { projectId });
 }
 
 export async function loadEstimateEvents(estimateId: string): Promise<EstimateEvent[]> {
@@ -198,7 +234,7 @@ export async function loadEstimateEvents(estimateId: string): Promise<EstimateEv
 }
 
 export function buildNewEstimateDraft(input: {
-  projectId: string;
+  projectId?: string;
   clientName?: string;
   workName?: string;
   actor: EstimateActor;
@@ -207,7 +243,7 @@ export function buildNewEstimateDraft(input: {
   const id = genId();
   return {
     id,
-    projectId: input.projectId,
+    projectId: input.projectId ?? "",
     estimateNo: "",
     status: "draft",
     issueDate: today,
@@ -299,7 +335,7 @@ export async function saveEstimate(
   const payload = {
     id: estimate.id,
     company_id: companyId,
-    project_id: estimate.projectId,
+    project_id: estimate.projectId || "",
     estimate_no: estimate.estimateNo,
     status: estimate.status,
     issue_date: estimate.issueDate || null,

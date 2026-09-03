@@ -20,6 +20,7 @@ import {
   buildNewEstimateDraft,
   deleteEstimate,
   ESTIMATE_VIEWER_FORBIDDEN_MSG,
+  loadAllEstimates,
   loadEstimateEvents,
   loadEstimatesForProject,
   logEstimateExport,
@@ -34,10 +35,14 @@ import { T } from "@/lib/constants";
 type Filter = "all" | EstimateStatus;
 
 type Props = {
-  project: Project;
+  /** 指定時はその案件に紐づく見積のみ（参照用） */
+  project?: Project;
+  /** 案件化コールバック（standalone 用） */
+  onConvertToProject?: (estimate: Estimate) => void | Promise<void>;
 };
 
-export default function EstimateTab({ project }: Props) {
+export default function EstimateTab({ project, onConvertToProject }: Props) {
+  const standalone = !project;
   const { role } = useUserRole();
   const readOnly = role === "viewer";
 
@@ -58,6 +63,7 @@ export default function EstimateTab({ project }: Props) {
   const [lostModal, setLostModal] = useState(false);
   const [lostReason, setLostReason] = useState("");
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [converting, setConverting] = useState(false);
 
   const pdfRef = useRef<HTMLDivElement>(null);
 
@@ -65,7 +71,9 @@ export default function EstimateTab({ project }: Props) {
     setLoading(true);
     setLoadError(null);
     try {
-      const rows = await loadEstimatesForProject(project.id);
+      const rows = project
+        ? await loadEstimatesForProject(project.id)
+        : await loadAllEstimates();
       setList(rows);
     } catch (e) {
       console.error("[EstimateTab]", e);
@@ -75,7 +83,7 @@ export default function EstimateTab({ project }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [project.id]);
+  }, [project]);
 
   useEffect(() => {
     void reload();
@@ -101,9 +109,9 @@ export default function EstimateTab({ project }: Props) {
     if (readOnly) return;
     const actor = await resolveEstimateActor();
     const draft = buildNewEstimateDraft({
-      projectId: project.id,
-      clientName: project.client ? `${project.client}` : "",
-      workName: project.name,
+      projectId: project?.id ?? "",
+      clientName: project?.client ? `${project.client}` : "",
+      workName: project?.name ?? "",
       actor,
     });
     setIsNew(true);
@@ -202,7 +210,10 @@ export default function EstimateTab({ project }: Props) {
         setEditing(saved);
       }
       await setEstimateStatus(id, status, { lostReason: reason });
-      const rows = await loadEstimatesForProject(project.id);
+      await reload();
+      const rows = project
+        ? await loadEstimatesForProject(project.id)
+        : await loadAllEstimates();
       setList(rows);
       const updated = rows.find((r) => r.id === id) ?? null;
       if (updated) setEditing(updated);
@@ -257,7 +268,7 @@ export default function EstimateTab({ project }: Props) {
       pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
       heightLeft -= pageH;
     }
-    const filename = `見積_${editing.workName || project.name || "estimate"}_${
+    const filename = `見積_${editing.workName || project?.name || "estimate"}_${
       editing.issueDate || "draft"
     }.pdf`.replace(/[\\/:*?"<>|]/g, "_");
     const dataUrl = pdf.output("datauristring");
@@ -297,10 +308,10 @@ export default function EstimateTab({ project }: Props) {
   const openEmail = () => {
     if (!editing) return;
     setEmailTo("");
-    setEmailSubject(`【御見積書】${editing.workName || project.name}`);
+    setEmailSubject(`【御見積書】${editing.workName || project?.name || "工事"}`);
     setEmailMessage(
       `${editing.clientName ? editing.clientName + " 様" : "ご担当者様"}\n\n「${
-        editing.workName || project.name
+        editing.workName || project?.name || "工事"
       }」の御見積書を送付いたします。\n添付のPDFをご確認ください。\n\nよろしくお願いいたします。`
     );
     setEmailOpen(true);
@@ -349,6 +360,39 @@ export default function EstimateTab({ project }: Props) {
       alert(e instanceof Error ? e.message : "送信に失敗しました");
     } finally {
       setEmailSending(false);
+    }
+  };
+
+  const handleConvert = async () => {
+    if (!editing || !onConvertToProject || readOnly) return;
+    if (editing.status !== "confirmed") {
+      alert("案件化できるのは「確定」した見積だけです。先に確定してください。");
+      return;
+    }
+    if (editing.projectId) {
+      alert("すでに案件に紐づいています。");
+      return;
+    }
+    if (!window.confirm("この見積から案件を作成し、紐づけますか？")) return;
+    setConverting(true);
+    try {
+      let est = editing;
+      if (isNew) {
+        est = await saveEstimate(editing, { isNew: true });
+        setIsNew(false);
+        setEditing(est);
+      }
+      await onConvertToProject(est);
+      await reload();
+      const rows = await loadAllEstimates();
+      const updated = rows.find((r) => r.id === est.id);
+      if (updated) setEditing(updated);
+      setEvents(await loadEstimateEvents(est.id));
+      showNotice("案件を作成し、見積を紐づけました");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "案件化に失敗しました");
+    } finally {
+      setConverting(false);
     }
   };
 
@@ -426,12 +470,36 @@ export default function EstimateTab({ project }: Props) {
               メール送信
             </Btn>
           )}
+          {standalone &&
+            onConvertToProject &&
+            !readOnly &&
+            editing.status === "confirmed" &&
+            !editing.projectId && (
+              <Btn
+                sm
+                v="primary"
+                onClick={() => void handleConvert()}
+                disabled={converting || saving}
+              >
+                {converting ? "案件化中…" : "案件にする"}
+              </Btn>
+            )}
           {!readOnly && !isNew && (
             <Btn sm v="ghost" onClick={() => void handleDelete()} style={{ color: "#b91c1c" }}>
               削除
             </Btn>
           )}
         </div>
+
+        {editing.projectId ? (
+          <p style={{ fontSize: 12, color: T.ts, marginTop: 0 }}>
+            案件に紐づき済み（案件ID: {editing.projectId}）
+          </p>
+        ) : standalone ? (
+          <p style={{ fontSize: 12, color: T.ts, marginTop: 0 }}>
+            案件化前の見積です。確定後に「案件にする」で案件一覧へ送れます。
+          </p>
+        ) : null}
 
         <Card style={{ marginBottom: 12 }}>
           <div
@@ -820,6 +888,22 @@ export default function EstimateTab({ project }: Props) {
   // 一覧
   return (
     <div>
+      {standalone && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 12,
+            marginBottom: 16,
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: 20, color: T.tx }}>見積書一覧</h2>
+          <span style={{ fontSize: 12, color: T.ts }}>
+            案件化前の見積を管理します（失注もここに残ります）
+          </span>
+        </div>
+      )}
       <div
         style={{
           display: "flex",
@@ -870,7 +954,9 @@ export default function EstimateTab({ project }: Props) {
       {filtered.length === 0 ? (
         <Card>
           <div style={{ color: T.ts, fontSize: 13, padding: 8 }}>
-            見積書はまだありません。Excel「取付ライニング」形式の表紙＋内訳で作成できます。
+            {standalone
+              ? "見積書はまだありません。「＋ 見積書を作成」から案件化前の見積を作れます。"
+              : "この案件に紐づく見積はまだありません。左メニュー「見積書」で作成し、案件化してください。"}
           </div>
         </Card>
       ) : (
@@ -903,6 +989,12 @@ export default function EstimateTab({ project }: Props) {
                 {est.createdAt
                   ? `（${new Date(est.createdAt).toLocaleString("ja-JP")}）`
                   : ""}
+                {standalone && (
+                  <>
+                    {"　/　"}
+                    {est.projectId ? "案件紐づき済" : "未案件化"}
+                  </>
+                )}
               </div>
             </button>
           ))}
