@@ -87,17 +87,17 @@ function dayWidthFor(range: RangeMonths, mobile: boolean): number {
 }
 
 const DESKTOP_LEFT = [
-  { key: "name", label: "工事名", width: 148 },
+  { key: "name", label: "工事名", width: 200 },
   { key: "client", label: "元請", width: 88 },
   { key: "person", label: "担当", width: 64 },
   { key: "crew", label: "業者", width: 128 },
 ] as const;
 const MOBILE_LEFT = [
-  { key: "name", label: "工事名", width: 100 },
+  { key: "name", label: "工事名", width: 132 },
   { key: "crew", label: "業者", width: 88 },
 ] as const;
 
-const LANE_H = 30;
+const LANE_H = 32;
 const HEADER_H = 44;
 
 type DragPaint = {
@@ -845,289 +845,326 @@ export default function CrossScheduleBoard() {
           ) : (
             groups.map((g) => {
               const p = g.project;
+              const nameCol = leftCols.find((c) => c.key === "name")!;
+              const clientCol = leftCols.find((c) => c.key === "client");
+              const personCol = leftCols.find((c) => c.key === "person");
+              const crewCol = leftCols.find((c) => c.key === "crew")!;
+              const projectTitle = `${p?.managementNumber ? `${p.managementNumber} ` : ""}${
+                p?.name ?? "(不明な案件)"
+              }`;
+              const lanesMinH = g.rows.length * LANE_H;
+
               return (
                 <div key={g.projectId} style={{ borderBottom: "2px solid #94a3b8" }}>
-                  {g.rows.map((row, laneIdx) => {
-                    const crewColor = crewColorForName(row.crewName, row.crewColor);
-                    const rowBars = barsByRow.get(row.id) ?? [];
-                    const isFirst = laneIdx === 0;
-                    return (
-                      <div key={row.id} style={{ display: "flex", height: LANE_H }}>
+                  <div style={{ display: "flex", alignItems: "stretch", minHeight: lanesMinH }}>
+                    {/* 左固定：工事名などはレーン全体にまたがって折り返し表示 */}
+                    <div
+                      style={{
+                        width: leftTotal,
+                        minWidth: leftTotal,
+                        position: "sticky",
+                        left: 0,
+                        zIndex: 3,
+                        background: "#fff",
+                        borderRight: "1px solid #cbd5e1",
+                        display: "flex",
+                        alignItems: "stretch",
+                      }}
+                    >
+                      <div
+                        title={projectTitle}
+                        style={{
+                          width: nameCol.width,
+                          minWidth: nameCol.width,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: "#0f172a",
+                          padding: "6px 8px",
+                          borderRight: "1px solid #e2e8f0",
+                          borderBottom: "1px solid #e2e8f0",
+                          background: "#f8fafc",
+                          lineHeight: 1.35,
+                          whiteSpace: "normal",
+                          overflowWrap: "anywhere",
+                          wordBreak: "break-word",
+                          display: "flex",
+                          alignItems: "center",
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        {p?.managementNumber ? (
+                          <span>
+                            <span style={{ display: "block", fontSize: 10, color: "#64748b", fontWeight: 600 }}>
+                              {p.managementNumber}
+                            </span>
+                            <span>{p?.name ?? "(不明な案件)"}</span>
+                          </span>
+                        ) : (
+                          <span>{p?.name ?? "(不明な案件)"}</span>
+                        )}
+                      </div>
+                      {clientCol && (
                         <div
+                          title={p?.client ?? ""}
                           style={{
-                            width: leftTotal,
-                            minWidth: leftTotal,
-                            position: "sticky",
-                            left: 0,
-                            zIndex: 3,
-                            background: "#fff",
-                            borderRight: "1px solid #cbd5e1",
+                            width: clientCol.width,
+                            minWidth: clientCol.width,
+                            fontSize: 11,
+                            padding: "6px 6px",
+                            borderRight: "1px solid #e2e8f0",
                             borderBottom: "1px solid #e2e8f0",
+                            color: "#475569",
+                            lineHeight: 1.35,
+                            whiteSpace: "normal",
+                            overflowWrap: "anywhere",
+                            wordBreak: "break-word",
                             display: "flex",
-                            height: LANE_H,
+                            alignItems: "center",
+                            boxSizing: "border-box",
                           }}
                         >
-                          {leftCols.map((c) => {
-                            if (c.key === "name") {
-                              return (
-                                <div
-                                  key={c.key}
+                          {p?.client ?? ""}
+                        </div>
+                      )}
+                      {personCol && (
+                        <div
+                          title={p?.personInCharge ?? ""}
+                          style={{
+                            width: personCol.width,
+                            minWidth: personCol.width,
+                            fontSize: 11,
+                            padding: "6px 6px",
+                            borderRight: "1px solid #e2e8f0",
+                            borderBottom: "1px solid #e2e8f0",
+                            color: "#475569",
+                            lineHeight: 1.35,
+                            whiteSpace: "normal",
+                            overflowWrap: "anywhere",
+                            wordBreak: "break-word",
+                            display: "flex",
+                            alignItems: "center",
+                            boxSizing: "border-box",
+                          }}
+                        >
+                          {p?.personInCharge ?? ""}
+                        </div>
+                      )}
+                      <div
+                        style={{
+                          width: crewCol.width,
+                          minWidth: crewCol.width,
+                          display: "flex",
+                          flexDirection: "column",
+                          borderBottom: "1px solid #e2e8f0",
+                        }}
+                      >
+                        {g.rows.map((row) => {
+                          const crewColor = crewColorForName(row.crewName, row.crewColor);
+                          return (
+                            <div
+                              key={row.id}
+                              style={{
+                                flex: 1,
+                                minHeight: LANE_H,
+                                padding: "2px 4px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                                borderBottom: "1px solid #e2e8f0",
+                                boxSizing: "border-box",
+                              }}
+                            >
+                              <input
+                                type="color"
+                                value={crewColor}
+                                disabled={readOnly}
+                                title="業者の色"
+                                onChange={(e) => updateCrew(row.id, { crewColor: e.target.value })}
+                                style={{
+                                  width: 18,
+                                  height: 18,
+                                  padding: 0,
+                                  border: "1px solid #cbd5e1",
+                                  borderRadius: 3,
+                                  cursor: readOnly ? "default" : "pointer",
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <input
+                                type="text"
+                                value={row.crewName}
+                                disabled={readOnly}
+                                placeholder="業者名"
+                                onChange={(e) => updateCrew(row.id, { crewName: e.target.value })}
+                                style={{
+                                  flex: 1,
+                                  minWidth: 0,
+                                  fontSize: 11,
+                                  border: "1px solid #e2e8f0",
+                                  borderRadius: 3,
+                                  padding: "2px 4px",
+                                  borderLeft: `3px solid ${crewColor}`,
+                                }}
+                              />
+                              {!readOnly && (
+                                <button
+                                  type="button"
+                                  className="cross-no-print"
+                                  title="レーン削除"
+                                  onClick={() => void removeRow(row.id)}
                                   style={{
-                                    width: c.width,
-                                    fontSize: 11,
-                                    padding: "2px 6px",
-                                    borderRight: "1px solid #e2e8f0",
-                                    overflow: "hidden",
-                                    lineHeight: 1.2,
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    justifyContent: "center",
-                                    background: isFirst ? "#f8fafc" : "#fff",
+                                    border: "none",
+                                    background: "transparent",
+                                    color: "#94a3b8",
+                                    cursor: "pointer",
+                                    fontSize: 12,
+                                    padding: 0,
+                                    lineHeight: 1,
                                   }}
                                 >
-                                  {isFirst ? (
-                                    <span style={{ fontWeight: 600, color: "#0f172a" }}>
-                                      {p?.managementNumber ? `${p.managementNumber} ` : ""}
-                                      {p?.name ?? "(不明な案件)"}
-                                    </span>
-                                  ) : (
-                                    <span style={{ color: "#cbd5e1" }}>—</span>
-                                  )}
-                                </div>
-                              );
-                            }
-                            if (c.key === "client") {
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* タイムライン（業者レーンごと） */}
+                    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+                      {g.rows.map((row) => {
+                        const crewColor = crewColorForName(row.crewName, row.crewColor);
+                        const rowBars = barsByRow.get(row.id) ?? [];
+                        return (
+                          <div
+                            key={row.id}
+                            style={{
+                              position: "relative",
+                              width: days.length * dayW,
+                              flex: 1,
+                              minHeight: LANE_H,
+                              borderBottom: "1px solid #e2e8f0",
+                              background: "#fff",
+                            }}
+                          >
+                            <div style={{ display: "flex", position: "absolute", inset: 0 }}>
+                              {days.map((d, di) => {
+                                const weekend = d.dow === 0 || d.dow === 6;
+                                const inDrag =
+                                  drag &&
+                                  drag.rowId === row.id &&
+                                  di >= Math.min(drag.startDi, drag.endDi) &&
+                                  di <= Math.max(drag.startDi, drag.endDi);
+                                return (
+                                  <div
+                                    key={d.date}
+                                    data-day-i={di}
+                                    onPointerDown={(e) => {
+                                      if (readOnly || e.button !== 0) return;
+                                      e.preventDefault();
+                                      setDrag({ rowId: row.id, startDi: di, endDi: di });
+                                    }}
+                                    style={{
+                                      width: dayW,
+                                      height: "100%",
+                                      borderRight:
+                                        d.day === 1 && di > 0
+                                          ? "1px solid #cbd5e1"
+                                          : "1px solid #f1f5f9",
+                                      background: inDrag
+                                        ? "rgba(37,99,235,0.2)"
+                                        : d.date === today
+                                          ? "rgba(254,240,138,0.45)"
+                                          : weekend
+                                            ? "rgba(241,245,249,0.8)"
+                                            : "transparent",
+                                      cursor: readOnly ? "default" : "crosshair",
+                                    }}
+                                  />
+                                );
+                              })}
+                            </div>
+
+                            {rowBars.map((bar) => {
+                              if (bar.endDate < rangeStart || bar.startDate > rangeEnd) return null;
+                              const sIdx = dateIndex.get(bar.startDate);
+                              const eIdx = dateIndex.get(bar.endDate);
+                              const leftDi = sIdx == null || bar.startDate < rangeStart ? 0 : sIdx;
+                              const rightDi =
+                                eIdx == null || bar.endDate > rangeEnd ? days.length - 1 : eIdx;
+                              const left = leftDi * dayW;
+                              const width = Math.max(dayW, (rightDi - leftDi + 1) * dayW);
+                              const kind = workKindById(workKinds, bar.workKindId);
+                              const bg = kind?.color ?? "#90caf9";
+                              const fg = contrastFg(bg);
+                              const daysLabel = barDisplayDays(bar);
+                              const titleText = bar.label || kind?.label || "作業";
+                              const showText = width >= (rangeMonths === 12 ? 28 : 40);
                               return (
-                                <div
-                                  key={c.key}
+                                <button
+                                  key={bar.id}
+                                  type="button"
+                                  title={`${titleText} ${bar.startDate}〜${bar.endDate}（${daysLabel}日）${
+                                    bar.note ? `\n${bar.note}` : ""
+                                  }`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openBarEdit(bar);
+                                  }}
+                                  onPointerDown={(e) => e.stopPropagation()}
                                   style={{
-                                    width: c.width,
-                                    fontSize: 10,
+                                    position: "absolute",
+                                    left: left + 1,
+                                    top: 4,
+                                    bottom: 4,
+                                    width: width - 2,
+                                    borderRadius: 4,
+                                    border: `1px solid ${crewColor}`,
+                                    background: bg,
+                                    color: fg,
+                                    fontSize: rangeMonths === 12 ? 9 : 11,
+                                    fontWeight: 600,
                                     padding: "0 4px",
-                                    borderRight: "1px solid #e2e8f0",
                                     overflow: "hidden",
                                     whiteSpace: "nowrap",
                                     textOverflow: "ellipsis",
+                                    textAlign: "left",
+                                    cursor: "pointer",
+                                    zIndex: 2,
+                                    boxShadow: "0 1px 2px rgba(15,23,42,0.12)",
                                     display: "flex",
                                     alignItems: "center",
-                                    color: "#475569",
+                                    gap: 4,
                                   }}
                                 >
-                                  {isFirst ? (p?.client ?? "") : ""}
-                                </div>
-                              );
-                            }
-                            if (c.key === "person") {
-                              return (
-                                <div
-                                  key={c.key}
-                                  style={{
-                                    width: c.width,
-                                    fontSize: 10,
-                                    padding: "0 4px",
-                                    borderRight: "1px solid #e2e8f0",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    color: "#475569",
-                                  }}
-                                >
-                                  {isFirst ? (p?.personInCharge ?? "") : ""}
-                                </div>
-                              );
-                            }
-                            return (
-                              <div
-                                key={c.key}
-                                style={{
-                                  width: c.width,
-                                  padding: "2px 4px",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 4,
-                                  borderRight: "1px solid #e2e8f0",
-                                }}
-                              >
-                                <input
-                                  type="color"
-                                  value={crewColor}
-                                  disabled={readOnly}
-                                  title="業者の色"
-                                  onChange={(e) => updateCrew(row.id, { crewColor: e.target.value })}
-                                  style={{
-                                    width: 18,
-                                    height: 18,
-                                    padding: 0,
-                                    border: "1px solid #cbd5e1",
-                                    borderRadius: 3,
-                                    cursor: readOnly ? "default" : "pointer",
-                                    flexShrink: 0,
-                                  }}
-                                />
-                                <input
-                                  type="text"
-                                  value={row.crewName}
-                                  disabled={readOnly}
-                                  placeholder="業者名"
-                                  onChange={(e) => updateCrew(row.id, { crewName: e.target.value })}
-                                  style={{
-                                    flex: 1,
-                                    minWidth: 0,
-                                    fontSize: 11,
-                                    border: "1px solid #e2e8f0",
-                                    borderRadius: 3,
-                                    padding: "2px 4px",
-                                    borderLeft: `3px solid ${crewColor}`,
-                                  }}
-                                />
-                                {!readOnly && (
-                                  <button
-                                    type="button"
-                                    className="cross-no-print"
-                                    title="レーン削除"
-                                    onClick={() => void removeRow(row.id)}
-                                    style={{
-                                      border: "none",
-                                      background: "transparent",
-                                      color: "#94a3b8",
-                                      cursor: "pointer",
-                                      fontSize: 12,
-                                      padding: 0,
-                                      lineHeight: 1,
-                                    }}
-                                  >
-                                    ×
-                                  </button>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        <div
-                          style={{
-                            position: "relative",
-                            width: days.length * dayW,
-                            height: LANE_H,
-                            borderBottom: "1px solid #e2e8f0",
-                            background: "#fff",
-                          }}
-                        >
-                          <div style={{ display: "flex", position: "absolute", inset: 0 }}>
-                            {days.map((d, di) => {
-                              const weekend = d.dow === 0 || d.dow === 6;
-                              const inDrag =
-                                drag &&
-                                drag.rowId === row.id &&
-                                di >= Math.min(drag.startDi, drag.endDi) &&
-                                di <= Math.max(drag.startDi, drag.endDi);
-                              return (
-                                <div
-                                  key={d.date}
-                                  data-day-i={di}
-                                  onPointerDown={(e) => {
-                                    if (readOnly || e.button !== 0) return;
-                                    e.preventDefault();
-                                    setDrag({ rowId: row.id, startDi: di, endDi: di });
-                                  }}
-                                  style={{
-                                    width: dayW,
-                                    height: "100%",
-                                    borderRight:
-                                      d.day === 1 && di > 0
-                                        ? "1px solid #cbd5e1"
-                                        : "1px solid #f1f5f9",
-                                    background: inDrag
-                                      ? "rgba(37,99,235,0.2)"
-                                      : d.date === today
-                                        ? "rgba(254,240,138,0.45)"
-                                        : weekend
-                                          ? "rgba(241,245,249,0.8)"
-                                          : "transparent",
-                                    cursor: readOnly ? "default" : "crosshair",
-                                  }}
-                                />
+                                  {showText && (
+                                    <>
+                                      <span
+                                        style={{ overflow: "hidden", textOverflow: "ellipsis" }}
+                                      >
+                                        {titleText}
+                                      </span>
+                                      <span
+                                        style={{
+                                          marginLeft: "auto",
+                                          flexShrink: 0,
+                                          opacity: 0.95,
+                                          fontVariantNumeric: "tabular-nums",
+                                        }}
+                                      >
+                                        {daysLabel}日
+                                      </span>
+                                    </>
+                                  )}
+                                </button>
                               );
                             })}
                           </div>
-
-                          {rowBars.map((bar) => {
-                            if (bar.endDate < rangeStart || bar.startDate > rangeEnd) return null;
-                            const sIdx = dateIndex.get(bar.startDate);
-                            const eIdx = dateIndex.get(bar.endDate);
-                            const leftDi = sIdx == null || bar.startDate < rangeStart ? 0 : sIdx;
-                            const rightDi =
-                              eIdx == null || bar.endDate > rangeEnd ? days.length - 1 : eIdx;
-                            const left = leftDi * dayW;
-                            const width = Math.max(dayW, (rightDi - leftDi + 1) * dayW);
-                            const kind = workKindById(workKinds, bar.workKindId);
-                            const bg = kind?.color ?? "#90caf9";
-                            const fg = contrastFg(bg);
-                            const daysLabel = barDisplayDays(bar);
-                            const titleText = bar.label || kind?.label || "作業";
-                            const showText = width >= (rangeMonths === 12 ? 28 : 40);
-                            return (
-                              <button
-                                key={bar.id}
-                                type="button"
-                                title={`${titleText} ${bar.startDate}〜${bar.endDate}（${daysLabel}日）${
-                                  bar.note ? `\n${bar.note}` : ""
-                                }`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openBarEdit(bar);
-                                }}
-                                onPointerDown={(e) => e.stopPropagation()}
-                                style={{
-                                  position: "absolute",
-                                  left: left + 1,
-                                  top: 4,
-                                  width: width - 2,
-                                  height: LANE_H - 8,
-                                  borderRadius: 4,
-                                  border: `1px solid ${crewColor}`,
-                                  background: bg,
-                                  color: fg,
-                                  fontSize: rangeMonths === 12 ? 9 : 11,
-                                  fontWeight: 600,
-                                  padding: "0 4px",
-                                  overflow: "hidden",
-                                  whiteSpace: "nowrap",
-                                  textOverflow: "ellipsis",
-                                  textAlign: "left",
-                                  cursor: "pointer",
-                                  zIndex: 2,
-                                  boxShadow: "0 1px 2px rgba(15,23,42,0.12)",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 4,
-                                }}
-                              >
-                                {showText && (
-                                  <>
-                                    <span
-                                      style={{ overflow: "hidden", textOverflow: "ellipsis" }}
-                                    >
-                                      {titleText}
-                                    </span>
-                                    <span
-                                      style={{
-                                        marginLeft: "auto",
-                                        flexShrink: 0,
-                                        opacity: 0.95,
-                                        fontVariantNumeric: "tabular-nums",
-                                      }}
-                                    >
-                                      {daysLabel}日
-                                    </span>
-                                  </>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  </div>
 
                   {!readOnly && g.rows.length < MAX_CREWS_PER_PROJECT && (
                     <div className="cross-no-print" style={{ display: "flex", height: 24 }}>

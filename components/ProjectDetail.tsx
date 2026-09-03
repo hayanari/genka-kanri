@@ -46,6 +46,7 @@ import {
 } from "@/lib/scheduleLabor";
 import { uploadReceipt, getReceiptUrl, deleteReceipt } from "@/lib/receipts";
 import type { ReceiptAttachment } from "@/lib/receipts";
+import EstimateTab from "@/components/EstimateTab";
 
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 
@@ -666,6 +667,7 @@ export default function ProjectDetail({
 
   const tabs = isSubcontract
     ? [
+        { id: "estimates", label: "📄 見積書" },
         { id: "costs", label: "💰 原価明細" },
         { id: "labor", label: "👷 人工・車両" },
         { id: "process", label: "📋 工程管理" },
@@ -674,6 +676,7 @@ export default function ProjectDetail({
         { id: "summary", label: "📊 収支サマリー" },
       ]
     : [
+        { id: "estimates", label: "📄 見積書" },
         { id: "costs", label: "💰 原価明細" },
         { id: "labor", label: "👷 人工・車両" },
         { id: "process", label: "📋 工程管理" },
@@ -1099,6 +1102,8 @@ export default function ProjectDetail({
           </button>
         ))}
       </div>
+
+      {tab === "estimates" && <EstimateTab project={p} />}
 
       {tab === "costs" && (
         <Card>

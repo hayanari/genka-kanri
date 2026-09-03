@@ -1,11 +1,19 @@
 /** Resend 経由のメール送信（失敗時は理由を返す） */
 export type MailResult = { ok: boolean; error?: string; id?: string };
 
+export type MailAttachment = {
+  filename: string;
+  /** base64（data: プレフィックスなし） */
+  content: string;
+};
+
 export async function sendResendMail(params: {
   to: string | string[];
   subject: string;
   text: string;
+  html?: string;
   replyTo?: string;
+  attachments?: MailAttachment[];
 }): Promise<MailResult> {
   const resendKey = process.env.RESEND_API_KEY;
   if (!resendKey) {
@@ -25,7 +33,16 @@ export async function sendResendMail(params: {
         to: params.to,
         subject: params.subject,
         text: params.text,
+        ...(params.html ? { html: params.html } : {}),
         ...(params.replyTo ? { reply_to: params.replyTo } : {}),
+        ...(params.attachments?.length
+          ? {
+              attachments: params.attachments.map((a) => ({
+                filename: a.filename,
+                content: a.content,
+              })),
+            }
+          : {}),
       }),
     });
     const bodyText = await res.text();
