@@ -1,6 +1,6 @@
 "use client";
 
-// 見積書の印刷・PDF用ドキュメント（表紙 + 内訳）
+// 見積書の印刷・PDF用ドキュメント（表紙1ページ + 内訳ページ）
 import React, { forwardRef } from "react";
 import type { Estimate } from "@/types/estimate";
 import { formatWarekiDate, formatYen } from "@/types/estimate";
@@ -12,6 +12,18 @@ type Props = {
 function yenPlain(n: number): string {
   return Math.round(n || 0).toLocaleString("ja-JP");
 }
+
+/** A4相当（96dpi）: 210mm ≈ 794px, 297mm ≈ 1123px。余白込みでページ内に収める */
+const PAGE: React.CSSProperties = {
+  width: 794,
+  minHeight: 1123,
+  boxSizing: "border-box",
+  padding: 40,
+  background: "#fff",
+  color: "#111",
+  fontFamily: '"Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif',
+  position: "relative",
+};
 
 const EstimateDocument = forwardRef<HTMLDivElement, Props>(function EstimateDocument(
   { estimate },
@@ -29,19 +41,9 @@ const EstimateDocument = forwardRef<HTMLDivElement, Props>(function EstimateDocu
       .slice(0, 1)[0] || "";
 
   return (
-    <div
-      ref={ref}
-      style={{
-        width: 794,
-        background: "#fff",
-        color: "#111",
-        fontFamily: '"Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif',
-        padding: 28,
-        boxSizing: "border-box",
-      }}
-    >
-      {/* 表紙 */}
-      <section style={{ pageBreakAfter: "always", minHeight: 1000 }}>
+    <div ref={ref} style={{ background: "#fff" }}>
+      {/* 表紙（1ページ） */}
+      <section data-estimate-page="cover" style={PAGE}>
         <div style={{ textAlign: "right", fontSize: 13, marginBottom: 8 }}>
           {formatWarekiDate(estimate.issueDate)}
         </div>
@@ -214,8 +216,8 @@ const EstimateDocument = forwardRef<HTMLDivElement, Props>(function EstimateDocu
         )}
       </section>
 
-      {/* 内訳 */}
-      <section style={{ marginTop: 32 }}>
+      {/* 内訳（長い場合はPDF側でページ分割） */}
+      <section data-estimate-page="detail" style={{ ...PAGE, marginTop: 0 }}>
         <h2 style={{ fontSize: 16, marginBottom: 12, borderBottom: "2px solid #111", paddingBottom: 6 }}>
           内　訳
         </h2>

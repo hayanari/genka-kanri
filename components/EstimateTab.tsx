@@ -244,36 +244,116 @@ export default function EstimateTab({ project, onConvertToProject }: Props) {
   };
 
   const buildPdfBlob = async (): Promise<{ blob: Blob; dataUrl: string; filename: string }> => {
-    const el = pdfRef.current;
-    if (!el || !editing) throw new Error("PDF用ドキュメントがありません");
-    const canvas = await html2canvas(el, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: "#ffffff",
-    });
-    const imgData = canvas.toDataURL("image/png", 1.0);
-    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const imgW = pageW;
-    const imgH = (canvas.height * imgW) / canvas.width;
-    let heightLeft = imgH;
-    let position = 0;
-    pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
-    heightLeft -= pageH;
-    while (heightLeft > 0) {
-      position = heightLeft - imgH;
-      pdf.addPage();
-      pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
-      heightLeft -= pageH;
+    const root = pdfRef.current;
+    if (!root || !editing) throw new Error("PDF用ドキュメントがありません");
+
+    // 画面外でも正しく描画できるよう一時的に可視化領域へ置く
+    const host = root.parentElement;
+    const prevHost = host
+      ? {
+          position: host.style.position,
+          left: host.style.left,
+          top: host.style.top,
+          opacity: host.style.opacity,
+          zIndex: host.style.zIndex,
+          pointerEvents: host.style.pointerEvents,
+        }
+      : null;
+    if (host) {
+      host.style.position = "fixed";
+      host.style.left = "0";
+      host.style.top = "0";
+      host.style.opacity = "1";
+      host.style.zIndex = "-1";
+      host.style.pointerEvents = "none";
     }
-    const filename = `見積_${editing.workName || project?.name || "estimate"}_${
-      editing.issueDate || "draft"
-    }.pdf`.replace(/[\\/:*?"<>|]/g, "_");
-    const dataUrl = pdf.output("datauristring");
-    const blob = pdf.output("blob");
-    return { blob, dataUrl, filename };
+
+    try {
+      const pageEls = Array.from(
+        root.querySelectorAll<HTMLElement>("[data-estimate-page]")
+      );
+      if (pageEls.length === 0) throw new Error("PDFページがありません");
+
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const margin = 6;
+      const usableW = pageW - margin * 2;
+      const usableH = pageH - margin * 2;
+      let isFirstPdfPage = true;
+
+      const addCanvasPages = (canvas: HTMLCanvasElement) => {
+        const imgW = usableW;
+        const pxPerMm = canvas.width / imgW;
+        const pageHeightPx = Math.max(1, Math.floor(usableH * pxPerMm));
+        let srcY = 0;
+        while (srcY < canvas.height) {
+          const sliceH = Math.min(pageHeightPx, canvas.height - srcY);
+          if (sliceH <= 0) break;
+          const sliceCanvas = document.createElement("canvas");
+          sliceCanvas.width = canvas.width;
+          sliceCanvas.height = sliceH;
+          const ctx = sliceCanvas.getContext("2d");
+          if (!ctx) throw new Error("Canvas を作成できません");
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+          ctx.drawImage(
+            canvas,
+            0,
+            srcY,
+            canvas.width,
+            sliceH,
+            0,
+            0,
+            canvas.width,
+            sliceH
+          );
+          const sliceHmm = sliceH / pxPerMm;
+          if (!isFirstPdfPage) pdf.addPage();
+          isFirstPdfPage = false;
+          pdf.addImage(
+            sliceCanvas.toDataURL("image/png", 1.0),
+            "PNG",
+            margin,
+            margin,
+            imgW,
+            Math.min(sliceHmm, usableH)
+          );
+          srcY += sliceH;
+        }
+      };
+
+      for (const pageEl of pageEls) {
+        const canvas = await html2canvas(pageEl, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: "#ffffff",
+          // 画面外クリップを避ける
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: pageEl.scrollWidth,
+          windowHeight: pageEl.scrollHeight,
+        });
+        addCanvasPages(canvas);
+      }
+
+      const filename = `見積_${editing.workName || project?.name || "estimate"}_${
+        editing.issueDate || "draft"
+      }.pdf`.replace(/[\\/:*?"<>|]/g, "_");
+      const dataUrl = pdf.output("datauristring");
+      const blob = pdf.output("blob");
+      return { blob, dataUrl, filename };
+    } finally {
+      if (host && prevHost) {
+        host.style.position = prevHost.position;
+        host.style.left = prevHost.left;
+        host.style.top = prevHost.top;
+        host.style.opacity = prevHost.opacity;
+        host.style.zIndex = prevHost.zIndex;
+        host.style.pointerEvents = prevHost.pointerEvents;
+      }
+    }
   };
 
   const handlePdf = async () => {
@@ -789,15 +869,16 @@ export default function EstimateTab({ project, onConvertToProject }: Props) {
           )}
         </Card>
 
-        {/* 画面外 PDF 用 */}
+        {/* PDF用（出力時に一時的に可視化領域へ移動してキャプチャ） */}
         <div
           aria-hidden
           style={{
             position: "fixed",
-            left: -9999,
+            left: "-12000px",
             top: 0,
             pointerEvents: "none",
-            opacity: 0,
+            opacity: 1,
+            width: 794,
           }}
         >
           <EstimateDocument
