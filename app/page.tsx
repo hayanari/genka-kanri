@@ -664,7 +664,6 @@ export default function Home() {
     { id: "list", label: "案件一覧", icon: Icons.list },
     { id: "new", label: "新規案件", icon: Icons.plus },
     { id: "schedule", label: "スケジュール管理", icon: Icons.calendar, href: "/schedule" },
-    { id: "field", label: "現場入力（スマホ）", icon: Icons.plus, href: "/field" },
     { id: "processmeeting", label: "工程会議ボード", icon: Icons.process, href: "/process-meeting" },
     { id: "bidschedule", label: "入札スケジュール", icon: Icons.calendar },
     { id: "estimates", label: "見積書", icon: Icons.list },
