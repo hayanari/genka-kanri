@@ -149,7 +149,17 @@ export default function ContactLogList({
             </strong>
             <span style={chip}>{isMeeting ? KIND_LABEL.meeting : log.contactType}</span>
             {log.visibility !== "company" && (
-              <span style={{ ...chip, background: visBg(log.visibility) }}>{VISIBILITY_LABEL[log.visibility]}</span>
+              <span
+                style={{ ...chip, background: visBg(log.visibility) }}
+                title={
+                  log.viewers?.length
+                    ? `追加で閲覧可: ${log.viewers.map((v) => v.name || "").filter(Boolean).join("、")}`
+                    : undefined
+                }
+              >
+                {VISIBILITY_LABEL[log.visibility]}
+                {log.viewers?.length ? ` +${log.viewers.length}` : ""}
+              </span>
             )}
             {isDraft && <span style={{ ...chip, background: "#fde68a" }}>下書き</span>}
             {log.audioPath && (
@@ -236,6 +246,13 @@ export default function ContactLogList({
                 <span style={{ ...chip, background: "#fde68a" }}>下書き（未確認）</span>
               )}
             </div>
+
+            {detail.visibility !== "company" && (detail.viewers?.length ?? 0) > 0 && (
+              <div style={{ fontSize: 12, color: T.ts, marginBottom: 8 }}>
+                追加で閲覧可:{" "}
+                {(detail.viewers ?? []).map((v) => v.name || "（不明）").join("、")}
+              </div>
+            )}
 
             {detail.kind === "meeting" && (
               <div style={{ marginBottom: 10 }}>

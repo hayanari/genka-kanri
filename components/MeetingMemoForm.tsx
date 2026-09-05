@@ -9,7 +9,8 @@ import type {
   Customer,
   CustomerContact,
 } from "@/types/crm";
-import { MEETING_TYPES, VISIBILITY_HINT, VISIBILITY_LABEL } from "@/types/crm";
+import { MEETING_TYPES } from "@/types/crm";
+import VisibilityPicker from "@/components/VisibilityPicker";
 import {
   loadCustomerContacts,
   saveContactLog,
@@ -57,6 +58,7 @@ export default function MeetingMemoForm({
   const [body, setBody] = useState("");
   const [transcript, setTranscript] = useState("");
   const [visibility, setVisibility] = useState<ContactVisibility>("company");
+  const [viewerIds, setViewerIds] = useState<string[]>([]);
   const [companyIds, setCompanyIds] = useState<string[]>([]);
   const [people, setPeople] = useState<Set<string>>(new Set());
   const [contactsByCustomer, setContactsByCustomer] = useState<Record<string, CustomerContact[]>>({});
@@ -95,6 +97,7 @@ export default function MeetingMemoForm({
       setBody(existing.body);
       setTranscript(existing.transcript);
       setVisibility(existing.visibility);
+      setViewerIds((existing.viewers ?? []).map((v) => v.userId));
       setAudio(existing.audioPath ? { path: existing.audioPath, name: existing.audioName } : null);
       setShowTranscript(Boolean(existing.transcript));
       const ids: string[] = [];
@@ -114,6 +117,7 @@ export default function MeetingMemoForm({
       setBody("");
       setTranscript("");
       setVisibility("company");
+      setViewerIds([]);
       setAudio(null);
       setShowTranscript(false);
       const ids = initialCustomerId ? [initialCustomerId] : [];
@@ -215,6 +219,7 @@ export default function MeetingMemoForm({
         title,
         body,
         visibility,
+        viewerIds,
         kind: "meeting",
         status,
         transcript,
@@ -412,32 +417,12 @@ export default function MeetingMemoForm({
           />
         </label>
 
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: T.ts, marginBottom: 6 }}>公開範囲</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {(["company", "executive", "private"] as ContactVisibility[]).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setVisibility(v)}
-                title={VISIBILITY_HINT[v]}
-                style={{
-                  border: visibility === v ? `2px solid ${T.ac}` : `1px solid ${T.bd}`,
-                  borderRadius: 999,
-                  padding: "6px 12px",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  background: visibility === v ? "#eff6ff" : "#fff",
-                  color: T.tx,
-                }}
-              >
-                {VISIBILITY_LABEL[v]}
-              </button>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: T.ts, marginTop: 4 }}>{VISIBILITY_HINT[visibility]}</div>
-        </div>
+        <VisibilityPicker
+          visibility={visibility}
+          onVisibilityChange={setVisibility}
+          viewerIds={viewerIds}
+          onViewerIdsChange={setViewerIds}
+        />
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
           <Btn v="ghost" sm onClick={handleClose} disabled={saving}>

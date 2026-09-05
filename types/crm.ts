@@ -44,6 +44,19 @@ export type ContactLogAttendee = {
   contactPersonName?: string;
 };
 
+/** 追加で閲覧を許可したスタッフ */
+export type ContactLogViewer = {
+  userId: string;
+  name?: string;
+};
+
+/** 社内スタッフ（閲覧許可の選択肢） */
+export type CompanyMember = {
+  userId: string;
+  name: string;
+  isExecutive: boolean;
+};
+
 export type ContactLog = {
   id: string;
   customerId: string;
@@ -70,6 +83,8 @@ export type ContactLog = {
   contactPersonId?: string;
   contactPersonName?: string;
   attendees?: ContactLogAttendee[];
+  /** 公開範囲に加えて閲覧できるスタッフ */
+  viewers?: ContactLogViewer[];
 };
 
 export const CONTACT_TYPES: ContactType[] = ["電話", "対面", "オンライン", "メール", "その他"];
@@ -84,8 +99,8 @@ export const VISIBILITY_LABEL: Record<ContactVisibility, string> = {
 
 export const VISIBILITY_HINT: Record<ContactVisibility, string> = {
   company: "社内の全員が閲覧できます",
-  executive: "役員フラグのあるユーザーのみ",
-  private: "作成者本人のみ",
+  executive: "役員フラグのあるユーザーのみ（下で個別のスタッフを追加できます）",
+  private: "作成者本人のみ（下で個別のスタッフを追加できます）",
 };
 
 export const KIND_LABEL: Record<ContactLogKind, string> = {

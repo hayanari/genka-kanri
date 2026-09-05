@@ -2,10 +2,11 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import type { ContactType, ContactVisibility, Customer, CustomerContact } from "@/types/crm";
-import { CONTACT_TYPES, VISIBILITY_HINT, VISIBILITY_LABEL } from "@/types/crm";
+import { CONTACT_TYPES } from "@/types/crm";
 import { saveContactLog } from "@/lib/crmStorage";
 import { Btn, Inp, Modal } from "@/components/ui/primitives";
 import SpeechInputButton from "@/components/SpeechInputButton";
+import VisibilityPicker from "@/components/VisibilityPicker";
 import { T } from "@/lib/constants";
 
 type Props = {
@@ -38,6 +39,7 @@ export default function ContactLogQuickForm({
   const [title, setTitle] = useState(defaultTitle);
   const [body, setBody] = useState("");
   const [visibility, setVisibility] = useState<ContactVisibility>("company");
+  const [viewerIds, setViewerIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -49,6 +51,7 @@ export default function ContactLogQuickForm({
     setTitle(defaultTitle);
     setBody("");
     setVisibility("company");
+    setViewerIds([]);
   }, [open, fixedCustomerId, defaultTitle]);
 
   const submit = async () => {
@@ -71,6 +74,7 @@ export default function ContactLogQuickForm({
         title,
         body,
         visibility,
+        viewerIds,
       });
       onSaved();
       onClose();
@@ -173,32 +177,12 @@ export default function ContactLogQuickForm({
             }}
           />
         </label>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: T.ts, marginBottom: 6 }}>公開範囲</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {(["company", "executive", "private"] as ContactVisibility[]).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setVisibility(v)}
-                title={VISIBILITY_HINT[v]}
-                style={{
-                  border: visibility === v ? `2px solid ${T.ac}` : `1px solid ${T.bd}`,
-                  borderRadius: 999,
-                  padding: "6px 12px",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  background: visibility === v ? "#eff6ff" : "#fff",
-                  color: T.tx,
-                }}
-              >
-                {VISIBILITY_LABEL[v]}
-              </button>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: T.ts, marginTop: 4 }}>{VISIBILITY_HINT[visibility]}</div>
-        </div>
+        <VisibilityPicker
+          visibility={visibility}
+          onVisibilityChange={setVisibility}
+          viewerIds={viewerIds}
+          onViewerIdsChange={setViewerIds}
+        />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
           <Btn v="ghost" sm onClick={onClose}>
             キャンセル

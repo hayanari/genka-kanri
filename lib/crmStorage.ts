@@ -5,10 +5,12 @@
 import { createClient } from "@/lib/supabase/client";
 import { requireCompanyId } from "@/lib/tenant";
 import type {
+  CompanyMember,
   ContactLog,
   ContactLogAttendee,
   ContactLogKind,
   ContactLogStatus,
+  ContactLogViewer,
   ContactType,
   ContactVisibility,
   Customer,
@@ -50,11 +52,24 @@ function mapAttendee(r: Record<string, unknown>): ContactLogAttendee {
   };
 }
 
+function memberName(cu: { display_name?: string | null; login_id?: string | null } | null | undefined): string {
+  return String(cu?.display_name || cu?.login_id || "");
+}
+
+function mapViewer(r: Record<string, unknown>): ContactLogViewer {
+  const cu = r.company_users as { display_name?: string; login_id?: string } | null | undefined;
+  const name = memberName(cu);
+  return { userId: String(r.user_id), name: name || undefined };
+}
+
 function mapLog(r: Record<string, unknown>): ContactLog {
   const customers = r.customers as { name?: string } | null | undefined;
   const person = r.customer_contacts as { name?: string } | null | undefined;
   const rawAttendees = Array.isArray(r.contact_log_attendees)
     ? (r.contact_log_attendees as Record<string, unknown>[])
+    : undefined;
+  const rawViewers = Array.isArray(r.contact_log_viewers)
+    ? (r.contact_log_viewers as Record<string, unknown>[])
     : undefined;
   return {
     id: String(r.id),
@@ -77,28 +92,62 @@ function mapLog(r: Record<string, unknown>): ContactLog {
     contactPersonId: r.contact_person_id ? String(r.contact_person_id) : undefined,
     contactPersonName: person?.name ? String(person.name) : undefined,
     attendees: rawAttendees?.map(mapAttendee),
+    viewers: rawViewers?.map(mapViewer),
   };
 }
 
-// 段階的マイグレーション対応: 未適用のテーブル/列があれば select を縮退して再試行
-const LOG_SELECT_FULL =
-  "*, customers(name), customer_contacts(name), contact_log_attendees(customer_id, contact_person_id, customers(name), customer_contacts(name))";
-const LOG_SELECT_CONTACTS = "*, customers(name), customer_contacts(name)";
-const LOG_SELECT_BASE = "*, customers(name)";
+// 段階的マイグレーション対応: 未適用のテーブルがあれば select を縮退して再試行
+const SEL_CONTACTS = "customer_contacts(name)";
+const SEL_ATTENDEES =
+  "contact_log_attendees(customer_id, contact_person_id, customers(name), customer_contacts(name))";
+const SEL_VIEWERS = "contact_log_viewers(user_id, company_users(display_name, login_id))";
+
+const LOG_SELECTS: { select: string; missing: RegExp }[] = [
+  { select: `*, customers(name), ${SEL_CONTACTS}, ${SEL_ATTENDEES}, ${SEL_VIEWERS}`, missing: /contact_log_viewers/i },
+  { select: `*, customers(name), ${SEL_CONTACTS}, ${SEL_ATTENDEES}`, missing: /contact_log_attendees/i },
+  { select: `*, customers(name), ${SEL_CONTACTS}`, missing: /customer_contacts/i },
+  { select: "*, customers(name)", missing: /$^/ },
+];
 
 type QueryResult = { data: unknown; error: { message: string } | null };
 
 async function runLogQuery(
   build: (select: string) => PromiseLike<QueryResult>
 ): Promise<QueryResult> {
-  let res = await build(LOG_SELECT_FULL);
-  if (res.error && /contact_log_attendees/i.test(res.error.message)) {
-    res = await build(LOG_SELECT_CONTACTS);
-  }
-  if (res.error && /customer_contacts/i.test(res.error.message)) {
-    res = await build(LOG_SELECT_BASE);
+  let res: QueryResult = { data: null, error: null };
+  for (const { select, missing } of LOG_SELECTS) {
+    res = await build(select);
+    if (!res.error || !missing.test(res.error.message)) return res;
   }
   return res;
+}
+
+/** 社内スタッフ一覧（閲覧許可の選択肢。RLS で自社のみ） */
+export async function loadCompanyMembers(): Promise<CompanyMember[]> {
+  const supabase = createClient();
+  const companyId = await requireCompanyId();
+  const { data, error } = await supabase
+    .from("company_users")
+    .select("user_id, display_name, login_id, is_executive, role")
+    .eq("company_id", companyId)
+    .order("display_name");
+  if (error) return [];
+  return (data ?? [])
+    .map((r) => {
+      const row = r as {
+        user_id: string;
+        display_name?: string | null;
+        login_id?: string | null;
+        is_executive?: boolean | null;
+        role?: string | null;
+      };
+      return {
+        userId: String(row.user_id),
+        name: memberName(row) || "（名前未設定）",
+        isExecutive: Boolean(row.is_executive) || row.role === "admin" || row.role === "owner",
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "ja"));
 }
 
 /** エラー文から未定義列名を抜き出し、行から取り除く（マイグレーション未適用環境の互換） */
@@ -329,7 +378,29 @@ export type ContactLogInput = {
   audioName?: string;
   /** 会議の出席者。主顧客（customerId）は自動で含める */
   attendees?: AttendeeInput[];
+  /** 公開範囲に加えて閲覧を許可するスタッフ（user_id）。全社公開のときは無視 */
+  viewerIds?: string[];
 };
+
+/** 追加閲覧者を丸ごと置き換える（未適用環境では黙ってスキップ） */
+async function syncViewers(companyId: string, logId: string, viewerIds: string[]): Promise<void> {
+  const supabase = createClient();
+  const del = await supabase
+    .from("contact_log_viewers")
+    .delete()
+    .eq("company_id", companyId)
+    .eq("contact_log_id", logId);
+  if (del.error) {
+    if (/contact_log_viewers|schema cache|does not exist/i.test(del.error.message)) return;
+    throw del.error;
+  }
+  const ids = [...new Set(viewerIds.filter(Boolean))];
+  if (ids.length === 0) return;
+  const ins = await supabase.from("contact_log_viewers").insert(
+    ids.map((user_id) => ({ company_id: companyId, contact_log_id: logId, user_id }))
+  );
+  if (ins.error) throw ins.error;
+}
 
 /** 出席者を丸ごと置き換える（未適用環境では黙ってスキップ） */
 async function syncAttendees(
@@ -424,6 +495,10 @@ export async function saveContactLog(input: ContactLogInput): Promise<ContactLog
 
   const logId = String(saved.id);
   await syncAttendees(companyId, logId, primaryCustomerId, input.contactPersonId, attendees);
+  // 全社公開なら個別許可は不要（自分自身も除く）
+  const viewerIds =
+    input.visibility === "company" ? [] : (input.viewerIds ?? []).filter((id) => id !== user.id);
+  await syncViewers(companyId, logId, viewerIds);
 
   const full = await getContactLog(logId);
   return full ?? mapLog(saved);
