@@ -33,11 +33,16 @@ export async function GET(request: NextRequest) {
     const safe = q.replace(/[%_,]/g, " ");
     const pattern = `%${safe}%`;
 
-    const [cRes, lRes] = await Promise.all([
+    const [cRes, pRes, lRes] = await Promise.all([
       supabase
         .from("customers")
         .select("id, name, contact_person, phone, email")
         .or(`name.ilike.${pattern},contact_person.ilike.${pattern},note.ilike.${pattern}`)
+        .limit(30),
+      supabase
+        .from("customer_contacts")
+        .select("customer_id, name")
+        .or(`name.ilike.${pattern},title.ilike.${pattern}`)
         .limit(30),
       supabase
         .from("contact_logs")
@@ -53,8 +58,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: lRes.error.message }, { status: 400 });
     }
 
+    const byId = new Map((cRes.data ?? []).map((r) => [r.id as string, r]));
+    const missingIds = [
+      ...new Set((pRes.error ? [] : pRes.data ?? []).map((r) => r.customer_id as string)),
+    ].filter((id) => !byId.has(id));
+    if (missingIds.length > 0) {
+      const extra = await supabase
+        .from("customers")
+        .select("id, name, contact_person, phone, email")
+        .in("id", missingIds);
+      for (const r of extra.data ?? []) byId.set(r.id as string, r);
+    }
+
     return NextResponse.json({
-      customers: cRes.data ?? [],
+      customers: [...byId.values()],
       logs: lRes.data ?? [],
     });
   } catch (e) {

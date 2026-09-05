@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties } from "react";
-import type { ContactType, ContactVisibility, Customer } from "@/types/crm";
+import type { ContactType, ContactVisibility, Customer, CustomerContact } from "@/types/crm";
 import { CONTACT_TYPES, VISIBILITY_HINT, VISIBILITY_LABEL } from "@/types/crm";
 import { saveContactLog } from "@/lib/crmStorage";
 import { Btn, Inp, Modal } from "@/components/ui/primitives";
@@ -13,6 +13,7 @@ type Props = {
   onClose: () => void;
   onSaved: () => void;
   customers: Customer[];
+  contacts?: CustomerContact[];
   /** 顧客固定（顧客詳細から） */
   fixedCustomerId?: string;
   /** 案件固定（案件詳細から） */
@@ -25,11 +26,13 @@ export default function ContactLogQuickForm({
   onClose,
   onSaved,
   customers,
+  contacts = [],
   fixedCustomerId,
   fixedProjectId,
   defaultTitle = "",
 }: Props) {
   const [customerId, setCustomerId] = useState(fixedCustomerId ?? "");
+  const [contactPersonId, setContactPersonId] = useState("");
   const [contactDate, setContactDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [contactType, setContactType] = useState<ContactType>("電話");
   const [title, setTitle] = useState(defaultTitle);
@@ -40,6 +43,7 @@ export default function ContactLogQuickForm({
   useEffect(() => {
     if (!open) return;
     setCustomerId(fixedCustomerId ?? "");
+    setContactPersonId("");
     setContactDate(new Date().toISOString().slice(0, 10));
     setContactType("電話");
     setTitle(defaultTitle);
@@ -61,6 +65,7 @@ export default function ContactLogQuickForm({
       await saveContactLog({
         customerId,
         projectId: fixedProjectId ?? "",
+        contactPersonId: contactPersonId || undefined,
         contactDate,
         contactType,
         title,
@@ -81,7 +86,7 @@ export default function ContactLogQuickForm({
       <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "4px 0 8px" }}>
         {!fixedCustomerId && (
           <label style={lab}>
-            顧客
+            顧客（会社）
             <select
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
@@ -91,6 +96,24 @@ export default function ContactLogQuickForm({
               {customers.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {contacts.length > 0 && (
+          <label style={lab}>
+            担当者（任意）
+            <select
+              value={contactPersonId}
+              onChange={(e) => setContactPersonId(e.target.value)}
+              style={sel}
+            >
+              <option value="">指定なし</option>
+              {contacts.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.title ? `（${p.title}）` : ""}
                 </option>
               ))}
             </select>
@@ -129,7 +152,9 @@ export default function ContactLogQuickForm({
           <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             本文
             <SpeechInputButton
-              onResult={(t) => setBody((prev) => (prev ? `${prev}${prev.endsWith("\n") ? "" : "\n"}${t}` : t))}
+              onResult={(t) =>
+                setBody((prev) => (prev ? `${prev}${prev.endsWith("\n") ? "" : "\n"}${t}` : t))
+              }
             />
           </span>
           <textarea

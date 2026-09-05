@@ -48,12 +48,14 @@ import { uploadReceipt, getReceiptUrl, deleteReceipt } from "@/lib/receipts";
 import type { ReceiptAttachment } from "@/lib/receipts";
 import ContactLogQuickForm from "@/components/ContactLogQuickForm";
 import ContactLogList from "@/components/ContactLogList";
+import MeetingMemoForm from "@/components/MeetingMemoForm";
 import {
   loadContactLogs,
+  loadCustomerContacts,
   loadCustomers,
   upsertCustomer,
 } from "@/lib/crmStorage";
-import type { ContactLog, Customer } from "@/types/crm";
+import type { ContactLog, Customer, CustomerContact } from "@/types/crm";
 import { useUserRole } from "@/lib/roles";
 
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
@@ -109,8 +111,11 @@ export default function ProjectDetail({
   const { role: crmRole } = useUserRole();
   const crmReadOnly = crmRole === "viewer";
   const [crmCustomers, setCrmCustomers] = useState<Customer[]>([]);
+  const [crmContacts, setCrmContacts] = useState<CustomerContact[]>([]);
   const [crmLogs, setCrmLogs] = useState<ContactLog[]>([]);
   const [crmMemoOpen, setCrmMemoOpen] = useState(false);
+  const [crmMeetingOpen, setCrmMeetingOpen] = useState(false);
+  const [crmEditingMeeting, setCrmEditingMeeting] = useState<ContactLog | null>(null);
   const [crmBusy, setCrmBusy] = useState(false);
   const [costModal, setCostModal] = useState(false);
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
@@ -265,6 +270,11 @@ export default function ProjectDetail({
   const openCrmMemo = async () => {
     const id = await ensureCustomerForProject();
     if (!id) return;
+    try {
+      setCrmContacts(await loadCustomerContacts(id));
+    } catch {
+      setCrmContacts([]);
+    }
     setCrmMemoOpen(true);
   };
 
@@ -1195,12 +1205,56 @@ export default function ProjectDetail({
                 ＋ メモ
               </Btn>
             )}
+            {!crmReadOnly && (
+              <Btn
+                sm
+                onClick={async () => {
+                  // 顧客が未登録なら作ってから会議メモを開く（顧客名が空でも開ける）
+                  if ((p.client || "").trim()) await ensureCustomerForProject();
+                  setCrmEditingMeeting(null);
+                  setCrmMeetingOpen(true);
+                }}
+                disabled={crmBusy}
+                title="JVなど複数社の打合せを1件で記録"
+              >
+                ＋ 会議メモ
+              </Btn>
+            )}
           </div>
-          <ContactLogList logs={crmLogs} onChanged={() => void reloadCrm()} />
+          <ContactLogList
+            logs={crmLogs}
+            onChanged={() => void reloadCrm()}
+            onEditMeeting={
+              crmReadOnly
+                ? undefined
+                : (log) => {
+                    setCrmEditingMeeting(log);
+                    setCrmMeetingOpen(true);
+                  }
+            }
+          />
+          <MeetingMemoForm
+            open={crmMeetingOpen}
+            onClose={() => {
+              setCrmMeetingOpen(false);
+              setCrmEditingMeeting(null);
+            }}
+            customers={crmCustomers}
+            initialCustomerId={
+              crmCustomers.find(
+                (c) => c.name.replace(/\s/g, "") === (p.client || "").replace(/\s/g, "")
+              )?.id
+            }
+            fixedProjectId={p.id}
+            defaultTitle={p.name}
+            existing={crmEditingMeeting}
+            onSaved={() => void reloadCrm()}
+          />
           <ContactLogQuickForm
             open={crmMemoOpen}
             onClose={() => setCrmMemoOpen(false)}
             customers={crmCustomers}
+            contacts={crmContacts}
             fixedCustomerId={
               crmCustomers.find(
                 (c) =>
