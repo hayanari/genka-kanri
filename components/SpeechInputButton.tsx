@@ -38,7 +38,16 @@ function errorMessage(code: string): string {
     case "no-speech":
       return "音声が聞き取れませんでした。もう一度お試しください。";
     case "audio-capture":
-      return "マイクが見つかりません。端末のマイク接続を確認してください。";
+      return [
+        "このパソコンでマイクが見つかりません（Chromeの許可の問題ではありません）。",
+        "",
+        "① ヘッドセットや外付けマイクを接続する（デスクトップPCは内蔵マイクがない場合が多いです）",
+        "② Windows: 設定 → プライバシーとセキュリティ → マイク で",
+        "   「マイクへのアクセス」と「アプリにマイクへのアクセスを許可する」をオンにする",
+        "③ Chrome を再起動して、もう一度🎤を押す",
+        "",
+        "※ スマートフォンの Chrome からなら、そのまま音声入力できます",
+      ].join("\n");
     case "network":
       return "音声認識サーバーに接続できませんでした。通信環境を確認してください。";
     case "aborted":
@@ -107,6 +116,20 @@ export default function SpeechInputButton({ onResult, disabled }: Props) {
       return;
     }
 
+    // 先にマイク装置の有無を確認（装置なしと許可拒否を切り分ける）
+    try {
+      if (navigator.mediaDevices?.enumerateDevices) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const hasMic = devices.some((d) => d.kind === "audioinput");
+        if (!hasMic) {
+          alert(errorMessage("audio-capture"));
+          return;
+        }
+      }
+    } catch {
+      /* 列挙できない環境は getUserMedia の結果に任せる */
+    }
+
     // 先にマイク許可を取り、Chromeのブロックを明示的に回避
     try {
       if (navigator.mediaDevices?.getUserMedia) {
@@ -117,8 +140,12 @@ export default function SpeechInputButton({ onResult, disabled }: Props) {
       const name = e instanceof DOMException ? e.name : "";
       if (name === "NotAllowedError" || name === "PermissionDeniedError") {
         alert(errorMessage("not-allowed"));
-      } else if (name === "NotFoundError") {
+      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
         alert(errorMessage("audio-capture"));
+      } else if (name === "NotReadableError" || name === "TrackStartError") {
+        alert(
+          "マイクを他のアプリ（Teams・Zoom など）が使用中のため開始できません。そのアプリを閉じてから再度お試しください。"
+        );
       } else {
         alert("マイクを開始できませんでした。サイトのマイク許可を確認してください。");
       }
