@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { ContactLog, Customer, CustomerContact } from "@/types/crm";
 import {
   deleteCustomer,
@@ -12,7 +12,7 @@ import {
   upsertCustomerContact,
 } from "@/lib/crmStorage";
 import ContactLogQuickForm from "@/components/ContactLogQuickForm";
-import ContactLogList from "@/components/ContactLogList";
+import CustomerTimeline from "@/components/CustomerTimeline";
 import MeetingMemoForm from "@/components/MeetingMemoForm";
 import { Btn, Card, Inp, Modal } from "@/components/ui/primitives";
 import { Icons, T } from "@/lib/constants";
@@ -35,6 +35,7 @@ export default function CustomersBoard() {
   const [memoOpen, setMemoOpen] = useState(false);
   const [meetingOpen, setMeetingOpen] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<ContactLog | null>(null);
+  const [personFilter, setPersonFilter] = useState("");
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -74,6 +75,7 @@ export default function CustomersBoard() {
   }, []);
 
   useEffect(() => {
+    setPersonFilter("");
     if (!selectedId) {
       setContacts([]);
       setLogs([]);
@@ -81,6 +83,17 @@ export default function CustomersBoard() {
     }
     void reloadDetail(selectedId);
   }, [selectedId, reloadDetail]);
+
+  // サマリー（最終接触・件数）
+  const lastContact = logs[0]?.contactDate ?? "";
+  const daysSince = lastContact
+    ? Math.floor((Date.now() - new Date(`${lastContact}T00:00:00`).getTime()) / 86400000)
+    : null;
+  const draftCount = logs.filter((l) => l.status === "draft").length;
+  const logCountByPerson = (pid: string) =>
+    logs.filter(
+      (l) => l.contactPersonId === pid || (l.attendees ?? []).some((a) => a.contactPersonId === pid)
+    ).length;
 
   const filtered = customers.filter((c) => {
     if (!q.trim()) return true;
@@ -177,11 +190,13 @@ export default function CustomersBoard() {
     }
   };
 
-  const removePerson = async (p: CustomerContact) => {
+  const removePerson = async (p: { id: string; name: string }) => {
     if (!selectedId) return;
-    if (!window.confirm(`担当者「${p.name}」を削除しますか？`)) return;
+    if (!window.confirm(`担当者「${p.name}」を削除しますか？（紐づいたメモは残ります）`)) return;
     try {
       await deleteCustomerContact(p.id);
+      setPersonEditOpen(false);
+      if (personFilter === p.id) setPersonFilter("");
       await reloadDetail(selectedId);
     } catch (e) {
       alert(e instanceof Error ? e.message : "削除に失敗しました");
@@ -263,21 +278,67 @@ export default function CustomersBoard() {
 
         {selected && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <Card>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, color: T.ts, fontWeight: 600 }}>会社</div>
-                  <h3 style={{ margin: "2px 0 8px", fontSize: 18 }}>{selected.name}</h3>
-                  <div style={{ fontSize: 13, color: T.ts, lineHeight: 1.7 }}>
-                    <div>代表TEL: {selected.phone || "—"}</div>
-                    <div>代表メール: {selected.email || "—"}</div>
-                    <div>住所: {selected.address || "—"}</div>
-                    {selected.note && <div style={{ marginTop: 6 }}>メモ: {selected.note}</div>}
+            {/* 会社ヘッダー: 1行の基本情報 + サマリー + 操作 */}
+            <Card style={{ padding: "14px 16px" }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 240 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                    <h3 style={{ margin: 0, fontSize: 18 }}>{selected.name}</h3>
+                    {!readOnly && (
+                      <button type="button" onClick={() => openEditCompany(selected)} style={linkBtn}>
+                        編集
+                      </button>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: T.ts,
+                      marginTop: 4,
+                      display: "flex",
+                      gap: 12,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {selected.phone && <span>TEL {selected.phone}</span>}
+                    {selected.email && <span>{selected.email}</span>}
+                    {selected.address && <span>{selected.address}</span>}
+                    {!selected.phone && !selected.email && !selected.address && (
+                      <span>連絡先未登録</span>
+                    )}
+                  </div>
+                  {selected.note && (
+                    <div style={{ fontSize: 12, color: "#475569", marginTop: 6 }}>{selected.note}</div>
+                  )}
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+                    <span style={stat}>
+                      最終接触{" "}
+                      <b>
+                        {daysSince === null
+                          ? "なし"
+                          : daysSince === 0
+                            ? "今日"
+                            : `${daysSince}日前`}
+                      </b>
+                    </span>
+                    <span style={stat}>
+                      記録 <b>{logs.length}</b>件
+                    </span>
+                    {draftCount > 0 && (
+                      <span style={{ ...stat, background: "#fef3c7", color: "#92400e" }}>
+                        下書き <b>{draftCount}</b>件
+                      </span>
+                    )}
+                    {daysSince !== null && daysSince >= 60 && (
+                      <span style={{ ...stat, background: "#fee2e2", color: "#991b1b" }}>
+                        接触が途切れています
+                      </span>
+                    )}
                   </div>
                 </div>
                 {!readOnly && (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <Btn sm onClick={() => setMemoOpen(true)}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                    <Btn sm v="primary" onClick={() => setMemoOpen(true)}>
                       ＋ メモ
                     </Btn>
                     <Btn
@@ -290,109 +351,113 @@ export default function CustomersBoard() {
                     >
                       ＋ 会議メモ
                     </Btn>
-                    <Btn sm v="ghost" onClick={() => openEditCompany(selected)}>
-                      会社編集
-                    </Btn>
-                    <Btn
-                      sm
-                      v="ghost"
+                    <button
+                      type="button"
                       onClick={() => void removeCompany(selected)}
-                      style={{ color: "#b91c1c" }}
+                      style={{ ...linkBtn, color: "#b91c1c" }}
                     >
-                      削除
-                    </Btn>
+                      会社を削除
+                    </button>
                   </div>
                 )}
               </div>
-            </Card>
 
-            <Card>
+              {/* 担当者: チップ。クリックでその人の履歴に絞り込み */}
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "space-between",
+                  gap: 6,
+                  flexWrap: "wrap",
                   alignItems: "center",
-                  marginBottom: 10,
+                  marginTop: 12,
+                  paddingTop: 12,
+                  borderTop: `1px solid ${T.bd}`,
                 }}
               >
-                <strong style={{ fontSize: 14 }}>担当者</strong>
-                {!readOnly && (
-                  <Btn sm onClick={openNewPerson}>
-                    ＋ 担当者を追加
-                  </Btn>
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.ts, marginRight: 2 }}>担当者</span>
+                {contacts.length === 0 && (
+                  <span style={{ fontSize: 12, color: T.ts }}>未登録</span>
                 )}
-              </div>
-              {contacts.length === 0 ? (
-                <div style={{ color: T.ts, fontSize: 13 }}>
-                  まだ担当者がいません。「＋ 担当者を追加」から登録してください。
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {contacts.map((person) => (
-                    <div
+                {contacts.map((person) => {
+                  const active = personFilter === person.id;
+                  const n = logCountByPerson(person.id);
+                  return (
+                    <span
                       key={person.id}
                       style={{
-                        border: `1px solid ${T.bd}`,
-                        borderRadius: 8,
-                        padding: "10px 12px",
-                        display: "flex",
-                        gap: 8,
-                        alignItems: "flex-start",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        border: active ? `1.5px solid ${T.ac}` : `1px solid ${T.bd}`,
+                        background: active ? "#eff6ff" : "#fff",
+                        borderRadius: 999,
+                        overflow: "hidden",
                       }}
+                      title={[person.phone && `TEL ${person.phone}`, person.email, person.note]
+                        .filter(Boolean)
+                        .join("\n")}
                     >
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 700, fontSize: 14 }}>
-                          {person.name}
-                          {person.title ? (
-                            <span style={{ fontWeight: 500, color: T.ts, marginLeft: 8, fontSize: 12 }}>
-                              {person.title}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div style={{ fontSize: 12, color: T.ts, marginTop: 4, lineHeight: 1.6 }}>
-                          <div>TEL: {person.phone || "—"}</div>
-                          <div>Email: {person.email || "—"}</div>
-                          {person.note && <div>メモ: {person.note}</div>}
-                        </div>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPersonFilter(active ? "" : person.id)}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          padding: "4px 4px 4px 10px",
+                          fontSize: 12,
+                          cursor: "pointer",
+                          color: T.tx,
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        <b>{person.name}</b>
+                        {person.title && <span style={{ color: T.ts, marginLeft: 4 }}>{person.title}</span>}
+                        {n > 0 && <span style={{ color: T.ts, marginLeft: 6 }}>{n}</span>}
+                      </button>
                       {!readOnly && (
-                        <div style={{ display: "flex", gap: 4 }}>
-                          <Btn sm v="ghost" onClick={() => openEditPerson(person)}>
-                            編集
-                          </Btn>
-                          <Btn
-                            sm
-                            v="ghost"
-                            onClick={() => void removePerson(person)}
-                            style={{ color: "#b91c1c" }}
-                          >
-                            削除
-                          </Btn>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openEditPerson(person)}
+                          title="担当者を編集"
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            padding: "4px 8px 4px 2px",
+                            fontSize: 11,
+                            cursor: "pointer",
+                            color: T.ts,
+                          }}
+                        >
+                          ✎
+                        </button>
                       )}
-                    </div>
-                  ))}
-                </div>
-              )}
+                    </span>
+                  );
+                })}
+                {!readOnly && (
+                  <button type="button" onClick={openNewPerson} style={{ ...linkBtn, fontSize: 12 }}>
+                    ＋ 追加
+                  </button>
+                )}
+              </div>
             </Card>
 
-            <div>
-              <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>商談履歴</div>
-              <ContactLogList
-                logs={logs}
-                onChanged={() => {
-                  if (selectedId) void reloadDetail(selectedId);
-                }}
-                onEditMeeting={
-                  readOnly
-                    ? undefined
-                    : (log) => {
-                        setEditingMeeting(log);
-                        setMeetingOpen(true);
-                      }
-                }
-              />
-            </div>
+            <CustomerTimeline
+              logs={logs}
+              contacts={contacts}
+              personId={personFilter}
+              onPersonChange={setPersonFilter}
+              onChanged={() => {
+                if (selectedId) void reloadDetail(selectedId);
+              }}
+              onEditMeeting={
+                readOnly
+                  ? undefined
+                  : (log) => {
+                      setEditingMeeting(log);
+                      setMeetingOpen(true);
+                    }
+              }
+            />
           </div>
         )}
       </div>
@@ -491,7 +556,18 @@ export default function CustomersBoard() {
               }}
             />
           </label>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+            {personDraft.id && (
+              <button
+                type="button"
+                onClick={() =>
+                  void removePerson({ id: personDraft.id as string, name: personDraft.name ?? "" })
+                }
+                style={{ ...linkBtn, color: "#b91c1c", marginRight: "auto" }}
+              >
+                この担当者を削除
+              </button>
+            )}
             <Btn v="ghost" sm onClick={() => setPersonEditOpen(false)}>
               キャンセル
             </Btn>
@@ -533,3 +609,21 @@ export default function CustomersBoard() {
     </div>
   );
 }
+
+const linkBtn: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  color: "#2563eb",
+  fontSize: 12,
+  cursor: "pointer",
+  padding: 0,
+  fontFamily: "inherit",
+};
+
+const stat: CSSProperties = {
+  fontSize: 11,
+  padding: "3px 8px",
+  borderRadius: 999,
+  background: "#f1f5f9",
+  color: "#475569",
+};

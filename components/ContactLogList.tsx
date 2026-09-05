@@ -14,9 +14,28 @@ type Props = {
   onChanged: () => void;
   /** 会議メモの編集（指定時に「編集」ボタンを表示） */
   onEditMeeting?: (log: ContactLog) => void;
+  /** 月ごとに区切って表示 */
+  groupByMonth?: boolean;
+  /** 会社詳細の中など、会社名を出す必要がない場合 */
+  hideCustomer?: boolean;
 };
 
-export default function ContactLogList({ logs, onChanged, onEditMeeting }: Props) {
+function monthKey(date: string): string {
+  return date.slice(0, 7);
+}
+
+function monthLabel(key: string): string {
+  const [y, m] = key.split("-");
+  return `${y}年${Number(m)}月`;
+}
+
+export default function ContactLogList({
+  logs,
+  onChanged,
+  onEditMeeting,
+  groupByMonth = false,
+  hideCustomer = false,
+}: Props) {
   const { role } = useUserRole();
   const readOnly = role === "viewer";
   const [detail, setDetail] = useState<ContactLog | null>(null);
@@ -84,65 +103,121 @@ export default function ContactLogList({ logs, onChanged, onEditMeeting }: Props
     );
   }
 
-  return (
-    <>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {logs.map((log) => {
-          const isMeeting = log.kind === "meeting";
-          const companies = isMeeting ? attendeeCompanyNames(log) : [];
-          return (
-            <button
-              key={log.id}
-              type="button"
-              onClick={() => void openDetail(log.id)}
+  const renderRow = (log: ContactLog) => {
+    const isMeeting = log.kind === "meeting";
+    const companies = isMeeting ? attendeeCompanyNames(log) : [];
+    const isDraft = log.status === "draft";
+    const who = isMeeting
+      ? companies.join("・")
+      : [!hideCustomer ? log.customerName : "", log.contactPersonName].filter(Boolean).join(" / ");
+    const preview = (log.body || log.transcript).replace(/\s+/g, " ").trim();
+    return (
+      <button
+        key={log.id}
+        type="button"
+        onClick={() => void openDetail(log.id)}
+        style={{
+          textAlign: "left",
+          border: "none",
+          borderLeft: `3px solid ${isDraft ? "#f59e0b" : isMeeting ? "#22c55e" : "#cbd5e1"}`,
+          borderRadius: 6,
+          padding: "8px 10px",
+          background: isDraft ? "#fffbeb" : "#fff",
+          cursor: "pointer",
+          width: "100%",
+          display: "grid",
+          gridTemplateColumns: "44px 1fr",
+          columnGap: 10,
+          alignItems: "start",
+        }}
+      >
+        <span style={{ fontSize: 12, color: T.ts, fontVariantNumeric: "tabular-nums", paddingTop: 2 }}>
+          {log.contactDate.slice(5).replace("-", "/")}
+        </span>
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <strong
               style={{
-                textAlign: "left",
-                border: `1px solid ${log.status === "draft" ? "#fcd34d" : T.bd}`,
-                borderRadius: 8,
-                padding: "10px 12px",
-                background: log.status === "draft" ? "#fffbeb" : "#fff",
-                cursor: "pointer",
+                fontSize: 13,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                maxWidth: "100%",
               }}
             >
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <span style={{ fontSize: 12, color: T.ts }}>{log.contactDate}</span>
-                {isMeeting && <span style={{ ...chip, background: "#dcfce7" }}>{KIND_LABEL.meeting}</span>}
-                <span style={chip}>{log.contactType}</span>
-                <span style={{ ...chip, background: visBg(log.visibility) }}>
-                  {VISIBILITY_LABEL[log.visibility]}
-                </span>
-                {log.status === "draft" && <span style={{ ...chip, background: "#fde68a" }}>下書き</span>}
-                {log.audioPath && <span title="録音あり">🎧</span>}
-                <strong style={{ fontSize: 13 }}>{log.title || "(無題)"}</strong>
-              </div>
-              {isMeeting && companies.length > 0 && (
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
-                  {companies.map((n) => (
-                    <span key={n} style={{ ...chip, fontWeight: 600, background: "#f1f5f9" }}>
-                      {n}
-                    </span>
-                  ))}
-                </div>
-              )}
+              {log.title || "(無題)"}
+            </strong>
+            <span style={chip}>{isMeeting ? KIND_LABEL.meeting : log.contactType}</span>
+            {log.visibility !== "company" && (
+              <span style={{ ...chip, background: visBg(log.visibility) }}>{VISIBILITY_LABEL[log.visibility]}</span>
+            )}
+            {isDraft && <span style={{ ...chip, background: "#fde68a" }}>下書き</span>}
+            {log.audioPath && (
+              <span title="録音あり" style={{ fontSize: 12 }}>
+                🎧
+              </span>
+            )}
+          </span>
+          {(who || preview) && (
+            <span
+              style={{
+                display: "block",
+                fontSize: 12,
+                color: T.ts,
+                marginTop: 2,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {who && <span style={{ color: "#475569", fontWeight: 600 }}>{who}</span>}
+              {who && preview ? " — " : ""}
+              {preview.slice(0, 140)}
+            </span>
+          )}
+        </span>
+      </button>
+    );
+  };
+
+  const groups: { key: string; items: ContactLog[] }[] = [];
+  if (groupByMonth) {
+    for (const log of logs) {
+      const key = monthKey(log.contactDate);
+      const last = groups[groups.length - 1];
+      if (last && last.key === key) last.items.push(log);
+      else groups.push({ key, items: [log] });
+    }
+  }
+
+  return (
+    <>
+      {groupByMonth ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {groups.map((g) => (
+            <div key={g.key}>
               <div
                 style={{
-                  fontSize: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 11,
+                  fontWeight: 700,
                   color: T.ts,
-                  marginTop: 4,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
+                  marginBottom: 4,
                 }}
               >
-                {!isMeeting && log.customerName ? `${log.customerName}` : ""}
-                {!isMeeting && log.contactPersonName ? ` / ${log.contactPersonName}` : ""}
-                {!isMeeting && (log.customerName || log.contactPersonName) && log.body ? " — " : ""}
-                {(log.body || log.transcript).slice(0, 120)}
+                <span>{monthLabel(g.key)}</span>
+                <span style={{ fontWeight: 500 }}>{g.items.length}件</span>
+                <span style={{ flex: 1, height: 1, background: T.bd }} />
               </div>
-            </button>
-          );
-        })}
-      </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{g.items.map(renderRow)}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{logs.map(renderRow)}</div>
+      )}
 
       {detail && (
         <Modal
