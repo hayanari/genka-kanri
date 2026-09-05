@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     const { data: memberships, error: memErr } = await admin
       .from("company_users")
       .select(
-        "user_id, login_id, auth_email, display_name, role, company_id, companies(company_code, name)"
+        "user_id, login_id, auth_email, display_name, role, is_executive, company_id, companies(company_code, name)"
       );
     if (memErr) {
       console.error("[admin/users] company_users", memErr);
@@ -79,6 +79,7 @@ export async function GET(request: NextRequest) {
         loginId: m.login_id || "",
         displayName: m.display_name || "",
         role: m.role || "editor",
+        isExecutive: Boolean((m as { is_executive?: boolean }).is_executive) || m.role === "admin" || m.role === "owner",
         companyCode: company?.company_code ?? "",
         companyName: company?.name ?? "",
         isPlatformOwner: platformOwnerIds.has(m.user_id),

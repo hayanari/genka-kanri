@@ -15,6 +15,7 @@ type UserItem = {
   loginId: string;
   displayName: string;
   role: UserRole;
+  isExecutive?: boolean;
   companyCode: string;
   companyName: string;
   isPlatformOwner?: boolean;
@@ -198,6 +199,37 @@ export default function AdminPage() {
       }
     }
     setRoleSaving(null);
+  };
+
+  const handleExecutiveChange = async (u: UserItem, isExecutive: boolean) => {
+    if (!accessToken) return;
+    setRoleSaving(u.id);
+    try {
+      const res = await fetch(`/api/admin/users/${u.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ isExecutive }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "更新に失敗しました");
+      setUsers((prev) =>
+        prev.map((x) => (x.id === u.id ? { ...x, isExecutive } : x))
+      );
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "役員フラグの更新に失敗しました");
+      if (accessToken) {
+        try {
+          await loadUsers(accessToken, companyFilter);
+        } catch {
+          /* ignore */
+        }
+      }
+    } finally {
+      setRoleSaving(null);
+    }
   };
 
   const handleCreateUser = async () => {
@@ -1033,6 +1065,9 @@ export default function AdminPage() {
                       <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: T.ts }}>
                         権限
                       </th>
+                      <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: T.ts }}>
+                        役員
+                      </th>
                       <th style={{ width: 160 }} />
                     </tr>
                   </thead>
@@ -1086,6 +1121,28 @@ export default function AdminPage() {
                               ))}
                             </select>
                           </div>
+                        </td>
+                        <td style={{ padding: "12px 8px" }}>
+                          <label
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              fontSize: 12,
+                              cursor: "pointer",
+                            }}
+                            title="CRMの「役員のみ」メモを閲覧できる"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={Boolean(u.isExecutive)}
+                              disabled={roleSaving === u.id || u.isPlatformOwner}
+                              onChange={(e) =>
+                                void handleExecutiveChange(u, e.target.checked)
+                              }
+                            />
+                            役員
+                          </label>
                         </td>
                         <td style={{ padding: "12px 8px" }}>
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

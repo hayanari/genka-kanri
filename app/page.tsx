@@ -37,8 +37,14 @@ import ProcessMaster from "@/components/ProcessMaster";
 import BidScheduleList from "@/components/BidScheduleList";
 import NewBidSchedule from "@/components/NewBidSchedule";
 import EstimateTab from "@/components/EstimateTab";
+import CustomersBoard from "@/components/CustomersBoard";
+import CrmSearchBar from "@/components/CrmSearchBar";
 import { linkEstimateToProject } from "@/lib/estimateStorage";
 import type { Estimate } from "@/types/estimate";
+import type { ContactLog } from "@/types/crm";
+import { logContactAccess } from "@/lib/crmStorage";
+import { Modal } from "@/components/ui/primitives";
+import { VISIBILITY_LABEL } from "@/types/crm";
 
 export default function Home() {
   const router = useRouter();
@@ -69,6 +75,7 @@ export default function Home() {
   const [personInChargeFilter, setPersonInChargeFilter] = useState<string | null>(null);
   const [showCsvExportModal, setShowCsvExportModal] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [crmLogPreview, setCrmLogPreview] = useState<ContactLog | null>(null);
   const lastSyncedRevisionRef = useRef<string | null>(null);
   const { role, canAccessAdmin } = useUserRole();
   const showAdminLink = role !== null && canAccessAdmin;
@@ -667,6 +674,7 @@ export default function Home() {
     { id: "processmeeting", label: "工程会議ボード", icon: Icons.process, href: "/process-meeting" },
     { id: "bidschedule", label: "入札スケジュール", icon: Icons.calendar },
     { id: "estimates", label: "見積書", icon: Icons.list },
+    { id: "customers", label: "顧客・商談", icon: Icons.list },
     { id: "archive", label: "アーカイブ", icon: Icons.archive },
     { id: "deleted", label: "削除済み", icon: Icons.trash },
     { id: "vehicles", label: "車両マスタ", icon: Icons.truck },
@@ -789,7 +797,8 @@ export default function Home() {
               (view === "vehicles" && n.id === "vehicles") ||
               (view === "processmasters" && n.id === "processmasters") ||
               ((view === "bidschedule" || view === "newbidschedule") && n.id === "bidschedule") ||
-              (view === "estimates" && n.id === "estimates");
+              (view === "estimates" && n.id === "estimates") ||
+              (view === "customers" && n.id === "customers");
             const style = {
               display: "flex",
               alignItems: "center",
@@ -982,6 +991,19 @@ export default function Home() {
             {syncNotice}
           </div>
         )}
+        {!loading && !loadError && (
+          <div style={{ marginBottom: 16 }}>
+            <CrmSearchBar
+              projects={data.projects}
+              onOpenCustomer={() => navWithClose("customers")}
+              onOpenProject={(pid) => navWithClose("detail", pid)}
+              onOpenLog={(log) => {
+                setCrmLogPreview(log);
+                if (log.visibility === "executive") void logContactAccess(log.id);
+              }}
+            />
+          </div>
+        )}
         {role === "viewer" && (
           <div
             style={{
@@ -1156,6 +1178,7 @@ export default function Home() {
         {!loading && !loadError && view === "estimates" && (
           <EstimateTab onConvertToProject={convertEstimateToProject} />
         )}
+        {!loading && !loadError && view === "customers" && <CustomersBoard />}
         {!loading && !loadError && view === "vehicles" && (
           <VehicleMaster
             vehicles={data.vehicles}
@@ -1305,6 +1328,18 @@ export default function Home() {
             </div>
           </div>
         </div>
+      )}
+      {crmLogPreview && (
+        <Modal title={crmLogPreview.title || "商談メモ"} onClose={() => setCrmLogPreview(null)} w={560}>
+          <div style={{ fontSize: 13, lineHeight: 1.7, color: T.tx }}>
+            <div style={{ color: T.ts, marginBottom: 8 }}>
+              {crmLogPreview.contactDate} / {crmLogPreview.contactType} /{" "}
+              {VISIBILITY_LABEL[crmLogPreview.visibility]}
+              {crmLogPreview.customerName ? ` / ${crmLogPreview.customerName}` : ""}
+            </div>
+            <div style={{ whiteSpace: "pre-wrap" }}>{crmLogPreview.body || "（本文なし）"}</div>
+          </div>
+        </Modal>
       )}
     </div>
     </AuthGuard>

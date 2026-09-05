@@ -46,6 +46,15 @@ import {
 } from "@/lib/scheduleLabor";
 import { uploadReceipt, getReceiptUrl, deleteReceipt } from "@/lib/receipts";
 import type { ReceiptAttachment } from "@/lib/receipts";
+import ContactLogQuickForm from "@/components/ContactLogQuickForm";
+import ContactLogList from "@/components/ContactLogList";
+import {
+  loadContactLogs,
+  loadCustomers,
+  upsertCustomer,
+} from "@/lib/crmStorage";
+import type { ContactLog, Customer } from "@/types/crm";
+import { useUserRole } from "@/lib/roles";
 
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
 
@@ -97,6 +106,12 @@ export default function ProjectDetail({
   const isSubcontract = p.mode === "subcontract";
   const defaultTab = "costs";
   const [tab, setTab] = useState(defaultTab);
+  const { role: crmRole } = useUserRole();
+  const crmReadOnly = crmRole === "viewer";
+  const [crmCustomers, setCrmCustomers] = useState<Customer[]>([]);
+  const [crmLogs, setCrmLogs] = useState<ContactLog[]>([]);
+  const [crmMemoOpen, setCrmMemoOpen] = useState(false);
+  const [crmBusy, setCrmBusy] = useState(false);
   const [costModal, setCostModal] = useState(false);
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [qtyModal, setQtyModal] = useState(false);
@@ -195,6 +210,63 @@ export default function ProjectDetail({
     // 案件オープン時のみ（allQty 変更で再実行しない）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.id]);
+
+  const reloadCrm = async () => {
+    try {
+      const [customers, logs] = await Promise.all([
+        loadCustomers(),
+        loadContactLogs({ projectId: p.id }),
+      ]);
+      setCrmCustomers(customers);
+      setCrmLogs(logs);
+    } catch (e) {
+      console.warn("[ProjectDetail] crm", e);
+      setCrmCustomers([]);
+      setCrmLogs([]);
+    }
+  };
+
+  useEffect(() => {
+    if (tab !== "crm") return;
+    void reloadCrm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, p.id]);
+
+  const ensureCustomerForProject = async (): Promise<string | null> => {
+    const clientName = (p.client || "").trim();
+    if (!clientName) {
+      alert("案件の顧客名が空です。先に案件編集で顧客を入れてください。");
+      return null;
+    }
+    const existing = crmCustomers.find(
+      (c) => c.name.replace(/\s/g, "") === clientName.replace(/\s/g, "")
+    );
+    if (existing) return existing.id;
+    setCrmBusy(true);
+    try {
+      const saved = await upsertCustomer({
+        name: clientName,
+        contactPerson: "",
+        phone: "",
+        email: "",
+        address: "",
+        note: "",
+      });
+      setCrmCustomers((prev) => [...prev, saved]);
+      return saved.id;
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "顧客の作成に失敗しました");
+      return null;
+    } finally {
+      setCrmBusy(false);
+    }
+  };
+
+  const openCrmMemo = async () => {
+    const id = await ensureCustomerForProject();
+    if (!id) return;
+    setCrmMemoOpen(true);
+  };
 
   const st = projStats(p, allCosts, allQty);
   const payStatus =
@@ -669,6 +741,7 @@ export default function ProjectDetail({
         { id: "costs", label: "💰 原価明細" },
         { id: "labor", label: "👷 人工・車両" },
         { id: "process", label: "📋 工程管理" },
+        { id: "crm", label: "🗒 商談メモ" },
         { id: "payments", label: "🏦 入金管理" },
         { id: "changes", label: "📝 増減額" },
         { id: "summary", label: "📊 収支サマリー" },
@@ -677,6 +750,7 @@ export default function ProjectDetail({
         { id: "costs", label: "💰 原価明細" },
         { id: "labor", label: "👷 人工・車両" },
         { id: "process", label: "📋 工程管理" },
+        { id: "crm", label: "🗒 商談メモ" },
         { id: "payments", label: "🏦 入金管理" },
         { id: "changes", label: "📝 増減額" },
         { id: "summary", label: "📊 サマリー" },
@@ -1099,6 +1173,46 @@ export default function ProjectDetail({
           </button>
         ))}
       </div>
+
+      {tab === "crm" && (
+        <div>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              alignItems: "center",
+              marginBottom: 12,
+            }}
+          >
+            <strong style={{ fontSize: 14 }}>この案件の商談メモ</strong>
+            <span style={{ fontSize: 12, color: T.ts }}>
+              顧客: {p.client || "（未設定）"}
+            </span>
+            <span style={{ flex: 1 }} />
+            {!crmReadOnly && (
+              <Btn sm onClick={() => void openCrmMemo()} disabled={crmBusy}>
+                ＋ メモ
+              </Btn>
+            )}
+          </div>
+          <ContactLogList logs={crmLogs} onChanged={() => void reloadCrm()} />
+          <ContactLogQuickForm
+            open={crmMemoOpen}
+            onClose={() => setCrmMemoOpen(false)}
+            customers={crmCustomers}
+            fixedCustomerId={
+              crmCustomers.find(
+                (c) =>
+                  c.name.replace(/\s/g, "") === (p.client || "").replace(/\s/g, "")
+              )?.id
+            }
+            fixedProjectId={p.id}
+            defaultTitle={p.name}
+            onSaved={() => void reloadCrm()}
+          />
+        </div>
+      )}
 
       {tab === "costs" && (
         <Card>
