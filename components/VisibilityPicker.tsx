@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { CompanyMember, ContactVisibility } from "@/types/crm";
-import { VISIBILITY_HINT, VISIBILITY_LABEL } from "@/types/crm";
+import { VISIBILITY_HINT, VISIBILITY_LABEL, VISIBILITY_OPTIONS } from "@/types/crm";
 import { loadCompanyMembers } from "@/lib/crmStorage";
 import { createClient } from "@/lib/supabase/client";
 import { T } from "@/lib/constants";
@@ -16,8 +16,8 @@ type Props = {
 };
 
 /**
- * 公開範囲（全社 / 役員のみ / 自分のみ）＋ 個別スタッフの追加許可
- * 全社公開のときはスタッフ選択を出さない
+ * 公開範囲（全社 / 指定した人だけ）
+ * 「指定した人だけ」= 作成者 + 選んだスタッフ。誰も選ばなければ自分だけ
  */
 export default function VisibilityPicker({
   visibility,
@@ -48,29 +48,29 @@ export default function VisibilityPicker({
     onViewerIdsChange(viewerIds.includes(id) ? viewerIds.filter((v) => v !== id) : [...viewerIds, id]);
   };
 
-  const candidates = (members ?? []).filter((m) => m.userId !== meId);
-  // 役員のみ公開なら、役員はすでに見えるので候補から外す
-  const shown = visibility === "executive" ? candidates.filter((m) => !m.isExecutive) : candidates;
+  const shown = (members ?? []).filter((m) => m.userId !== meId);
   const selectedCount = viewerIds.filter((id) => shown.some((m) => m.userId === id)).length;
+  // 旧データの executive は「指定した人だけ」として扱う
+  const current: ContactVisibility = visibility === "company" ? "company" : "private";
 
   return (
     <div>
       <div style={{ fontSize: 12, fontWeight: 600, color: T.ts, marginBottom: 6 }}>公開範囲</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {(["company", "executive", "private"] as ContactVisibility[]).map((v) => (
+        {VISIBILITY_OPTIONS.map((v) => (
           <button
             key={v}
             type="button"
             onClick={() => onVisibilityChange(v)}
             title={VISIBILITY_HINT[v]}
             style={{
-              border: visibility === v ? `2px solid ${T.ac}` : `1px solid ${T.bd}`,
+              border: current === v ? `2px solid ${T.ac}` : `1px solid ${T.bd}`,
               borderRadius: 999,
               padding: "6px 12px",
               fontSize: 12,
               fontWeight: 700,
               cursor: "pointer",
-              background: visibility === v ? "#eff6ff" : "#fff",
+              background: current === v ? "#eff6ff" : "#fff",
               color: T.tx,
               fontFamily: "inherit",
             }}
@@ -79,9 +79,9 @@ export default function VisibilityPicker({
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: T.ts, marginTop: 4 }}>{VISIBILITY_HINT[visibility]}</div>
+      <div style={{ fontSize: 11, color: T.ts, marginTop: 4 }}>{VISIBILITY_HINT[current]}</div>
 
-      {visibility !== "company" && (
+      {current !== "company" && (
         <div
           style={{
             marginTop: 8,
@@ -91,10 +91,10 @@ export default function VisibilityPicker({
           }}
         >
           <div style={{ fontSize: 12, fontWeight: 600, color: T.ts, marginBottom: 6 }}>
-            このスタッフにも見せる
-            {selectedCount > 0 && (
-              <span style={{ marginLeft: 6, color: T.ac }}>{selectedCount}人</span>
-            )}
+            見せる人を選ぶ
+            <span style={{ marginLeft: 6, color: selectedCount > 0 ? T.ac : T.ts, fontWeight: 500 }}>
+              {selectedCount > 0 ? `自分 + ${selectedCount}人` : "自分だけ"}
+            </span>
           </div>
           {members === null ? (
             <span style={{ fontSize: 12, color: T.ts }}>読み込み中…</span>
@@ -122,7 +122,6 @@ export default function VisibilityPicker({
                   >
                     {on ? "✓ " : ""}
                     {m.name}
-                    {m.isExecutive && <span style={{ color: T.ts, marginLeft: 4 }}>役員</span>}
                   </button>
                 );
               })}

@@ -20,7 +20,7 @@ import type {
 export const CRM_VIEWER_FORBIDDEN =
   "閲覧専用のため保存できません。管理者に変更権限を依頼してください。";
 export const CRM_EDIT_FORBIDDEN =
-  "このメモを編集できるのは作成者または役員のみです。";
+  "このメモを編集できるのは作成者または管理者のみです。";
 
 async function assertWritable(): Promise<void> {
   const { canWrite } = await import("@/lib/roles");
@@ -128,24 +128,14 @@ export async function loadCompanyMembers(): Promise<CompanyMember[]> {
   const companyId = await requireCompanyId();
   const { data, error } = await supabase
     .from("company_users")
-    .select("user_id, display_name, login_id, is_executive, role")
+    .select("user_id, display_name, login_id")
     .eq("company_id", companyId)
     .order("display_name");
   if (error) return [];
   return (data ?? [])
     .map((r) => {
-      const row = r as {
-        user_id: string;
-        display_name?: string | null;
-        login_id?: string | null;
-        is_executive?: boolean | null;
-        role?: string | null;
-      };
-      return {
-        userId: String(row.user_id),
-        name: memberName(row) || "（名前未設定）",
-        isExecutive: Boolean(row.is_executive) || row.role === "admin" || row.role === "owner",
-      };
+      const row = r as { user_id: string; display_name?: string | null; login_id?: string | null };
+      return { userId: String(row.user_id), name: memberName(row) || "（名前未設定）" };
     })
     .sort((a, b) => a.name.localeCompare(b.name, "ja"));
 }

@@ -3,7 +3,13 @@
 // ================================================================
 
 export type ContactType = "電話" | "対面" | "オンライン" | "メール" | "その他";
+/**
+ * company=全社 / private=指定した人だけ（作成者 + contact_log_viewers）
+ * executive は旧データ互換のため型に残す（UIでは選べない。private と同じ扱いで表示）
+ */
 export type ContactVisibility = "company" | "executive" | "private";
+/** UI で選べる公開範囲 */
+export const VISIBILITY_OPTIONS: ContactVisibility[] = ["company", "private"];
 /** memo=1対1メモ / meeting=会議（複数社・複数担当者） */
 export type ContactLogKind = "memo" | "meeting";
 /** draft=下書き（未確認） / confirmed=確定 */
@@ -54,7 +60,6 @@ export type ContactLogViewer = {
 export type CompanyMember = {
   userId: string;
   name: string;
-  isExecutive: boolean;
 };
 
 export type ContactLog = {
@@ -93,14 +98,14 @@ export const MEETING_TYPES: ContactType[] = ["対面", "オンライン", "そ�
 
 export const VISIBILITY_LABEL: Record<ContactVisibility, string> = {
   company: "全社",
-  executive: "役員のみ",
-  private: "自分のみ",
+  executive: "指定した人だけ",
+  private: "指定した人だけ",
 };
 
 export const VISIBILITY_HINT: Record<ContactVisibility, string> = {
   company: "社内の全員が閲覧できます",
-  executive: "役員フラグのあるユーザーのみ（下で個別のスタッフを追加できます）",
-  private: "作成者本人のみ（下で個別のスタッフを追加できます）",
+  executive: "自分と、下で選んだ人だけが閲覧できます",
+  private: "自分と、下で選んだ人だけが閲覧できます（誰も選ばなければ自分だけ）",
 };
 
 export const KIND_LABEL: Record<ContactLogKind, string> = {

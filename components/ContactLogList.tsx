@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ContactLog } from "@/types/crm";
 import { KIND_LABEL, VISIBILITY_LABEL, attendeeCompanyNames } from "@/types/crm";
-import { deleteContactLog, getContactLog, logContactAccess, patchContactLog } from "@/lib/crmStorage";
+import { deleteContactLog, getContactLog, patchContactLog } from "@/lib/crmStorage";
 import { getCrmAudioUrl } from "@/lib/crmAudio";
 import { Btn, Card, Modal } from "@/components/ui/primitives";
 import { T } from "@/lib/constants";
@@ -42,11 +42,6 @@ export default function ContactLogList({
   const [showTranscript, setShowTranscript] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
-
-  useEffect(() => {
-    if (!detail || detail.visibility !== "executive") return;
-    void logContactAccess(detail.id);
-  }, [detail]);
 
   useEffect(() => {
     setShowTranscript(false);
@@ -374,9 +369,8 @@ function AttendeeList({ log }: { log: ContactLog }) {
 }
 
 function visBg(v: string) {
-  if (v === "executive") return "#fef3c7";
-  if (v === "private") return "#e2e8f0";
-  return "#dbeafe";
+  // 全社以外は「指定した人だけ」
+  return v === "company" ? "#dbeafe" : "#e2e8f0";
 }
 
 const chip: React.CSSProperties = {
