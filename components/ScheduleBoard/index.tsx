@@ -18,7 +18,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   TODAY_STR, daysInMonth, genId, displayWorkerColor, hexRgba,
   getConflicts, getMonthSchedules, applySameDayKoujimeiSuffix,
-  effectiveWorkerList,
+  effectiveWorkerList, getBaseKoujimei,
 } from '@/lib/scheduleUtils'
 import { CalendarView }            from './CalendarView'
 import { ListView, WorkerView, MasterView } from './OtherViews'
@@ -46,6 +46,7 @@ export default function ScheduleBoard() {
   const [workerContacts, setWorkerContacts] = useState<Record<string, string>>({})
   const [pdfLoading, setPdfLoading] = useState(false)
   const [syncNotice, setSyncNotice] = useState<string | null>(null)
+  const [showUnscheduled, setShowUnscheduled] = useState(false)
   const pdfAreaRef = useRef<HTMLDivElement>(null)
   /** 初回の loadScheduleData 完了まで true にしない（未ロード状態の空データを pending に書かない） */
   const scheduleHydratedRef = useRef(false)
@@ -438,6 +439,31 @@ export default function ScheduleBoard() {
     }).length,
   }), [monthScheds, schedules, dayMemos, year, month])
 
+  // 表示中の月に一度も予定が入っていない案件（日ごとではなく月単位で判定）
+  const unscheduledThisMonth = useMemo(() => {
+    const bases = new Set<string>()
+    for (const e of monthScheds) {
+      if (e.shift === 'off') continue
+      const b = getBaseKoujimei(e.koujimei)
+      if (b) bases.add(b)
+    }
+    return projects
+      .filter(p => !p.archived && !p.deleted && !bases.has(p.name))
+      .sort((a, b) => {
+        const ma = a.managementNumber ?? ''
+        const mb = b.managementNumber ?? ''
+        if (ma !== mb) return ma.localeCompare(mb, 'ja')
+        return a.name.localeCompare(b.name, 'ja')
+      })
+  }, [projects, monthScheds])
+
+  /** 未配置案件をクリック → その工事名で予定追加（表示中の月なら今日、それ以外は月初） */
+  const handleAddForProject = (name: string) => {
+    const inThisMonth = TODAY_STR.startsWith(`${year}-${String(month + 1).padStart(2, '0')}-`)
+    const date = inThisMonth ? TODAY_STR : `${year}-${String(month + 1).padStart(2, '0')}-01`
+    setModal({ entry: { date, shift: 'day', koujimei: name, workers: [], memo: '' }, isEdit: false })
+  }
+
   // ── ヘルパー UI ──────────────────────────────────────────────────
   const navBtn = (active: boolean, onClick: () => void, children: React.ReactNode) => (
     <button onClick={onClick} style={{
@@ -624,6 +650,51 @@ export default function ScheduleBoard() {
         </div>
       )}
 
+      {/* ── 今月未配置の案件（折りたたみ・印刷/PDF対象外） ── */}
+      {view === 'cal' && unscheduledThisMonth.length > 0 && (
+        <div className="schedule-no-print" style={{ background: '#fffbf5', borderBottom: '1px solid #ffe0b2', padding: '0 16px' }}>
+          <button
+            onClick={() => setShowUnscheduled(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 0',
+              background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+            }}
+          >
+            <span style={{ fontSize: 10, color: '#e65100' }}>{showUnscheduled ? '▼' : '▶'}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#e65100' }}>
+              {MONTH_NAMES[month]}にまだ予定が入っていない案件
+            </span>
+            <span style={{ fontSize: 11, color: '#bf360c', fontFamily: 'IBM Plex Mono,monospace' }}>{unscheduledThisMonth.length}件</span>
+            {!showUnscheduled && (
+              <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 4 }}>クリックで表示・案件名を押すとその工事で予定追加</span>
+            )}
+          </button>
+          {showUnscheduled && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, paddingBottom: 8 }}>
+              {unscheduledThisMonth.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => handleAddForProject(p.name)}
+                  title={`「${p.name}」で予定を追加`}
+                  style={{
+                    maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    padding: '3px 8px', borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                    color: '#bf360c', background: '#fff3e0', border: '1px solid #ffcc80', fontFamily: 'inherit',
+                  }}
+                >
+                  {p.managementNumber && (
+                    <span style={{ fontFamily: 'IBM Plex Mono,monospace', fontSize: 9, color: '#94a3b8', marginRight: 4 }}>
+                      {p.managementNumber}
+                    </span>
+                  )}
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Main（PDF対象） ── */}
       <div ref={pdfAreaRef} style={{ flex: 1, padding: '12px 16px', overflow: 'auto', background: '#f5f7fa' }}>
 
@@ -631,7 +702,7 @@ export default function ScheduleBoard() {
           <CalendarView
             year={year} month={month}
             schedules={schedules} workers={workers} workerLeftAt={workerLeftAt} workerKinds={workerKinds}
-            vehicles={vehicles} projects={projects} dayMemos={dayMemos}
+            vehicles={vehicles} dayMemos={dayMemos}
             filterWorker={filterWorker}
             onFilterWorker={handleFilterWorker}
             onClickEntry={e => setModal({ entry: e, isEdit: true })}
