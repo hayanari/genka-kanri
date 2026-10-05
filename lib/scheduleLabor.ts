@@ -9,7 +9,7 @@
 import type { ScheduleEntry, WorkerKind } from "@/types/schedule"
 import type { Project, Quantity, Vehicle } from "@/lib/utils"
 import { genId } from "@/lib/constants"
-import { isPartnerWorker } from "@/lib/scheduleUtils"
+import { isPartnerWorker, getBaseKoujimei } from "@/lib/scheduleUtils"
 
 /** 自動転記行を識別する備考プレフィックス */
 export const AUTO_NOTE_PREFIX = "スケジュール自動集計"
@@ -31,10 +31,14 @@ export function isLegacyMonthlyAutoNote(note: string): boolean {
   return /^スケジュール自動集計:\d{4}-\d{2}$/.test(note)
 }
 
+/**
+ * 比較用の正規化。空白と全角/半角の揺れだけを吸収し、文言自体は変えない
+ * （括弧内を落とすと「第1期」「第2期」のような区別が消えるのでしない）
+ */
 function norm(s: string | undefined): string {
   return (s ?? "")
+    .normalize("NFKC")
     .replace(/\s+/g, "")
-    .replace(/[（(].*?[)）]/g, "")
     .toLowerCase()
 }
 
@@ -44,16 +48,19 @@ export function jstTodayYmd(): string {
   return d.toISOString().slice(0, 10)
 }
 
-/** スケジュールの工事名が案件と一致するか */
+/**
+ * スケジュールの工事名が案件と一致するか（完全一致のみ）
+ * - 同日同名の連番サフィックス（「○○工事 A」「○○工事 B」）は外して比較
+ * - 案件名または管理番号と一致したときだけ転記する
+ *   （以前は部分一致だったため「路面清掃」等の共通語で別案件に転記されていた）
+ */
 export function entryMatchesProject(entry: ScheduleEntry, project: Project): boolean {
-  const k = norm(entry.koujimei)
+  const k = norm(getBaseKoujimei(entry.koujimei ?? ""))
   if (!k) return false
   const name = norm(project.name)
-  const mgmt = (project.managementNumber ?? "").toLowerCase()
-  if (mgmt && entry.koujimei.toLowerCase().includes(mgmt)) return true
-  if (k.length >= 4 && name.includes(k)) return true
-  if (name.length >= 4 && k.includes(name)) return true
-  return k === name
+  if (name && k === name) return true
+  const mgmt = norm(project.managementNumber)
+  return !!mgmt && k === mgmt
 }
 
 type DayAgg = {
