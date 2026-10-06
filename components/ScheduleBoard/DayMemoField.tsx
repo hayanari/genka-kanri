@@ -14,13 +14,20 @@ interface Props {
 export const DayMemoField: React.FC<Props> = ({ date, value, onChange }) => {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
+  const [seenValue, setSeenValue] = useState(value)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
-  useEffect(() => { setDraft(value) }, [value])
+  // 表示中（非編集）は常に最新の value を映す。
+  // 編集中に他の保存・再読み込みで value が変わっても、入力中の文字は消さない
+  if (!editing && value !== seenValue) {
+    setSeenValue(value)
+    setDraft(value)
+  }
   useEffect(() => { if (editing) taRef.current?.focus() }, [editing])
 
   const finish = () => {
     setEditing(false)
+    setSeenValue(value)
     onChange(date, draft.trim())
   }
 

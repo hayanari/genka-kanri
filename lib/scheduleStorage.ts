@@ -21,6 +21,13 @@ export function saveSchedulePendingSync(data: ScheduleData): void {
   } catch {}
 }
 
+/** 保存が完了したらバックアップを消す（古い状態を別画面のロード時に再保存しないため） */
+export function clearSchedulePending(): void {
+  try {
+    sessionStorage.removeItem(PENDING_KEY)
+  } catch {}
+}
+
 /** 直近で保存された未確定データがあれば返す */
 export function loadSchedulePending(): ScheduleData | null {
   try {
@@ -45,19 +52,21 @@ export async function fetchScheduleRevision(): Promise<string> {
   try {
     const supabase = createClient()
     const companyId = await requireCompanyId()
-    const [
-      { data: eRow },
-      { count: eCount },
-      { data: mRow },
-      { count: mCount },
-      { count: wCount },
-    ] = await Promise.all([
+    const results = await Promise.all([
       supabase.from('schedule_entries').select('updated_at').eq('company_id', companyId).order('updated_at', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('schedule_entries').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
       supabase.from('schedule_day_memos').select('updated_at').eq('company_id', companyId).order('updated_at', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('schedule_day_memos').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
       supabase.from('schedule_workers').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
     ])
+    // 1つでも失敗したら「不明」を返す。部分的に欠けた値で版を作ると
+    // 「他端末で更新された」と誤判定してマージ・再読込が走ってしまう
+    const failed = results.find((r) => r.error)
+    if (failed?.error) {
+      console.warn('[ScheduleStorage] fetchScheduleRevision partial error:', failed.error.message)
+      return ''
+    }
+    const [{ data: eRow }, { count: eCount }, { data: mRow }, { count: mCount }, { count: wCount }] = results
     const eMax = (eRow as { updated_at?: string } | null)?.updated_at ?? ''
     const mMax = (mRow as { updated_at?: string } | null)?.updated_at ?? ''
     return `e:${eMax}|ec:${eCount ?? 0}|m:${mMax}|mc:${mCount ?? 0}|w:${wCount ?? 0}`
@@ -67,19 +76,44 @@ export async function fetchScheduleRevision(): Promise<string> {
   }
 }
 
+export const SCHEDULE_LOAD_FAILED_MSG = 'スケジュールの読み込みに失敗しました。ネットワークを確認して再読み込み（F5）してください。'
+
+/**
+ * サーバーのスケジュールを読み込む（互換用: 失敗時は null）。
+ * 案件管理・ダッシュボードなど「無ければ無いで動く」画面向け。
+ * スケジュール管理画面は loadScheduleDataStrict を使う。
+ */
 export async function loadScheduleData(): Promise<ScheduleData | null> {
+  try {
+    return await loadScheduleDataStrict()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * サーバーのスケジュールを読み込む。
+ * - 返り値 null は「本当に空（初回）」のときだけ
+ * - 通信・権限エラーのときは throw（空扱いにすると画面から予定が消えたように見え、
+ *   そのまま保存すると既存データを巻き込むため）
+ */
+export async function loadScheduleDataStrict(): Promise<ScheduleData | null> {
   try {
     const supabase = createClient()
     const companyId = await requireCompanyId()
-    const [
-      { data: schedules },
-      { data: workers },
-      { data: memos },
-    ] = await Promise.all([
+    const [sRes, wRes, mRes] = await Promise.all([
       supabase.from('schedule_entries').select('*').eq('company_id', companyId).order('date'),
       supabase.from('schedule_workers').select('name, sort_order, left_at, kind').eq('company_id', companyId).order('sort_order'),
       supabase.from('schedule_day_memos').select('date, memo').eq('company_id', companyId),
     ])
+    const firstErr = sRes.error ?? wRes.error ?? mRes.error
+    if (firstErr) {
+      console.error('[ScheduleStorage] load query error:', firstErr)
+      throw new Error(`${SCHEDULE_LOAD_FAILED_MSG}\n（${firstErr.message}）`)
+    }
+    const schedules = sRes.data
+    const workers = wRes.data
+    const memos = mRes.data
 
     // 直近でリロードされた可能性: sessionStorage に未確定データがあれば優先
     const pending = loadSchedulePending()
@@ -99,8 +133,9 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
         try {
           await saveScheduleData(merged)
           return merged
-        } catch {
+        } catch (e) {
           // 閲覧専用などで保存できない場合はサーバーのデータをそのまま使う
+          console.warn('[ScheduleStorage] pending の再保存に失敗（サーバー版を使用）:', e)
         }
       }
     }
@@ -140,11 +175,12 @@ export async function loadScheduleData(): Promise<ScheduleData | null> {
     }
   } catch (e) {
     console.error('[ScheduleStorage] load error:', e)
-    return null
+    throw e
   }
 }
 
 export const VIEWER_FORBIDDEN_MSG = '閲覧専用の権限のため保存できません。管理者に変更権限を依頼してください。'
+export const ACCESS_CHECK_FAILED_MSG = '権限の確認ができなかったため保存を中止しました（通信エラーまたはログイン切れ）。もう一度お試しください。'
 
 /**
  * 同時編集対策のための「自分が最後に同期した状態」。
@@ -247,8 +283,12 @@ export async function saveScheduleData(
   baseline?: ScheduleBaseline
 ): Promise<void> {
   {
-    const { canWrite } = await import('@/lib/roles')
-    if (!(await canWrite())) throw new Error(VIEWER_FORBIDDEN_MSG)
+    const { fetchCurrentAccess } = await import('@/lib/roles')
+    const access = await fetchCurrentAccess({ force: true })
+    // 権限が「取れなかった」のと「閲覧専用」は別物。通信エラーを閲覧専用と誤って案内しない
+    if (access.unresolved) throw new Error(ACCESS_CHECK_FAILED_MSG)
+    const writable = access.isPlatformOwner || ['editor', 'admin', 'owner'].includes(access.role)
+    if (!writable) throw new Error(VIEWER_FORBIDDEN_MSG)
   }
   try {
     const supabase = createClient()
@@ -258,7 +298,7 @@ export async function saveScheduleData(
     // 1. 予定エントリ
     const keepIds = new Set(data.schedules.map((s) => s.id))
     if (data.schedules.length > 0) {
-      await supabase.from('schedule_entries').upsert(
+      const { error: upEntryErr } = await supabase.from('schedule_entries').upsert(
         data.schedules.map((s) => ({
           id: s.id,
           company_id: companyId,
@@ -271,6 +311,10 @@ export async function saveScheduleData(
         })),
         { onConflict: 'id' }
       )
+      if (upEntryErr) {
+        console.error('[ScheduleStorage] schedule_entries upsert:', upEntryErr)
+        throw new Error(`予定の保存に失敗しました（${upEntryErr.message}）`)
+      }
     }
 
     // 削除: 自分が知っていた（ベースラインにあった）IDのうち、現在残っていないものだけを消す。
@@ -387,7 +431,13 @@ export async function saveScheduleData(
       company_id: companyId,
     }))
     if (memoRows.length > 0) {
-      await supabase.from('schedule_day_memos').upsert(memoRows, { onConflict: 'company_id,date' })
+      const { error: memoErr } = await supabase
+        .from('schedule_day_memos')
+        .upsert(memoRows, { onConflict: 'company_id,date' })
+      if (memoErr) {
+        console.error('[ScheduleStorage] schedule_day_memos upsert:', memoErr)
+        throw new Error(`日次メモの保存に失敗しました（${memoErr.message}）`)
+      }
     }
 
     // 削除されたメモ: ベースラインにあった日付のうち現在無いものだけを消す
@@ -397,11 +447,15 @@ export async function saveScheduleData(
         (d) => !currentDates.has(d)
       )
       if (memoDatesToDelete.length > 0) {
-        await supabase
+        const { error: memoDelErr } = await supabase
           .from('schedule_day_memos')
           .delete()
           .eq('company_id', companyId)
           .in('date', memoDatesToDelete)
+        if (memoDelErr) {
+          console.error('[ScheduleStorage] schedule_day_memos delete:', memoDelErr)
+          throw new Error(`日次メモの削除に失敗しました（${memoDelErr.message}）`)
+        }
       }
     }
 

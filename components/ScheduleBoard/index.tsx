@@ -9,7 +9,7 @@ import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import type { ScheduleEntry, DayMemos, ViewType, ScheduleData, WorkerKind } from '@/types/schedule'
 import type { Project, Vehicle } from '@/lib/utils'
-import { loadScheduleData, saveScheduleData, saveSchedulePendingSync, fetchScheduleRevision, mergeScheduleData, VIEWER_FORBIDDEN_MSG } from '@/lib/scheduleStorage'
+import { loadScheduleDataStrict as loadScheduleData, saveScheduleData, saveSchedulePendingSync, clearSchedulePending, fetchScheduleRevision, mergeScheduleData, VIEWER_FORBIDDEN_MSG, ACCESS_CHECK_FAILED_MSG } from '@/lib/scheduleStorage'
 import { logAudit } from '@/lib/auditLog'
 import { loadData } from '@/lib/supabase/data'
 import { loadWorkerContacts, saveWorkerContact, deleteWorkerContact } from '@/lib/workerContacts'
@@ -47,6 +47,10 @@ export default function ScheduleBoard() {
   const [pdfLoading, setPdfLoading] = useState(false)
   const [syncNotice, setSyncNotice] = useState<string | null>(null)
   const [showUnscheduled, setShowUnscheduled] = useState(false)
+  /** 初期ロード失敗時のメッセージ（表示中は保存を止める） */
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const loadErrorRef = useRef<string | null>(null)
+  loadErrorRef.current = loadError
   const pdfAreaRef = useRef<HTMLDivElement>(null)
   /** 初回の loadScheduleData 完了まで true にしない（未ロード状態の空データを pending に書かない） */
   const scheduleHydratedRef = useRef(false)
@@ -80,6 +84,10 @@ export default function ScheduleBoard() {
       kinds?: Record<string, WorkerKind>
     }
   ): Promise<ScheduleData | null> => {
+    if (loadErrorRef.current) {
+      alert('スケジュールの読み込みに失敗しているため保存できません。\nページを再読み込み（F5）してからやり直してください。')
+      return null
+    }
     const wEff = effectiveWorkerList(w, s)
     const left = opts?.leftAt ?? workerLeftAt
     const kinds = opts?.kinds ?? workerKinds
@@ -103,7 +111,17 @@ export default function ScheduleBoard() {
       remote !== '' &&
       remote !== lastSyncedRevisionRef.current
     ) {
-      const server = await loadScheduleData()
+      let server: ScheduleData | null = null
+      try {
+        server = await loadScheduleData()
+      } catch (e) {
+        alert(
+          '他の端末の更新を取り込もうとしましたが、サーバーから読み込めませんでした。\n' +
+            '保存は中止しました。ネットワークを確認して、もう一度お試しください。\n\n' +
+            (e instanceof Error ? e.message : String(e))
+        )
+        return null
+      }
       const baseline = baselineRef.current
       if (server && baseline) {
         payload = mergeScheduleData(baseline, payload, server)
@@ -121,14 +139,16 @@ export default function ScheduleBoard() {
     try {
       saveSchedulePendingSync(payload)
       await saveScheduleData(payload, deleteBaseline)
+      clearSchedulePending()
       lastSyncedRevisionRef.current = await fetchScheduleRevision()
       baselineRef.current = payload
     } catch (e) {
       console.error('[persist]', e)
-      if (e instanceof Error && e.message === VIEWER_FORBIDDEN_MSG) {
-        alert(VIEWER_FORBIDDEN_MSG)
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg === VIEWER_FORBIDDEN_MSG || msg === ACCESS_CHECK_FAILED_MSG) {
+        alert(msg)
       } else {
-        alert('保存に失敗しました。ネットワークをご確認ください。')
+        alert('保存に失敗しました。入力内容はまだサーバーに保存されていません。\n\n' + msg)
       }
       return null
     }
@@ -197,6 +217,7 @@ export default function ScheduleBoard() {
       if (!cancelled) lastSyncedRevisionRef.current = await fetchScheduleRevision()
       } catch (e) {
         console.error('[ScheduleBoard] スケジュール初期ロード失敗', e)
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
       } finally {
         if (!cancelled) scheduleHydratedRef.current = true
       }
@@ -212,7 +233,13 @@ export default function ScheduleBoard() {
       if (remote === '' || lastSyncedRevisionRef.current === null) return
       if (remote === lastSyncedRevisionRef.current) return
       if (modalRef.current) return
-      const fresh = await loadScheduleData()
+      let fresh: ScheduleData | null = null
+      try {
+        fresh = await loadScheduleData()
+      } catch (e) {
+        console.warn('[ScheduleBoard] タブ復帰時の再読み込みに失敗（画面はそのまま）', e)
+        return
+      }
       if (!fresh) return
       const w = Array.isArray(fresh.workers) ? fresh.workers : []
       const s = fresh.schedules ?? []
@@ -234,10 +261,10 @@ export default function ScheduleBoard() {
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [])
 
-  // beforeunload: リロード・タブ閉じ前にバックアップ（ロード前の空 state で上書きしない）
+  // beforeunload: リロード・タブ閉じ前にバックアップ（ロード前・ロード失敗時の state で上書きしない）
   useEffect(() => {
     const handler = () => {
-      if (!scheduleHydratedRef.current) return
+      if (!scheduleHydratedRef.current || loadErrorRef.current) return
       saveSchedulePendingSync({ workers, schedules, dayMemos, workerLeftAt, workerKinds })
     }
     window.addEventListener('beforeunload', handler)
@@ -616,6 +643,20 @@ export default function ScheduleBoard() {
           </button>
         </div>
       </div>
+
+      {loadError && (
+        <div className="schedule-no-print" style={{
+          background: '#fff5f5', borderBottom: '1px solid #ffcdd2', color: '#c62828',
+          padding: '10px 16px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+        }}>
+          <span style={{ fontWeight: 700 }}>読み込みエラー</span>
+          <span style={{ whiteSpace: 'pre-wrap' }}>{loadError}</span>
+          <button onClick={() => window.location.reload()} style={{
+            marginLeft: 'auto', padding: '4px 10px', borderRadius: 4, border: '1px solid #c62828',
+            background: '#fff', color: '#c62828', fontWeight: 700, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit',
+          }}>再読み込み</button>
+        </div>
+      )}
 
       {syncNotice && (
         <div className="schedule-no-print" style={{
