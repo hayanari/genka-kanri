@@ -9,7 +9,7 @@ import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import type { ScheduleEntry, DayMemos, ViewType, ScheduleData, WorkerKind } from '@/types/schedule'
 import type { Project, Vehicle } from '@/lib/utils'
-import { loadScheduleDataStrict as loadScheduleData, saveScheduleData, saveSchedulePendingSync, clearSchedulePending, fetchScheduleRevision, mergeScheduleData, VIEWER_FORBIDDEN_MSG, ACCESS_CHECK_FAILED_MSG } from '@/lib/scheduleStorage'
+import { loadScheduleDataStrict as loadScheduleData, saveScheduleData, saveSchedulePendingSync, clearSchedulePending, fetchScheduleRevision, mergeScheduleData, describeScheduleContext, VIEWER_FORBIDDEN_MSG, ACCESS_CHECK_FAILED_MSG } from '@/lib/scheduleStorage'
 import { logAudit } from '@/lib/auditLog'
 import { loadData } from '@/lib/supabase/data'
 import { loadWorkerContacts, saveWorkerContact, deleteWorkerContact } from '@/lib/workerContacts'
@@ -51,6 +51,10 @@ export default function ScheduleBoard() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const loadErrorRef = useRef<string | null>(null)
   loadErrorRef.current = loadError
+  /** サーバーから最後に読み取った状態（件数・時刻）。表示と診断用 */
+  const [serverInfo, setServerInfo] = useState<{ count: number; at: string } | null>(null)
+  const noteServer = (count: number) =>
+    setServerInfo({ count, at: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) })
   const pdfAreaRef = useRef<HTMLDivElement>(null)
   /** 初回の loadScheduleData 完了まで true にしない（未ロード状態の空データを pending に書かない） */
   const scheduleHydratedRef = useRef(false)
@@ -140,6 +144,32 @@ export default function ScheduleBoard() {
       saveSchedulePendingSync(payload)
       await saveScheduleData(payload, deleteBaseline)
       clearSchedulePending()
+
+      // 保存後にサーバーから読み直して「本当に保存されたか」を確認し、画面はサーバーの内容に揃える
+      try {
+        const verify = await loadScheduleData()
+        if (verify) {
+          const serverIds = new Set(verify.schedules.map(x => x.id))
+          const missing = payload.schedules.filter(x => !serverIds.has(x.id))
+          noteServer(verify.schedules.length)
+          if (missing.length > 0) {
+            const ctx = await describeScheduleContext()
+            const lines = missing.slice(0, 5).map(x => `・${x.date} ${x.koujimei || '(工事名なし)'} [${x.id}]`)
+            console.error('[persist] 保存直後の確認で不足', { missing, ctx, serverCount: verify.schedules.length })
+            alert(
+              '保存は完了しましたが、サーバーを読み直すと次の予定が見つかりませんでした。\n' +
+                lines.join('\n') + (missing.length > 5 ? `\n…ほか${missing.length - 5}件` : '') +
+                `\n\nサーバー上の予定: ${verify.schedules.length}件\n会社ID: ${ctx.companyId || '(取得失敗)'}\nユーザーID: ${ctx.userId || '(未ログイン)'}\n\n` +
+                'この画面をそのまま開発者に伝えてください。'
+            )
+          } else {
+            payload = verify
+          }
+        }
+      } catch (e) {
+        console.warn('[persist] 保存後の確認読み込みに失敗（保存自体は完了）', e)
+      }
+
       lastSyncedRevisionRef.current = await fetchScheduleRevision()
       baselineRef.current = payload
     } catch (e) {
@@ -205,6 +235,7 @@ export default function ScheduleBoard() {
         setWorkerLeftAt(left)
         setWorkerKinds(kinds)
         baselineRef.current = { workers: w, schedules: s, dayMemos: m, workerLeftAt: left, workerKinds: kinds }
+        noteServer(s.length)
       } else {
         // サーバーが空のときはサンプルを表示せず、空のまま開始する
         setWorkers([])
@@ -213,6 +244,7 @@ export default function ScheduleBoard() {
         setWorkerLeftAt({})
         setWorkerKinds({})
         baselineRef.current = { workers: [], schedules: [], dayMemos: {}, workerLeftAt: {}, workerKinds: {} }
+        noteServer(0)
       }
       if (!cancelled) lastSyncedRevisionRef.current = await fetchScheduleRevision()
       } catch (e) {
@@ -253,6 +285,7 @@ export default function ScheduleBoard() {
       setWorkerLeftAt(left)
       setWorkerKinds(kinds)
       baselineRef.current = { workers: w, schedules: s, dayMemos: mem, workerLeftAt: left, workerKinds: kinds }
+      noteServer(s.length)
       lastSyncedRevisionRef.current = await fetchScheduleRevision()
       setSyncNotice('他の端末での更新を取り込みました')
       window.setTimeout(() => setSyncNotice(null), 5000)
@@ -611,6 +644,11 @@ export default function ScheduleBoard() {
           <div>
             <div style={{ fontSize: 14, fontWeight: 700 }}>工事スケジュール管理</div>
             <div style={{ fontSize: 10, color: '#4a6280', letterSpacing: 2 }}>PROJECT-BASED SCHEDULE BOARD</div>
+            {serverInfo && (
+              <div style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'IBM Plex Mono,monospace' }} title="サーバーから最後に読み取った予定の件数と時刻">
+                サーバー同期 {serverInfo.at} / 予定 {serverInfo.count}件
+              </div>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
