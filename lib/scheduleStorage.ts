@@ -21,6 +21,17 @@ export function saveSchedulePendingSync(data: ScheduleData): void {
   } catch {}
 }
 
+/** 診断用: いまのログインユーザーと会社ID */
+export async function describeScheduleContext(): Promise<{ userId: string; companyId: string }> {
+  const supabase = createClient()
+  const { data: { session } } = await supabase.auth.getSession()
+  let companyId = ''
+  try {
+    companyId = await requireCompanyId()
+  } catch {}
+  return { userId: session?.user?.id ?? '', companyId }
+}
+
 /** 保存が完了したらバックアップを消す（古い状態を別画面のロード時に再保存しないため） */
 export function clearSchedulePending(): void {
   try {
