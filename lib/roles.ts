@@ -26,6 +26,8 @@ export type CurrentAccess = {
   isPlatformOwner: boolean;
   companyCode: string | null;
   companyName: string | null;
+  /** 通信エラー等で権限を判定できなかった（role は暫定の viewer） */
+  unresolved?: true;
 };
 
 const CACHE_TTL_MS = 3_000;
@@ -65,7 +67,7 @@ export async function fetchCurrentAccess(options?: {
     } = await supabase.auth.getSession();
     if (!session?.access_token) {
       // 未ログインはキャッシュしない（直後のログイン判定を汚さない）
-      return empty;
+      return { ...empty, unresolved: true };
     }
 
     const res = await fetch("/api/admin/me", {
@@ -74,11 +76,15 @@ export async function fetchCurrentAccess(options?: {
     });
     if (!res.ok) {
       const email = session.user.email?.toLowerCase() ?? null;
-      const { data: mem } = await supabase
+      const { data: mem, error: memErr } = await supabase
         .from("company_users")
         .select("role, companies(company_code, name)")
         .eq("user_id", session.user.id)
         .maybeSingle();
+      if (memErr) {
+        // API もフォールバックも失敗 → 判定不能（閲覧専用と断定しない）
+        return { ...empty, unresolved: true };
+      }
       if (!mem) {
         return rememberAccess(
           {
@@ -129,7 +135,7 @@ export async function fetchCurrentAccess(options?: {
       true
     );
   } catch {
-    return empty;
+    return { ...empty, unresolved: true };
   }
 }
 
