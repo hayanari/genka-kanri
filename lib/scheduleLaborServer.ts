@@ -5,7 +5,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Project, Quantity, Vehicle } from "@/lib/utils"
 import type { ScheduleEntry, WorkerKind } from "@/types/schedule"
-import { syncAllProjectsScheduleLabor, jstTodayYmd } from "@/lib/scheduleLabor"
+import { syncAllProjectsScheduleLabor, findUnmatchedKoujimei, jstTodayYmd } from "@/lib/scheduleLabor"
+import type { UnmatchedKoujimei } from "@/lib/scheduleLabor"
 import { DEFAULT_COMPANY_ID } from "@/lib/tenant"
 
 type GenkaPayload = {
@@ -45,6 +46,8 @@ export type CompanyLaborSyncResult = {
   added: number
   removed: number
   updated: number
+  /** どの案件にも一致せず転記されなかった工事名（終了日分） */
+  unmatched?: UnmatchedKoujimei[]
   error?: string
 }
 
@@ -112,6 +115,8 @@ export async function syncScheduleLaborForCompany(
       workerKinds
     )
 
+    const unmatched = findUnmatchedKoujimei(projects, schedules, today)
+
     if (!result.changed) {
       return {
         companyId,
@@ -119,6 +124,7 @@ export async function syncScheduleLaborForCompany(
         added: 0,
         removed: 0,
         updated: 0,
+        unmatched,
       }
     }
 
@@ -143,6 +149,7 @@ export async function syncScheduleLaborForCompany(
       added: result.added,
       removed: result.removed,
       updated: result.updated,
+      unmatched,
     }
   } catch (e) {
     return {

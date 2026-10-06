@@ -398,6 +398,45 @@ export default function ScheduleBoard() {
     setWorkerContacts(prev => ({ ...prev, [workerName]: email }))
   }, [])
 
+  const [laborResyncing, setLaborResyncing] = useState(false)
+  /** 全案件（アーカイブ含む）の人工・車両自動転記を今の照合ルールで作り直す */
+  const handleResyncLabor = useCallback(async () => {
+    if (!confirm(
+      'スケジュールから案件への人工・車両の自動転記を、全案件・全期間について再計算します。\n\n' +
+      '・案件名と完全一致する予定だけが転記されます\n' +
+      '・自動転記行（備考「スケジュール自動集計」）は作り直されます\n' +
+      '・手入力した人工・車両はそのまま残ります\n\n実行しますか？'
+    )) return
+    setLaborResyncing(true)
+    try {
+      const { data: { session } } = await createClient().auth.getSession()
+      if (!session?.access_token) { alert('ログインしてください'); return }
+      const res = await fetch('/api/schedule/sync-labor', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || d.error) { alert('再計算に失敗しました: ' + (d.error || res.status)); return }
+      const unmatched: { koujimei: string; days: number }[] = d.unmatched ?? []
+      const lines = [
+        d.changed
+          ? `再計算しました（追加 ${d.added} / 更新 ${d.updated} / 削除 ${d.removed}）`
+          : '再計算しました（変更はありませんでした）',
+      ]
+      if (unmatched.length > 0) {
+        lines.push('', `案件名と一致せず転記されなかった工事名（${unmatched.length}件）:`)
+        for (const u of unmatched.slice(0, 15)) lines.push(`・${u.koujimei}（${u.days}日分）`)
+        if (unmatched.length > 15) lines.push(`…ほか${unmatched.length - 15}件`)
+        lines.push('', '転記したい場合は、該当の予定を開いて案件リストから工事を選び直してください。')
+      }
+      alert(lines.join('\n'))
+    } catch (e) {
+      alert('再計算に失敗しました: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setLaborResyncing(false)
+    }
+  }, [])
+
   const handleTestTeams = useCallback(() => {
     createClient().auth.getSession().then(({ data: { session } }) => {
       if (!session?.access_token) {
@@ -627,7 +666,23 @@ export default function ScheduleBoard() {
           {selectedWorker && <span style={{ marginLeft: 'auto' }}>{navBtn(false, () => setSelectedWorker(null), '← 一覧に戻る')}</span>}
         </>}
 
-        {view === 'master' && <span style={{ fontSize: 11, color: '#4a6280' }}>作業員マスター管理</span>}
+        {view === 'master' && <>
+          <span style={{ fontSize: 11, color: '#4a6280' }}>作業員マスター管理</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 10, color: '#94a3b8' }}>案件の人工・車両が合わないとき</span>
+            <button
+              onClick={handleResyncLabor}
+              disabled={laborResyncing}
+              style={{
+                padding: '5px 12px', borderRadius: 4, border: '1px solid #e65c00',
+                background: '#fff3e0', color: '#e65c00', fontWeight: 700, fontSize: 11,
+                cursor: laborResyncing ? 'wait' : 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+              }}
+            >
+              {laborResyncing ? '再計算中…' : '⟳ 人工転記を全案件で再計算'}
+            </button>
+          </div>
+        </>}
       </div>
 
       {/* ── 統計バー（カレンダーのみ） ── */}

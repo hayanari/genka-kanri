@@ -215,7 +215,42 @@ export function syncProjectScheduleLabor(
   return { quantities, changed, added, removed, updated }
 }
 
-/** 全案件を同期 */
+export type UnmatchedKoujimei = { koujimei: string; days: number }
+
+/**
+ * 終了日の予定のうち、どの案件にも一致せず転記先が無い工事名（有休除く）
+ * 完全一致に変えたことで転記されなくなった名前をユーザーが確認するために使う
+ */
+export function findUnmatchedKoujimei(
+  projects: Project[],
+  schedules: ScheduleEntry[],
+  untilExclusive?: string
+): UnmatchedKoujimei[] {
+  const until = untilExclusive ?? jstTodayYmd()
+  const live = projects.filter((p) => !p.deleted)
+  const days = new Map<string, Set<string>>()
+  for (const e of schedules) {
+    if (e.shift === "off") continue
+    if (!e.date || e.date >= until) continue
+    const base = getBaseKoujimei(e.koujimei ?? "").trim()
+    if (!base || base === "有休") continue
+    if (live.some((p) => entryMatchesProject(e, p))) continue
+    let set = days.get(base)
+    if (!set) {
+      set = new Set()
+      days.set(base, set)
+    }
+    set.add(e.date)
+  }
+  return [...days.entries()]
+    .map(([koujimei, s]) => ({ koujimei, days: s.size }))
+    .sort((a, b) => b.days - a.days || a.koujimei.localeCompare(b.koujimei, "ja"))
+}
+
+/**
+ * 全案件を同期
+ * アーカイブ済み案件も対象（過去の誤転記を残さないため）。削除済みのみ除外
+ */
 export function syncAllProjectsScheduleLabor(
   projects: Project[],
   schedules: ScheduleEntry[],
@@ -231,7 +266,7 @@ export function syncAllProjectsScheduleLabor(
   let changed = false
 
   for (const p of projects) {
-    if (p.deleted || p.archived) continue
+    if (p.deleted) continue
     const r = syncProjectScheduleLabor(
       p,
       schedules,
