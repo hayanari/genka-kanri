@@ -8,6 +8,7 @@ import type { ScheduleEntry, WorkerKind } from "@/types/schedule"
 import { syncAllProjectsScheduleLabor, findUnmatchedKoujimei, jstTodayYmd } from "@/lib/scheduleLabor"
 import type { UnmatchedKoujimei } from "@/lib/scheduleLabor"
 import { DEFAULT_COMPANY_ID } from "@/lib/tenant"
+import { fetchAllRows } from "@/lib/supabaseAll"
 
 type GenkaPayload = {
   projects?: Project[]
@@ -86,19 +87,29 @@ export async function syncScheduleLaborForCompany(
     const quantities = (stored.quantities ?? []) as Quantity[]
 
     const today = jstTodayYmd()
-    const { data: schedRows, error: schedErr } = await supabase
-      .from("schedule_entries")
-      .select("id, date, koujimei, shift, workers, vehicle_ids, memo")
-      .eq("company_id", companyId)
-      .lt("date", today)
+    // 1000 行上限を超えても全件（超えると古い分しか転記されない）
+    const { data: schedRows, error: schedErr } = await fetchAllRows((from, to) =>
+      supabase
+        .from("schedule_entries")
+        .select("id, date, koujimei, shift, workers, vehicle_ids, memo")
+        .eq("company_id", companyId)
+        .lt("date", today)
+        .order("date")
+        .order("id")
+        .range(from, to)
+    )
 
-    if (schedErr) throw schedErr
-    const schedules = mapScheduleRows(schedRows ?? [])
+    if (schedErr) throw new Error(schedErr.message)
+    const schedules = mapScheduleRows(schedRows)
 
-    const { data: workerRows } = await supabase
-      .from("schedule_workers")
-      .select("name, kind")
-      .eq("company_id", companyId)
+    const { data: workerRows } = await fetchAllRows((from, to) =>
+      supabase
+        .from("schedule_workers")
+        .select("name, kind")
+        .eq("company_id", companyId)
+        .order("name")
+        .range(from, to)
+    )
     const workerKinds: Record<string, WorkerKind> = {}
     for (const w of workerRows ?? []) {
       const row = w as { name: string; kind?: string | null }

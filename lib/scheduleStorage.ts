@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { effectiveWorkerList } from '@/lib/scheduleUtils'
 import { mergeCollection } from '@/lib/mergeData'
 import { requireCompanyId } from '@/lib/tenant'
+import { fetchAllRows } from '@/lib/supabaseAll'
 
 const PENDING_KEY = 'schedule_pending'
 const PENDING_TTL_MS = 15_000 // 15秒以内のバックアップのみ復元
@@ -112,10 +113,20 @@ export async function loadScheduleDataStrict(): Promise<ScheduleData | null> {
   try {
     const supabase = createClient()
     const companyId = await requireCompanyId()
+    // 1000 行の上限を超えても全件読む（超えると最新の月から順に画面から消える）
     const [sRes, wRes, mRes] = await Promise.all([
-      supabase.from('schedule_entries').select('*').eq('company_id', companyId).order('date'),
-      supabase.from('schedule_workers').select('name, sort_order, left_at, kind').eq('company_id', companyId).order('sort_order'),
-      supabase.from('schedule_day_memos').select('date, memo').eq('company_id', companyId),
+      fetchAllRows((from, to) =>
+        supabase.from('schedule_entries').select('*').eq('company_id', companyId)
+          .order('date').order('id').range(from, to)
+      ),
+      fetchAllRows((from, to) =>
+        supabase.from('schedule_workers').select('name, sort_order, left_at, kind').eq('company_id', companyId)
+          .order('sort_order').order('name').range(from, to)
+      ),
+      fetchAllRows((from, to) =>
+        supabase.from('schedule_day_memos').select('date, memo').eq('company_id', companyId)
+          .order('date').range(from, to)
+      ),
     ])
     const firstErr = sRes.error ?? wRes.error ?? mRes.error
     if (firstErr) {
@@ -404,10 +415,14 @@ export async function saveScheduleData(
     let namesToDelete = serverWorkers.filter((w) => !finalSet.has(w))
     // 予定に残っている名前はマスターから消さない（不完全なローカル状態での誤削除防止）
     if (namesToDelete.length > 0) {
-      const { data: entryRows } = await supabase
-        .from('schedule_entries')
-        .select('workers')
-        .eq('company_id', companyId)
+      const { data: entryRows } = await fetchAllRows((from, to) =>
+        supabase
+          .from('schedule_entries')
+          .select('id, workers')
+          .eq('company_id', companyId)
+          .order('id')
+          .range(from, to)
+      )
       const used = new Set<string>()
       for (const e of entryRows ?? []) {
         for (const n of (e as { workers?: string[] }).workers ?? []) {
