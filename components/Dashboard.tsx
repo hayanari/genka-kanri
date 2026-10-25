@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useMediaQuery } from "@/lib/useMediaQuery";
-import { COST_CATEGORIES, STATUS_MAP, Icons } from "@/lib/constants";
+import { COST_CATEGORIES, STATUS_MAP } from "@/lib/constants";
 import { projStats, normalizePersonName } from "@/lib/utils";
 import type { Project, Cost, Quantity, Vehicle } from "@/lib/utils";
 import { Metric, Card, Bar, Btn } from "./ui/primitives";

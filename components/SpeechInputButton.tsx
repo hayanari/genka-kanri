@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 type Props = {
   onResult: (text: string) => void;
@@ -57,20 +57,27 @@ function errorMessage(code: string): string {
   }
 }
 
+type SpeechWindow = {
+  SpeechRecognition?: new () => Recog;
+  webkitSpeechRecognition?: new () => Recog;
+};
+
+const subscribeNoop = () => () => {};
+const getSupportedSnapshot = () => {
+  const w = window as unknown as SpeechWindow;
+  return Boolean(w.SpeechRecognition || w.webkitSpeechRecognition);
+};
+
 /** Web Speech API による音声入力（Chrome推奨） */
 export default function SpeechInputButton({ onResult, disabled }: Props) {
   const [listening, setListening] = useState(false);
-  const [supported, setSupported] = useState(false);
+  // SSR 時は false、クライアントで実際の対応状況を取得（hydration 不一致を起こさない）
+  const supported = useSyncExternalStore(subscribeNoop, getSupportedSnapshot, () => false);
   const [hint, setHint] = useState<string | null>(null);
   const recRef = useRef<Recog | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    const w = window as unknown as {
-      SpeechRecognition?: new () => Recog;
-      webkitSpeechRecognition?: new () => Recog;
-    };
-    setSupported(Boolean(w.SpeechRecognition || w.webkitSpeechRecognition));
     return () => {
       try {
         recRef.current?.abort?.();

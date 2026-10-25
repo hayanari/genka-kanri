@@ -21,8 +21,6 @@ import type {
   Vehicle,
   ProcessMaster,
   ProjectProcess,
-  ProjectSection,
-  ProjectSubtask,
 } from "@/lib/utils";
 import {
   Badge,

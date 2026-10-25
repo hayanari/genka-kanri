@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
     }
 
-    const q = (request.nextUrl.searchParams.get("q") ?? "").trim();
+    const q = (request.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 100);
     if (!q) return NextResponse.json({ customers: [], logs: [] });
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -30,7 +30,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "認証に失敗しました" }, { status: 401 });
     }
 
-    const safe = q.replace(/[%_,]/g, " ");
+    // PostgREST の or() 構文を壊す文字（, ( ) . \）と LIKE ワイルドカードを除去
+    const safe = q
+      .replace(/[%_,().\\]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!safe) return NextResponse.json({ customers: [], logs: [] });
     const pattern = `%${safe}%`;
 
     const [cRes, pRes, lRes] = await Promise.all([

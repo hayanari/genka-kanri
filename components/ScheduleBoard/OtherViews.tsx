@@ -50,16 +50,14 @@ export const ListView: React.FC<ListViewProps> = ({
 
   if (!filtered.length) return <p style={{ textAlign: 'center', padding: 40, color: '#8aa0b8', fontSize: 12 }}>予定がありません</p>
 
-  let lastDate = ''
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      {filtered.map(e => {
+      {filtered.map((e, i) => {
         const cf = getConflicts(e.date, schedules)
         const isOff = e.shift === 'off', isNight = e.shift === 'night'
         const pc = isOff ? '#546e7a' : isNight ? '#1a237e' : displayWorkerColor(e.workers[0] ?? '', workerKinds)
         const dm = dayMemos[e.date]
-        const sep = e.date !== lastDate
-        lastDate = e.date
+        const sep = i === 0 || e.date !== filtered[i - 1].date
         const d = new Date(e.date)
 
         return (
@@ -126,7 +124,6 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
     const c = displayWorkerColor(w, workerKinds)
     const partner = workerKinds?.[w] === 'partner'
     const entries = schedules.filter(e => e.workers.includes(w)).sort((a, b) => a.date.localeCompare(b.date))
-    let lastDate2 = ''
     return (
       <div>
         <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -146,8 +143,8 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
             </div>
           </div>
         </div>
-        {entries.map(e => {
-          const sep = e.date !== lastDate2; lastDate2 = e.date
+        {entries.map((e, i) => {
+          const sep = i === 0 || e.date !== entries[i - 1].date
           const isN = e.shift === 'night', isO = e.shift === 'off'
           const ic  = getConflicts(e.date, schedules).has(w)
           const lc  = isO ? '#546e7a' : isN ? '#1a237e' : c

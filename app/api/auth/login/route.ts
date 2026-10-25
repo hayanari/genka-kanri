@@ -9,6 +9,8 @@ import {
   normalizeCompanyCode,
   normalizeLoginId,
 } from "@/lib/tenant";
+import { checkRateLimit, pruneRateLimitBuckets } from "@/lib/rateLimit";
+import { clientIp } from "@/lib/requestUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +43,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "会社ID・ログインID・パスワードを入力してください" },
         { status: 400 }
+      );
+    }
+
+    // レート制限（IP単位 + 会社ID/ログインID単位）
+    pruneRateLimitBuckets();
+    const ip = clientIp(request);
+    const ipLimit = checkRateLimit(`login:ip:${ip}`, {
+      limit: 30,
+      windowMs: 10 * 60 * 1000,
+    });
+    const acctLimit = checkRateLimit(`login:acct:${companyCode}:${loginId}`, {
+      limit: 10,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!ipLimit.ok || !acctLimit.ok) {
+      const retryAfter = Math.max(
+        ipLimit.ok ? 0 : ipLimit.retryAfterSec,
+        acctLimit.ok ? 0 : acctLimit.retryAfterSec
+      );
+      return NextResponse.json(
+        { error: "ログイン試行回数が上限を超えました。しばらく待ってから再度お試しください。" },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } }
       );
     }
 
@@ -131,15 +155,6 @@ export async function POST(request: NextRequest) {
     });
 
     if (signInError || !signInData.session || !signInData.user) {
-      // レガシー: login_id がメールでない場合、メールドメイン付きで再試行はしない。
-      // tokito 移行時は「ログインIDにメール全体」も許可（allow_legacy_email_login）
-      if (
-        company.allow_legacy_email_login &&
-        !loginId.includes("@") &&
-        authEmail === buildAuthEmail(companyCode, loginId)
-      ) {
-        // 見つからない場合は一律エラー
-      }
       return NextResponse.json(
         { error: "会社ID・ログインIDまたはパスワードが正しくありません" },
         { status: 401 }

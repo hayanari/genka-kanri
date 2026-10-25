@@ -346,7 +346,7 @@ export default function ProcessMeetingBoard() {
 
         let list = await loadProcessMeetingRows();
         const meta = await loadProcessMeetingMeta();
-        let notesNested: Record<string, Record<string, string>> = {};
+        const notesNested: Record<string, Record<string, string>> = {};
         try {
           const rows = await loadProcessMeetingWeeklyNotes();
           for (const r of rows) {
