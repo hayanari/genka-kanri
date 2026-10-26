@@ -38,7 +38,8 @@
 1. **SQL Editor** で `supabase/multi_tenant.sql` を実行
 2. 会社テーブル・所属ユーザー・RLS の会社分離が有効になります
 3. 自社は会社コード `tokito` として作成されます
-4. 詳細は `docs/マルチテナント設定.md` を参照
+4. 続けて `supabase/receipts_tenant_isolation.sql` を実行（必須）。領収書・請求書の添付を自社分だけ閲覧・削除できるようにします
+5. 詳細は `docs/マルチテナント設定.md` を参照
 
 ## 3-4. データ保護SQL（商業向け・空上書き防止）
 

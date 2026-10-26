@@ -41,12 +41,5 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('receipts', 'receipts', false)
 ON CONFLICT (id) DO NOTHING;
 
-DROP POLICY IF EXISTS "auth_receipts_select" ON storage.objects;
-CREATE POLICY "auth_receipts_select" ON storage.objects
-  FOR SELECT USING (bucket_id = 'receipts' AND auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "auth_receipts_insert" ON storage.objects;
-CREATE POLICY "auth_receipts_insert" ON storage.objects
-  FOR INSERT WITH CHECK (bucket_id = 'receipts' AND auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "auth_receipts_delete" ON storage.objects;
-CREATE POLICY "auth_receipts_delete" ON storage.objects
-  FOR DELETE USING (bucket_id = 'receipts' AND auth.role() = 'authenticated');
+-- アクセス権（会社分離）は receipts_tenant_isolation.sql で設定する。
+-- ここで作り直すと他社の添付が見えるポリシーに戻るため定義しない。
