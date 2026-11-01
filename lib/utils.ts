@@ -60,6 +60,28 @@ export interface Project {
   updatedAt?: string;
   /** 担当者 */
   personInCharge?: string;
+  /** 契約上の立場（元請: 自治体から直接受注 / 下請: 元請会社から受注） */
+  contractRole?: "prime" | "sub";
+  /** 契約までの提出書類フロー（書類フロータブ） */
+  docFlow?: DocFlowItem[];
+}
+
+export type DocFlowStatus = "todo" | "drafting" | "submitted" | "accepted" | "returned";
+
+export interface DocFlowItem {
+  id: string;
+  /** 段階（1〜5） */
+  stage: number;
+  name: string;
+  required: boolean;
+  status: DocFlowStatus;
+  /** 提出先 */
+  submitTo?: string;
+  /** 提出期限 */
+  dueDate?: string;
+  /** 担当者 */
+  assignee?: string;
+  note?: string;
 }
 
 export interface ProjectProcess {

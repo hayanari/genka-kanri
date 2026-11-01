@@ -49,6 +49,7 @@ import type { ReceiptAttachment } from "@/lib/receipts";
 import ContactLogQuickForm from "@/components/ContactLogQuickForm";
 import ContactLogList from "@/components/ContactLogList";
 import MeetingMemoForm from "@/components/MeetingMemoForm";
+import DocFlowTab from "@/components/DocFlowTab";
 import {
   loadContactLogs,
   loadCustomerContacts,
@@ -751,6 +752,7 @@ export default function ProjectDetail({
         { id: "costs", label: "💰 原価明細" },
         { id: "labor", label: "👷 人工・車両" },
         { id: "process", label: "📋 工程管理" },
+        { id: "docflow", label: "📑 書類フロー" },
         { id: "crm", label: "🗒 商談メモ" },
         { id: "payments", label: "🏦 入金管理" },
         { id: "changes", label: "📝 増減額" },
@@ -760,6 +762,7 @@ export default function ProjectDetail({
         { id: "costs", label: "💰 原価明細" },
         { id: "labor", label: "👷 人工・車両" },
         { id: "process", label: "📋 工程管理" },
+        { id: "docflow", label: "📑 書類フロー" },
         { id: "crm", label: "🗒 商談メモ" },
         { id: "payments", label: "🏦 入金管理" },
         { id: "changes", label: "📝 増減額" },
@@ -1183,6 +1186,10 @@ export default function ProjectDetail({
           </button>
         ))}
       </div>
+
+      {tab === "docflow" && (
+        <DocFlowTab project={p} onUpdateProject={onUpdateProject} readOnly={crmReadOnly} />
+      )}
 
       {tab === "crm" && (
         <div>
