@@ -84,7 +84,7 @@ export default function ProjectList({
         const text = String(reader.result ?? "");
         const projects = parseExcelImportJson(text);
         onImport(projects);
-      } catch (err) {
+      } catch {
         alert("ファイルの読み込みに失敗しました。JSON形式を確認してください。");
       }
     };

@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { DEFAULT_COMPANY_ID } from "@/lib/tenant";
 import { syncScheduleLaborAllCompanies } from "@/lib/scheduleLaborServer";
+import { safeEqual } from "@/lib/requestUtils";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -220,7 +221,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "CRON_SECRET が未設定です" }, { status: 503 });
   }
   const auth = request.headers.get("Authorization");
-  if (auth !== `Bearer ${secret}`) {
+  if (!safeEqual(auth ?? "", `Bearer ${secret}`)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

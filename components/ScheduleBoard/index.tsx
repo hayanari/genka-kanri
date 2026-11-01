@@ -16,7 +16,7 @@ import { loadWorkerContacts, saveWorkerContact, deleteWorkerContact } from '@/li
 import { computeScheduleChanges } from '@/lib/scheduleNotify'
 import { createClient } from '@/lib/supabase/client'
 import {
-  TODAY_STR, daysInMonth, genId, displayWorkerColor, hexRgba,
+  TODAY_STR, displayWorkerColor, hexRgba,
   getConflicts, getMonthSchedules, applySameDayKoujimeiSuffix,
   effectiveWorkerList, getBaseKoujimei,
 } from '@/lib/scheduleUtils'

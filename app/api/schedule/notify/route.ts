@@ -6,6 +6,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import type { ChangeItem } from "@/lib/scheduleNotify";
 import { groupChangesByWorker } from "@/lib/scheduleNotify";
+import { checkRateLimit, pruneRateLimitBuckets } from "@/lib/rateLimit";
+
+const MAX_CHANGES = 500;
+
+function isChangeItem(v: unknown): v is ChangeItem {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.workerName === "string" &&
+    typeof o.date === "string" &&
+    typeof o.message === "string"
+  );
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,8 +38,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "認証に失敗しました" }, { status: 401 });
     }
 
+    // 所属・権限チェック（viewer は通知不可）
+    const { data: mem } = await supabase
+      .from("company_users")
+      .select("role")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!mem) {
+      return NextResponse.json({ error: "会社に所属していません" }, { status: 403 });
+    }
+    if (mem.role === "viewer") {
+      return NextResponse.json(
+        { error: "閲覧専用ユーザーは通知を送信できません" },
+        { status: 403 }
+      );
+    }
+
+    // ユーザー単位レート制限
+    pruneRateLimitBuckets();
+    const rl = checkRateLimit(`schedule-notify:${user.id}`, {
+      limit: 60,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: "通知回数が上限を超えました。しばらく待ってから再度お試しください。" },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+      );
+    }
+
     const body = await request.json();
-    const items = (body.changes ?? []) as ChangeItem[];
+    const rawChanges: unknown = body?.changes;
+    const items: ChangeItem[] = Array.isArray(rawChanges)
+      ? rawChanges.filter(isChangeItem).slice(0, MAX_CHANGES)
+      : [];
     if (items.length === 0) {
       return NextResponse.json({ ok: true, sent: 0 });
     }

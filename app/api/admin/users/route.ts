@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
       return (a.email || "").localeCompare(b.email || "");
     });
 
-    let companiesQuery = admin.from("companies").select("company_code, name").order("company_code");
+    const companiesQuery = admin.from("companies").select("company_code, name").order("company_code");
     const { data: allCompanies } = await companiesQuery;
     const companies = caller.isPlatformOwner
       ? allCompanies ?? []

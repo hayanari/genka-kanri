@@ -59,9 +59,19 @@ export const EntryModal: React.FC<Props> = ({
   )
 
   const toggleWorker = (w: string) =>
-    setSelected(prev => { const s = new Set(prev); s.has(w) ? s.delete(w) : s.add(w); return s })
+    setSelected(prev => {
+      const s = new Set(prev)
+      if (s.has(w)) s.delete(w)
+      else s.add(w)
+      return s
+    })
   const toggleVehicle = (id: string) =>
-    setSelectedVehicles(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+    setSelectedVehicles(prev => {
+      const s = new Set(prev)
+      if (s.has(id)) s.delete(id)
+      else s.add(id)
+      return s
+    })
 
   const resolvedKoujimei = projectId === OTHER_ID
     ? customKoujimei.trim()
