@@ -87,7 +87,8 @@ export function buildDocFlowTemplate(role: ContractRole): DocFlowItem[] {
   }));
 }
 
-const isDone = (it: DocFlowItem) => it.status === "submitted" || it.status === "accepted";
+export const isDocDone = (it: DocFlowItem) => it.status === "submitted" || it.status === "accepted";
+const isDone = isDocDone;
 
 /** 必須書類がすべて提出済/受理なら、その段階は完了（必須書類がない段階は完了扱い） */
 export function isStageComplete(items: DocFlowItem[], stage: number): boolean {
@@ -112,4 +113,70 @@ export function isContractConfirmed(items: DocFlowItem[]): boolean {
 /** 期限切れ（今日より前で未提出）の書類 */
 export function overdueItems(items: DocFlowItem[], todayYmd: string): DocFlowItem[] {
   return items.filter((it) => !isDone(it) && !!it.dueDate && it.dueDate < todayYmd);
+}
+
+/** 段階ごとの必須書類の件数 */
+export function stageCounts(items: DocFlowItem[], stage: number): { done: number; total: number } {
+  const req = items.filter((it) => it.stage === stage && it.required);
+  return { done: req.filter(isDone).length, total: req.length };
+}
+
+/** 必須書類がすべての段階で揃った（必須書類が1件もない場合は完了扱いにしない） */
+export function isDocFlowComplete(items: DocFlowItem[]): boolean {
+  if (!items.some((it) => it.required)) return false;
+  for (let s = 1; s <= 5; s++) {
+    if (!isStageComplete(items, s)) return false;
+  }
+  return true;
+}
+
+export type DocFlowPhase = "prospect" | "contracted" | "complete";
+
+export const DOC_FLOW_PHASES: Record<DocFlowPhase, { label: string; color: string }> = {
+  prospect: { label: "見込み（契約前）", color: "#d97706" },
+  contracted: { label: "契約確定", color: "#2563eb" },
+  complete: { label: "書類完了", color: "#059669" },
+};
+
+export function docFlowPhase(items: DocFlowItem[]): DocFlowPhase {
+  if (isDocFlowComplete(items)) return "complete";
+  if (isContractConfirmed(items)) return "contracted";
+  return "prospect";
+}
+
+export type DocFlowProgress = {
+  requiredTotal: number;
+  requiredDone: number;
+  pct: number;
+  /** 提出済で受理待ちの必須書類 */
+  awaitingAcceptance: number;
+  /** 全書類完了日（最後に揃った必須書類の日付） */
+  completedAt?: string;
+};
+
+export function docFlowProgress(items: DocFlowItem[]): DocFlowProgress {
+  const req = items.filter((it) => it.required);
+  const done = req.filter(isDone);
+  const dates = done.map((it) => it.doneAt).filter((d): d is string => !!d);
+  return {
+    requiredTotal: req.length,
+    requiredDone: done.length,
+    pct: req.length ? Math.round((done.length / req.length) * 100) : 0,
+    awaitingAcceptance: req.filter((it) => it.status === "submitted").length,
+    completedAt:
+      isDocFlowComplete(items) && dates.length === req.length ? dates.sort()[dates.length - 1] : undefined,
+  };
+}
+
+/**
+ * 書類フローの進み具合から勧める案件ステータス。今のステータスより先に進む場合だけ返す。
+ * 段階5には請求書が含まれるため、全書類完了で「請求済」を勧める。
+ */
+export function suggestedProjectStatus(items: DocFlowItem[], current: string): string | null {
+  const order = ["estimate", "ordered", "in_progress", "completed", "doc_completed", "billed", "paid"];
+  const phase = docFlowPhase(items);
+  const target = phase === "complete" ? "billed" : phase === "contracted" ? "ordered" : null;
+  if (!target) return null;
+  const cur = order.indexOf(current);
+  return cur !== -1 && cur < order.indexOf(target) ? target : null;
 }
