@@ -289,7 +289,7 @@ export default function DocFlowTab({
       })}
 
       <div style={{ fontSize: 11, color: T.ts, marginTop: 4 }}>
-        書類名は代表例です。発注者・元請ごとに必要な書類に合わせて追加・削除してください。
+        書類名は社内で使っている標準的な書類です。発注者・元請ごとに必要な書類に合わせて追加・削除してください。
       </div>
 
       {form && (
