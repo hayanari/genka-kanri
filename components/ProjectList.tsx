@@ -7,6 +7,7 @@ import { fmtDate } from "@/lib/constants";
 import { projStats, normalizePersonName } from "@/lib/utils";
 import type { Project, Cost, Quantity } from "@/lib/utils";
 import { Badge, ModeBadge, Card, Bar, Btn } from "./ui/primitives";
+import DocFlowBadge from "./DocFlowBadge";
 import { T } from "@/lib/constants";
 import { fmt } from "@/lib/constants";
 
@@ -415,6 +416,7 @@ export default function ProjectList({
                     </span>
                     <Badge status={p.status} />
                     <ModeBadge mode={p.mode} />
+                    <DocFlowBadge project={p} />
                     <span
                       style={{
                         fontSize: "11px",

@@ -1,22 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { genId, fmtDate, T } from "@/lib/constants";
+import { genId, fmtDate, STATUS_MAP, T } from "@/lib/constants";
 import type { Project, DocFlowItem, DocFlowStatus } from "@/lib/utils";
 import {
   CONTRACT_ROLES,
   CONTRACT_STAGE,
+  DOC_FLOW_PHASES,
   DOC_FLOW_STAGES,
   DOC_FLOW_STATUS,
   buildDocFlowTemplate,
   currentDocFlowStage,
-  isContractConfirmed,
+  docFlowPhase,
+  docFlowProgress,
   isStageComplete,
   overdueItems,
+  stageCounts,
+  suggestedProjectStatus,
 } from "@/lib/docFlow";
 import type { ContractRole } from "@/lib/docFlow";
 import { jstTodayYmd } from "@/lib/scheduleLabor";
-import { Badge, Btn, Card, Inp, Modal, Sel } from "./ui/primitives";
+import { Badge, Bar, Btn, Card, Inp, Modal, Sel } from "./ui/primitives";
 
 type EditForm = {
   id: string | null;
@@ -67,8 +71,15 @@ export default function DocFlowTab({
     save(buildDocFlowTemplate(r), r);
   };
 
+  // 提出済・受理になった日を残し、全書類完了日の表示に使う
   const setStatus = (id: string, status: DocFlowStatus) =>
-    save(items.map((it) => (it.id === id ? { ...it, status } : it)));
+    save(
+      items.map((it) => {
+        if (it.id !== id) return it;
+        const done = status === "submitted" || status === "accepted";
+        return { ...it, status, doneAt: done ? it.doneAt ?? jstTodayYmd() : undefined };
+      }),
+    );
 
   const submitForm = () => {
     if (!form || !form.name.trim()) return;
@@ -137,7 +148,9 @@ export default function DocFlowTab({
 
   const stages = DOC_FLOW_STAGES[role];
   const current = currentDocFlowStage(items);
-  const contracted = isContractConfirmed(items);
+  const phase = docFlowPhase(items);
+  const progress = docFlowProgress(items);
+  const suggested = readOnly ? null : suggestedProjectStatus(items, p.status);
   const overdue = overdueItems(items, jstTodayYmd());
   const missingNow = items.filter(
     (it) => it.stage === current && it.required && it.status !== "submitted" && it.status !== "accepted",
@@ -148,10 +161,41 @@ export default function DocFlowTab({
       <Card style={{ marginBottom: 12 }}>
         {roleSelector}
 
-        <div style={{ display: "flex", gap: 6, marginTop: 16, overflowX: "auto" }}>
+        {phase === "complete" && (
+          <div
+            style={{
+              marginTop: 16,
+              padding: "12px 14px",
+              borderRadius: 10,
+              background: T.ok + "15",
+              border: `1px solid ${T.ok}55`,
+              color: T.ok,
+              fontWeight: 700,
+              fontSize: 14,
+            }}
+          >
+            ✓ 全書類完了（5段階すべて完了）
+            {progress.completedAt && (
+              <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600 }}>完了日 {fmtDate(progress.completedAt)}</span>
+            )}
+          </div>
+        )}
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+            <span style={{ color: T.ts, fontWeight: 600 }}>必須書類の進捗</span>
+            <span style={{ color: T.tx, fontWeight: 700 }}>
+              {progress.requiredDone} / {progress.requiredTotal} 件（{progress.pct}%）
+            </span>
+          </div>
+          <Bar value={progress.pct} h={8} color={phase === "complete" ? T.ok : T.ac} />
+        </div>
+
+        <div style={{ display: "flex", gap: 6, marginTop: 12, overflowX: "auto" }}>
           {stages.map((label, i) => {
             const s = i + 1;
             const done = isStageComplete(items, s);
+            const counts = stageCounts(items, s);
             const isCurrent = s === current && !done;
             const isContract = s === CONTRACT_STAGE;
             const color = done ? T.ok : isCurrent ? T.ac : T.ts;
@@ -171,6 +215,9 @@ export default function DocFlowTab({
                   {isContract ? "・確定点" : ""}
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: T.tx }}>{label}</div>
+                <div style={{ fontSize: 11, color, marginTop: 2 }}>
+                  {counts.total > 0 ? `${counts.done}/${counts.total} 件` : "必須なし"}
+                </div>
               </div>
             );
           })}
@@ -182,13 +229,18 @@ export default function DocFlowTab({
               padding: "4px 10px",
               borderRadius: 6,
               fontWeight: 600,
-              color: contracted ? T.ok : T.wn,
-              background: contracted ? T.ok + "15" : T.wn + "15",
+              color: DOC_FLOW_PHASES[phase].color,
+              background: DOC_FLOW_PHASES[phase].color + "15",
             }}
           >
-            {contracted ? "契約確定（取引）" : "見込み（契約前）"}
+            {DOC_FLOW_PHASES[phase].label}
           </span>
-          {missingNow.length > 0 && (
+          {progress.awaitingAcceptance > 0 && (
+            <span style={{ padding: "4px 10px", borderRadius: 6, color: T.wn, background: T.wn + "15" }}>
+              受理待ち {progress.awaitingAcceptance}件
+            </span>
+          )}
+          {phase !== "complete" && missingNow.length > 0 && (
             <span style={{ padding: "4px 10px", borderRadius: 6, color: T.ac, background: T.al }}>
               次に出す書類：{missingNow.map((it) => it.name).join("、")}
             </span>
@@ -199,6 +251,32 @@ export default function DocFlowTab({
             </span>
           )}
         </div>
+
+        {suggested && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+              flexWrap: "wrap",
+              marginTop: 12,
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: T.s2,
+              fontSize: 12,
+              color: T.ts,
+            }}
+          >
+            <span>
+              {phase === "complete" ? "全書類が揃いました。" : "契約が確定しました。"}
+              案件ステータスは今「{STATUS_MAP[p.status]?.label ?? p.status}」です。
+            </span>
+            <Btn sm v="primary" onClick={() => onUpdateProject({ ...p, status: suggested })}>
+              「{STATUS_MAP[suggested].label}」にする
+            </Btn>
+          </div>
+        )}
       </Card>
 
       {stages.map((label, i) => {

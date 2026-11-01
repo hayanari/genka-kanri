@@ -82,6 +82,8 @@ export interface DocFlowItem {
   /** 担当者 */
   assignee?: string;
   note?: string;
+  /** 提出済・受理になった日（YYYY-MM-DD） */
+  doneAt?: string;
 }
 
 export interface ProjectProcess {

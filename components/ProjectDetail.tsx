@@ -50,6 +50,7 @@ import ContactLogQuickForm from "@/components/ContactLogQuickForm";
 import ContactLogList from "@/components/ContactLogList";
 import MeetingMemoForm from "@/components/MeetingMemoForm";
 import DocFlowTab from "@/components/DocFlowTab";
+import DocFlowBadge from "@/components/DocFlowBadge";
 import {
   loadContactLogs,
   loadCustomerContacts,
@@ -831,6 +832,7 @@ export default function ProjectDetail({
               </h2>
               <Badge status={p.status} />
               <ModeBadge mode={p.mode} />
+              <DocFlowBadge project={p} />
               <span
                 style={{
                   fontSize: "11px",
